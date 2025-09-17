@@ -2,11 +2,11 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Genius System is a decentralized protocol and high-performance overlay network designed to bring verifiable trust to the AI data supply chain. It provides a standardized, cryptographically secure method for establishing, resolving, and monetizing data lineage, ensuring that AI models are trained on data with proven provenance.
+Gitdata is a decentralized protocol and high-performance overlay network designed to bring verifiable trust to the AI data supply chain. It provides a standardized, cryptographically secure method for establishing, resolving, and monetizing data lineage, ensuring that AI models are trained on data with proven provenance.
 
 ## The Problem
 
-The AI economy runs on data, but the origin, integrity, and history of that data are often a black box. This lack of verifiable lineage introduces significant risks, including model bias, unreliable outputs, and a general lack of trust. Genius System solves this by creating an open, immutable, and performant trust layer for data.
+The AI economy runs on data, but the origin, integrity, and history of that data are often a black box. This lack of verifiable lineage introduces significant risks, including model bias, unreliable outputs, and a general lack of trust. Gitdatasolves this by creating an open, immutable, and performant trust layer for data.
 
 ## Core Concepts
 
@@ -20,7 +20,7 @@ The system is built on a few simple but powerful primitives that combine on-chai
 
 ## System Architecture
 
-The Genius System uses a three-layer architecture to balance decentralization, performance, and user experience.
+The Gitdatauses a three-layer architecture to balance decentralization, performance, and user experience.
 
 1.  **On-Chain Anchors (Trust Layer):** The Bitcoin blockchain is used as the ultimate, immutable source of truth for all lineage (DLM1) and payment (TRN1) commitments.
 2.  **Overlay Service (Performance & Logic Layer):** A high-performance service that indexes the blockchain, constructs lineage bundles, manages access policies, issues receipts, and serves data. This is the primary interaction point for all users.
