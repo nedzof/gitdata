@@ -1,0 +1,34 @@
+{
+  "type": "datasetVersionManifest",
+  "datasetId": "open-images-50k",
+  "description": "50k labeled images for object detection.",
+  "content": {
+    "contentHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "sizeBytes": 123456789,
+    "mimeType": "application/parquet",
+    "schema": {
+      "uri": "https://example.com/schema.json",
+      "schemaHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  },
+  "lineage": {
+    "parents": [
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    "transforms": [
+      { "name": "resize", "parametersHash": "abc12345" }
+    ]
+  },
+  "provenance": {
+    "createdAt": "2024-07-01T12:00:00Z",
+    "producer": { "identityKey": "02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "locations": [
+      { "type": "http", "uri": "https://acme.example/datasets/open-images-50k/manifest.json" }
+    ]
+  },
+  "policy": {
+    "license": "cc-by-4.0",
+    "classification": "public",
+    "pii_flags": []
+  }
+}
