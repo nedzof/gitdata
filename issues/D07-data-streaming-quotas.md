@@ -1,27 +1,29 @@
-# issues/D07-data-streaming-quotas.md
-# D7 — /v1/data (Streaming + Quoten)
-Labels: backend, data, streaming
+# D07 — Data Streaming & Quotas
+Labels: backend, api, marketplace
 Assignee: TBA
-Estimate: 2 PT
+Estimate: 3 PT
 
 Zweck
-- Quoten‑gesicherter Stream, Client prüft Bytes‑Hash.
+- Autorisierte Auslieferung via Receipts mit Quoten (Bytes/Zeitraum) und single-use/TTL.
 
 Abhängigkeiten
-- D6, contentHash aus Manifest
+- D06 Receipts
+- DB: receipts (erweitern um counters: bytes_used, last_seen, expires_at)
 
 Aufgaben
-- [ ] GET /v1/data?contentHash&receiptId; Quota prüfen; Bandbreiten‑Abzug am Ende.
-- [ ] 402 bei Übernutzung/Expiry; Logging.
+- [ ] GET /v1/data?contentHash=&receiptId=…:
+      - [ ] Validate receipt (exists, not expired, matches contentHash, status ok).
+      - [ ] Durchsatz/Bytes-Quoten prüfen (bytes_used + window).
+      - [ ] Daten streamen (oder presigned URL generieren), counters aktualisieren.
+- [ ] TTL/Expiry durchsetzen; single-use optional.
 
-Definition of Done
-- [ ] Erster Stream erfolgreich; weitere über Limit → 402.
+Definition of Done (DoD)
+- [ ] Streaming/Passthrough mit Quoten und atomarer Zählung (Transaktion).
+- [ ] Klare Fehler: 401/403/409 je nach Zustand.
 
-Abnahmekriterien
-- [ ] Zwei Downloads ok; dritter → 402; Client‑SHA‑256 == contentHash.
-
-Artefakte
-- [ ] Logs, Hash‑Screenshot.
+Abnahmekriterien (Tests)
+- [ ] Positiv: innerhalb Limit → 200 + Daten/URL.
+- [ ] Negativ: falscher contentHash, abgelaufen, Limit überschritten.
 
 Risiken/Rollback
-- Idempotenz beachten; Abzugsfehler korrigierbar.
+- Speicher-/IO-Last → presigned URLs bevorzugen; CDN-Integration später.
