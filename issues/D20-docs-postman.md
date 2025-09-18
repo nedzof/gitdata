@@ -1,28 +1,27 @@
-# issues/D20-docs-postman.md
-# D20 — Doku & Postman Collection
-Labels: docs, devx
+# D20 — Docs & Postman Collection
+Labels: docs, api, qa
 Assignee: TBA
-Estimate: 2 PT
+Estimate: 1–2 PT
 
 Zweck
-- Reproduzierbarkeit und schneller Einstieg.
+- Entwickler‑Dokumentation und Postman‑Sammlung für End‑to‑End Validierung.
 
 Abhängigkeiten
-- alle
+- Alle Kernendpunkte vorhanden (submit‑builder/receiver, bundle, ready, price, optional pay/data)
 
 Aufgaben
-- [ ] README Quickstarts (Submit→Price→Pay→Ready→Data).
-- [ ] Beispiel‑Policies; Bundle/Ready Beispiele.
-- [ ] Postman Collection (kompletter Flow inkl. Advisory Flip).
+- [ ] README erweitern (Producer/Consumer Flows, ENV, Runbooks).
+- [ ] OpenAPI (optional) oder gut gepflegte Postman‑Collection + Environment.
+- [ ] Newman/CI Job: Sammlung ausführen, Basistests (Statuscode + Schema Checks).
+- [ ] Beispiel‑Manifeste, Beispiel‑TX, Golden-Vektoren beilegen.
 
-Definition of Done
-- [ ] Neuer Dev schafft E2E in < 30 Minuten.
+Definition of Done (DoD)
+- [ ] Postman‑Sammlung deckt Hauptpfade ab (submit→bundle→ready→price).
+- [ ] Docs zeigen Klartext‑Schritte (Builder→Wallet→Receiver→UI).
 
-Abnahmekriterien
-- [ ] Testdurchlauf + Feedback von 1–2 externen Nutzern.
-
-Artefakte
-- [ ] README, Postman‑JSON, Beispiel‑Curl.
+Abnahmekriterien (Tests)
+- [ ] Newman läuft grün in CI.
+- [ ] Entwickler kann in <15 min „Hello World Dataset“ publizieren.
 
 Risiken/Rollback
-- Laufende Pflege einplanen.
+- Veraltete Beispiele → CI als Wächter, Sammlung in PRs aktuell halten.
