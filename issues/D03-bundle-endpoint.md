@@ -1,31 +1,36 @@
-# issues/D03-bundle-endpoint.md
-# D3 — /bundle (Lineage Bundle)
-Labels: backend, bundle
+# D03 — /bundle (Lineage + SPV-Envelopes)
+Labels: backend, api, protocol
 Assignee: TBA
 Estimate: 2 PT
 
 Zweck
-- Vollständiges Beweispaket: Graph (Nodes/Edges), Manifeste, SPV‑Envelopes.
+- Vollständige Lineage-Bundles generieren: Graph, Manifeste und SPV-Envelopes, schema-validiert und SPV-geprüft.
 
 Abhängigkeiten
-- D1, D2
+- DB: declarations, manifests, edges (bereit)
+- Schemas: schemas/lineage-bundle.schema.json, schemas/spv-envelope.schema.json
+- SPV: src/spv/verify-envelope.ts, HEADERS_FILE
 
 Aufgaben
-- [ ] GET /bundle?versionId&depth implementieren.
-- [ ] Graph bauen (Nodes: versionId/manifestHash/txo, Edges: child→parent).
-- [ ] SPV‑Envelopes (rawTx, proof, headers‑Infos) beilegen.
-- [ ] Manifeste beilegen (Integritätscheck intern).
-- [ ] Depth‑Cap (z. B. 10) und Paging berücksichtigen.
+- [ ] GET /bundle?versionId=… (src/routes/bundle.ts) finalisieren:
+      - [ ] Graph sammeln (nodes/edges) via DB, max Tiefe BUNDLE_MAX_DEPTH.
+      - [ ] Manifeste laden (dlm1-manifest.schema.json valid optional in CI).
+      - [ ] SPV-Envelopes aus DB (proof_json) anhängen; Konfirmationen aktualisieren.
+      - [ ] Bei fehlendem/invalidem Envelope → 409 invalid-envelope/incomplete-lineage.
+- [ ] Schema-Validierung (Ajv) in CI für gesamte Bundle-Antwort.
+- [ ] Caching-Hooks vorbereiten (D11), aber hier optional.
 
-Definition of Done
-- [ ] Response enthält target, graph, manifests[], proofs[].
+Definition of Done (DoD)
+- [ ] Bundle passt schema und enthält für jeden Knoten ein valides SPV-Envelope.
+- [ ] Tiefenlimit durchgesetzt, klare Fehlermeldung für incomplete-lineage/invalid-envelope.
 
-Abnahmekriterien
-- [ ] curl /bundle?versionId=<hex> → 200, vollständiges JSON; proofs vorhanden.
-- [ ] Tiefe > Cap → 400 (oder abgeschnitten + Hinweis).
+Abnahmekriterien (Tests)
+- [ ] Golden DAG (2 Ebenen), Bundleschema ok, SPV ok.
+- [ ] Fehlende Envelope → 409.
+- [ ] Reorg: Konfirmationen werden dynamisch neu berechnet.
 
-Artefakte
-- [ ] Bundle‑JSON Sample.
+Artefakte/Evidence
+- [ ] Beispiel-Bundle JSON, Ajv-Report, Test-Logs.
 
 Risiken/Rollback
-- Bei Last ggf. nur target+parents immediate; ancestors per Paging.
+- Fehlende Beweise → Job scripts/attach-proofs.ts einsetzen, Endpoint liefert 409 statt inkorrekter Daten.
