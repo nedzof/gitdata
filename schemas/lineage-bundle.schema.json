@@ -1,121 +1,97 @@
 {
-   "$id":"schemas/lineage-bundle.schema.json",
-   "$schema":"http://json-schema.org/draft-07/schema#",
-   "title":"Lineage Bundle",
-   "type":"object",
-   "required":[
-      "bundleType",
-      "target",
-      "graph",
-      "manifests",
-      "proofs"
-   ],
-   "properties":{
-      "bundleType":{
-         "const":"datasetLineageBundle"
-      },
-      "target":{
-         "type":"string",
-         "pattern":"^[0-9a-fA-F]{64}$"
-      },
-      "graph":{
-         "type":"object",
-         "required":[
-            "nodes",
-            "edges"
-         ],
-         "properties":{
-            "nodes":{
-               "type":"array",
-               "items":{
-                  "type":"object",
-                  "required":[
-                     "versionId",
-                     "manifestHash",
-                     "txo"
-                  ],
-                  "properties":{
-                     "versionId":{
-                        "type":"string",
-                        "pattern":"^[0-9a-fA-F]{64}$"
-                     },
-                     "manifestHash":{
-                        "type":"string",
-                        "pattern":"^[0-9a-fA-F]{64}$"
-                     },
-                     "txo":{
-                        "type":"string",
-                        "description":"txid:vout",
-                        "pattern":"^[0-9a-fA-F]{64}:[0-9]+$"
-                     }
-                  },
-                  "additionalProperties":false
-               }
+  "$id": "schemas/lineage-bundle.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Lineage Bundle",
+  "type": "object",
+  "required": ["bundleType", "target", "graph", "manifests", "proofs"],
+  "properties": {
+    "bundleType": { "const": "datasetLineageBundle" },
+    "target": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "graph": {
+      "type": "object",
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["versionId", "manifestHash", "txo"],
+            "properties": {
+              "versionId": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{64}$"
+              },
+              "manifestHash": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{64}$"
+              },
+              "txo": {
+                "type": "string",
+                "description": "txid:vout",
+                "pattern": "^[0-9a-fA-F]{64}:[0-9]+$"
+              }
             },
-            "edges":{
-               "type":"array",
-               "items":{
-                  "type":"object",
-                  "required":[
-                     "child",
-                     "parent"
-                  ],
-                  "properties":{
-                     "child":{
-                        "type":"string",
-                        "pattern":"^[0-9a-fA-F]{64}$"
-                     },
-                     "parent":{
-                        "type":"string",
-                        "pattern":"^[0-9a-fA-F]{64}$"
-                     }
-                  },
-                  "additionalProperties":false
-               }
-            }
-         },
-         "additionalProperties":false
-      },
-      "manifests":{
-         "type":"array",
-         "items":{
-            "type":"object",
-            "required":[
-               "manifestHash",
-               "manifest"
-            ],
-            "properties":{
-               "manifestHash":{
-                  "type":"string",
-                  "pattern":"^[0-9a-fA-F]{64}$"
-               },
-               "manifest":{
-                  "$ref":"dlm1-manifest.schema.json"
-               }
+            "additionalProperties": false
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["child", "parent"],
+            "properties": {
+              "child": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{64}$"
+              },
+              "parent": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{64}$"
+              }
             },
-            "additionalProperties":false
-         }
+            "additionalProperties": false
+          }
+        }
       },
-      "proofs":{
-         "type":"array",
-         "items":{
-            "type":"object",
-            "required":[
-               "versionId",
-               "envelope"
-            ],
-            "properties":{
-               "versionId":{
-                  "type":"string",
-                  "pattern":"^[0-9a-fA-F]{64}$"
-               },
-               "envelope":{
-                  "$ref":"spv-envelope.schema.json"
-               }
-            },
-            "additionalProperties":false
-         }
+      "additionalProperties": false
+    },
+    "manifests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["manifestHash", "manifest"],
+        "properties": {
+          "manifestHash": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$"
+          },
+          "manifest": {
+            "$ref": "dlm1-manifest.schema.json"
+          }
+        },
+        "additionalProperties": false
       }
-   },
-   "additionalProperties":false
+    },
+    "proofs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["versionId", "envelope"],
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$"
+          },
+          "envelope": {
+            "$ref": "spv-envelope.schema.json"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
 }
