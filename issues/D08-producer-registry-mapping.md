@@ -1,27 +1,26 @@
-# issues/D08-producer-registry-mapping.md
-# D8 — Producer Registry (+ Manifest→Producer Mapping)
-Labels: backend, producers
+# D08 — Producer Registry & Mapping
+Labels: backend, api, identity
 Assignee: TBA
 Estimate: 2 PT
 
 Zweck
-- Produzentenprofil & Payout; manifestHash→producerId abbilden.
+- Producer-Registry (IdentityKey → Publisher-Profil), Mapping datasetId → Producer, Ownershipsichtbarkeit.
 
 Abhängigkeiten
-- D1
+- DB: producers (neu), manifests (datasetId)
+- Identity (D19 für signierte Calls)
 
 Aufgaben
-- [ ] POST /producers/register { identityKey, payoutTarget, displayName, contact?, attrs? }.
-- [ ] /submit: manifest.signatures.producer.publicKey extrahieren → bind manifestHash/datasetId → producerId.
+- [ ] Tabelle producers: { producer_id, name, website, identity_key, created_at }.
+- [ ] Mapping: datasetId → producer_id (ableiten beim Submit; optional Meta in manifest.provenance).
+- [ ] Endpunkte: GET /producers/:id, GET /producers?datasetId=… /search.
 
-Definition of Done
-- [ ] Profile in DB; Mapping vorhanden.
+Definition of Done (DoD)
+- [ ] Producer-Daten speicherbar, abrufbar, gelistet.
+- [ ] Anzeige in UI (Listing-Card: Publisher-Name/Website).
 
-Abnahmekriterien
-- [ ] Register → 200; Submit → Mapping sichtbar (Dump).
-
-Artefakte
-- [ ] Profil‑JSON, Mapping‑Dump.
+Abnahmekriterien (Tests)
+- [ ] Insert → Fetch, datasetId-Auflösung klappt.
 
 Risiken/Rollback
-- Identity‑Signaturen später (D19) erzwingen.
+- Uneindeutige Zuordnung → Fallback auf manifest.provenance.producer.identityKey.
