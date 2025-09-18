@@ -1,27 +1,25 @@
-# issues/D11-caching-and-confs.md
-# D11 — Caching (Headers/Proofs/Bundles) + confsUsed
-Labels: backend, performance
+# D11 — Caching & Confirmations
+Labels: backend, api, perf
 Assignee: TBA
 Estimate: 2 PT
 
 Zweck
-- Performance + Finalitätsinfo in Responses.
+- Caching für /bundle, Header-Cache-Policy, Konf‑Übergänge (unter/über Schwelle) sauber handhaben.
 
 Abhängigkeiten
-- D2, D3, D4
+- ENV: CACHE_TTLS_JSON { headers, bundles }, POLICY_MIN_CONFS
 
 Aufgaben
-- [ ] TTL‑Caches (headers, proofs, bundles).
-- [ ] /bundle & /ready: confsUsed + bestHeight im JSON.
+- [ ] Bundles Cache (key: versionId+depth), TTL gesteuert.
+- [ ] Beim Lesen Konfirmationen frisch berechnen (Envelope bleibt, confs dynamisch).
+- [ ] Invalidation: wenn TTL abläuft oder Konf-Schwelle überschritten wurde.
 
-Definition of Done
-- [ ] P95 /bundle (depth ≤ 10) < 250 ms (Cache).
+Definition of Done (DoD)
+- [ ] /bundle P95-Latenz erreicht Ziel, Konf-Konsistenz gewährleistet.
+- [ ] Kein Caching von „ready:true“ über TTL ohne Re-Check.
 
-Abnahmekriterien
-- [ ] Benchmark + /metrics Screenshot.
-
-Artefakte
-- [ ] Metrik‑Export, Log‑Screenshots.
+Abnahmekriterien (Tests)
+- [ ] Cache-Hit/Miss Szenarien, Konf-Übergänge, Reorg-Anpassung.
 
 Risiken/Rollback
-- TTL konservativ wählen, Cache invalidierbar.
+- Stale Konf-Werte → Recompute-on-read Strategie.
