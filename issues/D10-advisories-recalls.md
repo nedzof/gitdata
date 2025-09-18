@@ -1,28 +1,26 @@
-# issues/D10-advisories-recalls.md
-# D10 — Advisories/Recalls
-Labels: backend, governance
+# D10 — Advisories & Recalls
+Labels: backend, api, policy
 Assignee: TBA
-Estimate: 1–2 PT
+Estimate: 3 PT
 
 Zweck
-- Zurückrufen/Superseden von Versionen; /ready verweigert.
+- Sicherheits-/Compliance-Hinweise und Rückrufe modellieren und in /ready durchsetzen.
 
 Abhängigkeiten
-- D4
+- Schema: schemas/advisory.schema.json
+- DB: advisories (neu), advisory_targets (versionId/producerId scope)
 
 Aufgaben
-- [ ] POST /advisories { versionId, recalled:true|false, supersededBy?, reason }.
-- [ ] GET /advisories?versionId.
-- [ ] /ready liest Advisories → reasons.
+- [ ] Tabellen advisories: { advisory_id, type, reason, created_at, expires_at?, payload_json } und advisory_targets { advisory_id, version_id?, producer_id? }.
+- [ ] Endpunkte: POST /advisories (admin), GET /advisories?versionId=….
+- [ ] /ready erweitert: advisories prüfen → ready:false bei Blockern.
 
-Definition of Done
-- [ ] Advisory kippt ready:true → false.
+Definition of Done (DoD)
+- [ ] Advisories werden gespeichert und korrekt auf Version/Producer angewandt.
+- [ ] /ready gibt reason:'advisory-blocked' bei Treffern.
 
-Abnahmekriterien
-- [ ] Nach POST advisory: /ready { ready:false } mit Reason.
-
-Artefakte
-- [ ] Advisory‑JSON, /ready Output.
+Abnahmekriterien (Tests)
+- [ ] Positive/Negative Pfade, Ablauf/Expiry, Scopes (producer vs. version).
 
 Risiken/Rollback
-- Advisory‑Check via Feature‑Flag steuerbar.
+- Falsche Sperren → Admin kann Advisory deaktivieren/ablaufen lassen.
