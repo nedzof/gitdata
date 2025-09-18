@@ -1,11 +1,13 @@
 import type { Request, Response } from 'express';
 import { BRC22 } from '../brc/index';
-import { verifyEnvelopeAgainstHeaders, loadHeaders, type HeadersIndex, type SPVEnvelope } from '../spv/verify-envelope';
+import { verifyEnvelopeAgainstHeaders, loadHeaders, type HeadersIndex, type SPVEnvelope, txidFromRawTx } from '../spv/verify-envelope';
 import { findFirstOpReturn } from '../utils/opreturn';
+// ---> ADD THIS IMPORT
+import { decodeDLM1 } from '../dlm1/codec'; 
 
 type DeclarationsRepo = {
   createOrGet(opts: {
-    versionId?: string;
+    versionId?: string; // Now we can populate this!
     txid: string;
     type: 'DLM1' | 'TRN1' | 'UNKNOWN';
     txHex: string;
@@ -48,14 +50,26 @@ export function submitHandlerFactory(opts: {
         return jsonError(res, 400, 'invalid-rawtx', 'Hex only; enforce body size limit');
       }
 
-      const txid = require('../spv/verify-envelope').txidFromRawTx(rawTx);
+      const txid = txidFromRawTx(rawTx);
       
-      // Use the robust OP_RETURN parser
       const opret = findFirstOpReturn(rawTx);
       const detected = opret?.tagAscii === 'DLM1' || opret?.tagAscii === 'TRN1' ? opret.tagAscii : 'UNKNOWN';
 
-      // Optional SPV check at submit-time (only if you provide a complete envelope here).
-      // If you want to verify now, send an SPVEnvelope-like object inside body.suggestedEnvelope.
+      // ---> ADD THIS DECODING LOGIC
+      let versionId: string | undefined = undefined;
+      if (opret && opret.tagAscii === 'DLM1' && opret.pushesHex[0]) {
+        try {
+          // The first push is "DLM1" + CBOR hex. We need to strip the tag.
+          const tagHex = Buffer.from('DLM1', 'ascii').toString('hex');
+          const cborHex = opret.pushesHex[0].slice(tagHex.length);
+          const decoded = decodeDLM1(Buffer.from(cborHex, 'hex'));
+          versionId = decoded.mh; // Extract the manifest hash (versionId)
+        } catch (decodeErr) {
+          console.warn(`Failed to decode DLM1 payload for txid ${txid}`, decodeErr);
+          // Proceed without versionId, but log the issue.
+        }
+      }
+
       if (body.suggestedEnvelope) {
         const idx = await ensureHeaders(headersFile);
         const result = await verifyEnvelopeAgainstHeaders(
@@ -68,20 +82,17 @@ export function submitHandlerFactory(opts: {
         }
       }
 
-      // Persist (idempotent upsert). You already have actual DB migrations; this is just the call surface.
       const rec = await repo.createOrGet({
-        versionId: undefined, // If you parse DLM1 payload, put its mh/versionId here
+        versionId, // ---> PASS THE DECODED versionId HERE
         txid,
         type: detected,
         txHex: rawTx,
         metadata: body.manifest ?? undefined,
       });
 
-      // BRC-22 response with topics echo
       const topics = Array.isArray(body.topics) ? body.topics : [];
-      // Admit only hosted topics in your Topic Manager; here we echo all for simplicity.
       const topicsMap: Record<string, number[]> = {};
-      for (const t of topics) topicsMap[t] = [0]; // e.g., "we admitted output 0" (illustrative)
+      for (const t of topics) topicsMap[t] = [0];
 
       return res.status(200).json({
         status: 'success',
@@ -90,6 +101,8 @@ export function submitHandlerFactory(opts: {
         created: rec.created,
         topics: topicsMap,
         type: detected,
+        // Also return the versionId for confirmation
+        versionId: versionId,
       });
     } catch (e: any) {
       return jsonError(res, 500, 'submit-failed', e?.message || 'unknown-error');
