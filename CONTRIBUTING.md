@@ -1,13 +1,3 @@
-Of course. This is an excellent set of development guidelines. Storing this directly in your project is the right move to ensure everyone on the team is aligned.
-
-The standard place for this information is a CONTRIBUTING.md file in the root of your repository. I have taken the advice you were given and formatted it into a complete CONTRIBUTING.md file.
-
-Additionally, as suggested in the text, I've created the copy-paste configurations for ESLint, Prettier, and a basic GitHub Actions CI workflow. You can save these files directly into your project.
-
-1. Contribution Guide
-
-Save this file as CONTRIBUTING.md in the root of your project.
-
 # Contribution Guide
 
 This document provides a set of development guidelines to ensure the team stays fast, consistent, and safe while building the project. Following these "dev rails" helps us maintain a high-quality, stable, and predictable codebase.
