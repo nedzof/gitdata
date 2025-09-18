@@ -6,9 +6,7 @@ import { bundleRouter } from './src/routes/bundle';
 import { readyRouter } from './src/routes/ready';
 import { priceRouter } from './src/routes/price';
 import { listingsRouter } from './src/routes/listings';
-// Optionally mount your existing submit routes too
-// import { submitDlm1Router } from './src/routes/submit-builder';
-// import { submitHandlerFactory } from './src/routes/submit-receiver';
+import { submitReceiverRouter } from './src/routes/submit-receiver';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,7 +24,16 @@ app.use(readyRouter(db));
 app.use(priceRouter(db));
 app.use(listingsRouter(db));
 
-// UI (static)
+// Receiver (BRC-22-ish: rawTx + manifest [+ envelope])
+app.use(
+  submitReceiverRouter(db, {
+    headersFile: process.env.HEADERS_FILE || './data/headers.json',
+    minConfs: Number(process.env.POLICY_MIN_CONFS || 1),
+    bodyMaxSize: Number(process.env.BODY_MAX_SIZE || 1_000_000),
+  })
+);
+
+// UI
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Start
