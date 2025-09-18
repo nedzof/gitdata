@@ -46,19 +46,37 @@ export namespace BRC31 {
 
 export namespace BRC36 {
   /** SPV transaction envelope (what we embed in /bundle.proofs[].envelope) */
+  export type MerkleNode = { hash: string; position: 'left' | 'right' };
+
   export type SPVEnvelope = {
     rawTx: string; // tx hex
-    inputs?: Record<string, unknown>;
-    mapiResponses?: Array<Record<string, unknown>>;
+    txid?: string;
     proof: {
-      merklePath?: string; // hex or compact encoding (overlay-defined)
-      blockHeader?: string; // 80-byte header hex
-      // You may add additional headers for reorg resistance or header chains
+      txid: string;
+      merkleRoot: string;
+      path: MerkleNode[];
     };
+    block:
+      | { blockHeader: string }
+      | { blockHash: string; blockHeight: number };
+    headerChain?: string[]; // 80-byte header hex array (optional)
+    confirmations?: number;
+    ts?: number;
   };
 
   export function isSPVEnvelope(v: any): v is SPVEnvelope {
-    return !!v && typeof v.rawTx === 'string' && !!v.proof && typeof v.proof === 'object';
+    if (!v || typeof v !== 'object') return false;
+    if (typeof v.rawTx !== 'string') return false;
+    if (!v.proof || typeof v.proof !== 'object') return false;
+    if (typeof v.proof.txid !== 'string') return false;
+    if (typeof v.proof.merkleRoot !== 'string') return false;
+    if (!Array.isArray(v.proof.path)) return false;
+    const hasHeader = v.block && typeof v.block.blockHeader === 'string';
+    const hasHashHeight =
+      v.block &&
+      typeof v.block.blockHash === 'string' &&
+      Number.isInteger(v.block.blockHeight);
+    return !!(hasHeader || hasHashHeight);
   }
 }
 
@@ -81,7 +99,9 @@ export namespace BRC64 {
 export namespace BRC100 {
   /** Minimal wallet client surface for build-and-sign and generic fetch-with-identity */
   export interface WalletClient {
-    buildAndSign(outputs: { scriptHex: string; satoshis: number }[]): Promise<{ rawTx: string }>;
+    buildAndSign(
+      outputs: { scriptHex: string; satoshis: number }[],
+    ): Promise<string>;
     signMessage?(messageHex: string): Promise<string>; // identity signing (optional)
     getIdentityKeyHex?(): Promise<string>;
   }
@@ -97,7 +117,9 @@ export namespace BRC100 {
     let signature = '';
     if (wallet.signMessage && identityKey) {
       // sign(body + nonce) as hex; message encoding policy is your choice (document it!)
-      signature = await wallet.signMessage(Buffer.from(bodyOrEmpty + nonce).toString('hex'));
+      signature = await wallet.signMessage(
+        Buffer.from(bodyOrEmpty + nonce).toString('hex'),
+      );
     }
     return {
       'content-type': 'application/json',
