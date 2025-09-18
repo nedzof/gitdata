@@ -1,0 +1,15 @@
+Required ENV
+DB_PATH=./data/overlay.db
+OVERLAY_PORT=8788
+WALLET_URL=http://localhost:3001
+RECEIPT_SECRET=change-me
+POLICYMINCONFS=1 (prod: 1–3; regulated: 6)
+BUNDLEMAXDEPTH=10
+BODYMAXSIZE=1048576
+HEADERSFILE=./headers.json (or HEADERSURL)
+RATELIMITSJSON={"submit":5,"bundle":10,"ready":20,"data":10,"price":50,"pay":10}
+CACHETTLSJSON={"headers":60000,"proofs":300000,"bundles":300000}
+Profiles
+dev: MIN_CONFS=0, relaxed limits, verbose logs
+staging: MIN_CONFS=1, realistic limits, caching on
+prod: MIN_CONFS≥1 (3/6), strict limits, caching + metrics
