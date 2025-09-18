@@ -1,27 +1,26 @@
-# issues/D19-identity-signed-producer.md
-# D19 — Identity‑Signierte /producers/* Requests
-Labels: security, producers
+# D19 — Identity-signed Producer (BRC-31 style)
+Labels: backend, security, identity
 Assignee: TBA
-Estimate: 1–2 PT
+Estimate: 2 PT
 
 Zweck
-- Schutz vor Spoofing bei Registry/Price.
+- Producer-Endpunkte optional mit Identitätssignaturen absichern (X-Identity-Key, X-Nonce, X-Signature).
 
 Abhängigkeiten
-- D8–D9
+- src/brc/index.ts (BRC31 stubs vorhanden)
+- DB: producers (D08)
 
 Aufgaben
-- [ ] Nonce + Signatur im Header (BRC‑31‑like); Server prüft gegen producerId‑Key.
-- [ ] Unsigned → 401; Valid → 200.
+- [ ] Verifier-Middleware: prüft Signatur über body+nonce (Replay-Schutz, Nonce-Store mit TTL).
+- [ ] Aktivieren für /producers/* (z. B. submit-dlm1, price set).
+- [ ] UI/SDK: withIdentityHeaders() verwenden.
 
-Definition of Done
-- [ ] Nur signierte Anfragen ändern Profile/Prices.
+Definition of Done (DoD)
+- [ ] Requests ohne/mit falscher Signatur → 401.
+- [ ] Korrekter Flow dokumentiert (wie Signatur erzeugt wird).
 
-Abnahmekriterien
-- [ ] Negativ/Positiv‑Tests dokumentiert (401/200).
-
-Artefakte
-- [ ] Logs & Responses.
+Abnahmekriterien (Tests)
+- [ ] Positivsignatur, Replay-Angriff blockiert, falscher Key blockiert.
 
 Risiken/Rollback
-- Feature flaggbar.
+- Scharf schalten per ENV‑Flag (IDENTITY_REQUIRED=true/false).
