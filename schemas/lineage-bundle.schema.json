@@ -45,7 +45,8 @@
                      },
                      "txo":{
                         "type":"string",
-                        "minLength":10
+                        "description":"txid:vout",
+                        "pattern":"^[0-9a-fA-F]{64}:[0-9]+$"
                      }
                   },
                   "additionalProperties":false
@@ -95,23 +96,26 @@
             "additionalProperties":false
          }
       },
-   "proofs":{
-   "type":"array",
-   "items":{
-      "type":"object",
-      "required":[
-         "versionId",
-         "envelope"
-      ],
-      "properties":{
-         "versionId":{
-            "type":"string",
-            "pattern":"^[0-9a-fA-F]{64}$"
-         },
-         "envelope":{
-            "$ref":"spv-envelope.schema.json"
+      "proofs":{
+         "type":"array",
+         "items":{
+            "type":"object",
+            "required":[
+               "versionId",
+               "envelope"
+            ],
+            "properties":{
+               "versionId":{
+                  "type":"string",
+                  "pattern":"^[0-9a-fA-F]{64}$"
+               },
+               "envelope":{
+                  "$ref":"spv-envelope.schema.json"
+               }
+            },
+            "additionalProperties":false
          }
-      },
-      "additionalProperties":false
-   }
+      }
+   },
+   "additionalProperties":false
 }
