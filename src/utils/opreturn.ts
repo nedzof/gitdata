@@ -30,7 +30,6 @@ function readVarInt(buf: Buffer, o: { i: number }): bigint {
     return BigInt(v);
   }
   assert(o.i + 8 <= buf.length, 'varint u64 out-of-bounds');
-  // readUInt64LE polyfill using two u32
   const lo = buf.readUInt32LE(o.i);
   const hi = buf.readUInt32LE(o.i + 4);
   o.i += 8;
@@ -51,7 +50,6 @@ function toHex(b: Buffer): string {
 function isPrintableAscii(b: Buffer): boolean {
   for (let k = 0; k < b.length; k++) {
     const c = b[k];
-    // Allow space (0x20) through tilde (0x7E); ignore 0-length as not printable
     if (c < 0x20 || c > 0x7e) return false;
   }
   return b.length > 0;
@@ -115,7 +113,7 @@ function parseOpReturnScript(script: Buffer): {
         (script[j + 3] << 24);
       j += 4;
     } else {
-      // Non-push after OP_RETURN: stop (policy generally disallows other opcodes)
+      // Non-push after OP_RETURN: stop
       break;
     }
 
@@ -148,7 +146,6 @@ export function findOpReturnOutputs(rawTxHex: Hex): OpReturnOutput[] {
   // vin
   const vin = Number(readVarInt(tx, o));
   for (let n = 0; n < vin; n++) {
-    // outpoint
     readSlice(tx, o, 32); // prev txid
     readSlice(tx, o, 4);  // vout
     const scriptLen = Number(readVarInt(tx, o));
@@ -175,7 +172,6 @@ export function findOpReturnOutputs(rawTxHex: Hex): OpReturnOutput[] {
 
     const pushesHex = parsed.pushes.map(toHex);
     const pushesAscii = parsed.pushes.map(asciiOrNull);
-
     const tagAscii = pushesAscii[0] || undefined;
 
     results.push({
@@ -192,17 +188,11 @@ export function findOpReturnOutputs(rawTxHex: Hex): OpReturnOutput[] {
   return results;
 }
 
-/**
- * Convenience: return the first OP_RETURN output, if any.
- */
 export function findFirstOpReturn(rawTxHex: Hex): OpReturnOutput | null {
   const outs = findOpReturnOutputs(rawTxHex);
   return outs.length ? outs[0] : null;
 }
 
-/**
- * Convenience: detect DLM1/TRN1 quickly from the first OP_RETURN output.
- */
 export function detectDlm1OrTrn1(rawTxHex: Hex): { tag: 'DLM1' | 'TRN1' | null; vout: number | null } {
   const out = findFirstOpReturn(rawTxHex);
   const tag = out?.tagAscii === 'DLM1' ? 'DLM1' : out?.tagAscii === 'TRN1' ? 'TRN1' : null;
