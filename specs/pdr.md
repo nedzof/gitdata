@@ -1,240 +1,174 @@
-Product Design Document: Gitdata MVP
+Absolutely. Here’s a clean, unambiguous Product Design Document you can drop in. It aligns with the marketplace MVP you’ve implemented (Builder + Receiver, SPV-first, indexer-free), and matches the routes and behavior we’ve wired.
 
-- Version: 1.0
-- Status: Final
-- Author: Gitdata AI Assistant
-- Date: 2025-09-17
-- Reviewers: Core Development Team
+Product Design Document: Gitdata MVP
+Version: 1.1
+Status: Final
+Author: Gitdata Team
+Date: 2025-09-18
+Reviewers: Core Development Team
 
 1. Introduction
 
 1.1 Problem Statement
-AI systems increasingly make high-stakes decisions, yet the data they rely on is often opaque. This “garbage in, garbage out” reality erodes trust, increases risk, and impedes adoption. Data producers lack a standard way to prove provenance; consumers have no simple, fast mechanism to verify lineage and integrity before using data.
+AI systems depend on data whose origin and integrity are often opaque. Producers lack a simple way to attest provenance; consumers lack a fast, automatable verification gate. This raises risk, cost, and slows adoption.
 
 1.2 Vision
-Gitdata is the decentralized trust layer for the AI economy. It anchors provenance on Bitcoin SV, serves high-performance, SPV-verifiable lineage bundles, and enables an open, paid marketplace where high-quality data can be discovered, verified, bought, and used in minutes.
+Gitdata is a decentralized trust layer for the AI data marketplace. It anchors minimal lineage commitments on Bitcoin SV (BSV), serves SPV-verifiable lineage bundles, and enables paid, policy-compliant access to datasets.
 
 1.3 Target Audience
-- AI/ML Engineers & Data Scientists (Consumers): Need a fast, automatable verification gate and confident delivery for training/inference.
-- Data Providers & Enterprises (Producers): Need simple tools to publish, price, and monetize data while providing cryptographic proof of authenticity and origin.
+- Consumers (AI/ML engineers, data scientists): need a fast “ready or not” gate and reliable delivery.
+- Producers (data vendors, enterprises): need to publish versions, prove lineage, set prices, and monetize.
 
-1.4 Goals (Success Criteria)
-1) Sub-second trust gate: POST /ready returns ready:true/false in < 200 ms (cached) for a target dataset under a given policy.
-2) Functional marketplace: Producers can register, publish (DLM1), set prices, receive payments (receipts), and see revenue; consumers can discover, pay, and download with confidence.
-3) Developer-first DX: Provide a minimal JS/TS SDK and CLI so a developer integrates verification and data access in < 30 minutes.
+1.4 Goals (MVP Success Criteria)
+- Ready gate: /ready responds in < 200 ms P95 (cached) for common targets.
+- Marketplace: producer can publish (DLM1), set price, consumers can discover → pay → download.
+- DX: JS/TS SDK and CLI enable end-to-end integration in < 30 minutes.
 
 1.5 Non-Goals (MVP)
-- Zero-Knowledge Proofs (advanced privacy)
-- Full GUI lineage explorer (JSON-first; UI is post-MVP)
-- Deep vendor-specific connectors (provide simple Python/CLI examples instead)
-- Automated dispute resolution (log disputes; refunds manual at MVP)
+- ZK/advanced privacy, deep vendor-specific connectors, automated dispute resolution, full-blown GUI lineage explorer.
 
-2. Core Concepts & Terminology
+2. Core Concepts
 
-- DLM1 (Data Lineage Manifest v1): On-chain declaration (canonical CBOR in OP_RETURN) that binds the manifestHash (hash of a canonical off-chain manifest), optional parents, and metadata flags. The manifest includes provenance/policy and contentHash of the bytes.
-- TRN1 (Agent Transition v1): On-chain anchor for an agent step (agentId, seq, fromState, toState, outputsRoot, etc.). Used to create an immutable journal (optional).
-- OTR1 (Ontology Triple v1): On-chain anchor for a tripleHash (subject/predicate/object canonicalized and hashed). Optional for machine-readable facts.
-- Lineage Bundle: JSON object containing a target dataset’s ancestry (graph), the signed manifests, and SPV proof materials (rawTx, merkle path, block headers). Verifiable offline by clients.
-- SPV Envelope: The raw transaction, merkle inclusion path, and block header(s) needed to prove on-chain inclusion. The overlay does not need to sign these; they verify against chain data.
-- Receipt: Overlay-signed (HMAC) JSON granting time-limited, bandwidth-capped access to a resource after /pay. Contains resource scope, class/tier, quantity, expiry. Logged in revenue events.
-- Advisory: Signed notice (producer/admin) recalling/superseding a dataset version or warning about issues. /ready consults advisories by default (ready:false unless policy allows).
+- DLM1 (Data Lineage Manifest v1): Tiny on-chain CBOR in OP_RETURN anchoring:
+  - mh = bytes32 manifest hash (versionId)
+  - p[] = parent versionIds (bytes32[])
+- Off-chain manifest (JSON): Rich metadata (contentHash, provenance.locations, policy, lineage.transforms, etc.). Canonicalized for hashing (exclude signatures and versionId, sort keys).
+- Lineage Bundle: JSON with graph (nodes/edges), manifests, and SPV envelopes (rawTx, merkle path, block ref).
+- SPV Envelope: Proof materials to verify inclusion against local headers (no overlay signature needed).
+- Receipt (overlay-signed): Time/byte-capped access token returned by /pay; HMAC for MVP.
+- Advisory: Signed recall/warning applied by /ready.
+- TRN1/OTR1: Reserved for post-MVP (agent transitions, ontology triples). Not required for marketplace MVP.
 
-3. System Architecture & High-Level Design
+3. Architecture
 
 Layers
-1) On-Chain Anchors (Trust Layer): Bitcoin SV provides immutable, time-stamped commitments (DLM1/TRN1/OTR1).
-2) Overlay Service (Performance & Logic): Accepts submitted transactions, maintains a local index of committed items, constructs lineage bundles, enforces policies, issues receipts, and streams data.
-3) Client Tooling (UX Layer): JS/TS SDK, Python verifier CLI, and CLIs for producer onboarding and one-shot flows.
+1) Trust (on-chain): BSV anchors (DLM1 today).
+2) Overlay (logic/perf): Accepts submissions, persists manifests/lineage, verifies proofs (SPV), enforces policies, serves bundles, pricing, pay/receipts, and data.
+3) Clients (UX): SDK/CLI/UI for producer and consumer flows.
 
-Core Consumer Flow
-1) Identify a dataset versionId.
-2) POST /ready { versionId, policy, receiptId? } → { ready, reasons[], confsUsed, bestHeight }.
-3) If payment required: GET /price → POST /pay → receiptId.
-4) GET /v1/data?contentHash&receiptId → stream bytes; client hashes to compare with manifest.content.contentHash.
+Endianness & SPV
+- API hex big-endian (txid, merkle nodes, blockHash).
+- Hashing internal with byte-reversal around double-SHA256 (LE).
+- SPV verifies merkle path against local headers mirror; confirmations computed from bestHeight − height + 1.
 
-4. Detailed Feature Specifications
+4. Feature Specifications
 
-4.1 Scalability & Performance
+4.1 Producer Flow (Builder + Receiver)
+- Builder: POST /submit/dlm1
+  - Validate manifest (JSON Schema).
+  - Derive versionId = sha256(canonical(manifest)).
+  - Encode DLM1 { mh, p[] } as CBOR, return OP_RETURN scriptHex (OP_FALSE OP_RETURN) and outputs array [{ scriptHex, 0 }].
+- Receiver: POST /submit
+  - Accept rawTx (signed, broadcast-ready).
+  - Parse OP_RETURN, detect DLM1, decode CBOR to extract mh (versionId).
+  - Persist declarations, manifests, edges; optionally persist SPV envelope if provided (verified).
+  - Idempotent by unique(version_id) and unique(txid).
 
-4.1.1 Proof/Bundle Caching
-- Cache SPV headers and verified envelopes; cache lineage bundles (short TTL; invalidate on reorg).
-- Include confsUsed and bestHeight in /ready and /bundle responses.
+4.2 Lineage & Verification
+- GET /bundle
+  - Build graph (nodes/edges) from DB, include manifests and SPV envelopes.
+  - Re-verify envelopes against headers and refresh confirmations.
+  - Return schema-valid bundle or 409 if incomplete/invalid.
+- GET /ready
+  - DFS lineage, ensure each node’s envelope verifies and has ≥ POLICY_MIN_CONFS confirmations.
+  - Return { ready: boolean, reason?, confirmations? }. No pinning of confs.
 
-Acceptance
-- P95 /bundle (depth ≤ 10, cached) < 250 ms; ≥ 90% hit rate for popular items.
+4.3 Marketplace
+- GET /price
+  - Returns price for versionId (override or default).
+- POST /price
+  - Admin/publisher sets per-version price.
+- POST /pay (post-MVP or simple)
+  - Returns overlay-signed receipt (HMAC), TTL/quota-limited.
+- GET /v1/data
+  - Validates receipt, enforces quotas/TTL, streams data or returns presigned URL.
+- GET /listings
+  - Basic catalog endpoint for UI (title, license, classification, contentHash, txid, status).
 
-4.1.2 Bounded Graph & Pagination
-- Max parents per node (e.g., 16), max ancestry depth for /bundle (e.g., 20).
-- Cursor pagination for /resolve and /search.
+4.4 Policies & Advisories (MVP)
+- license, classification, pii_flags in manifest used for filtering and UI.
+- Advisories post-MVP; ready() to consider advisories once implemented.
 
-Acceptance
-- Requests beyond configured limits return clear 400 errors.
+5. API (MVP)
 
-4.1.3 Rate Limits & Backpressure
-- Token bucket per IP/identity/receipt on /submit, /bundle, /ready, /v1/data, /price, /pay.
-- Concurrency caps for streams; request timeouts on heavy endpoints.
+- POST /submit/dlm1
+  - Body: { manifest }
+  - 200: { status, versionId, parents, outputs:[{ scriptHex, 0 }], estOutputSize, opReturnScriptHex, cborHex }
+- POST /submit
+  - Body: { rawTx, manifest, envelope? }
+  - 200: { status: "success", txid, versionId, type, vout }
+- GET /bundle?versionId=…
+  - 200: Lineage bundle JSON (schema-valid), confirmations refreshed
+  - 409: incomplete-lineage/invalid-envelope
+- GET /ready?versionId=…
+  - 200: { ready, reason?, confirmations? }
+- GET /price?versionId=…
+  - 200: { versionId, contentHash, satoshis, expiresAt }
+- POST /price
+  - Body: { versionId, satoshis }
+  - 200: { status: "ok" }
+- GET /v1/data?contentHash&receiptId=…
+  - 200: stream/URL; enforces quotas/TTL
+- GET /listings
+  - 200: { items: [ { version_id, title, license, classification, content_hash, txid, status, created_at } ] }
+- GET /health, GET /metrics
+  - Liveness/metrics (requests, proof latency, cache hits, 4xx/5xx)
 
-Acceptance
-- Excess calls return 429; metrics show stable performance under burst.
+6. Data Model (DB highlights)
 
-4.1.4 Asynchronous Proof Refresh
-- Serve cached proofs; background refresh when new headers arrive.
+- declarations(version_id PK, txid UNIQUE, type, status, created_at, block_hash, height, opret_vout, raw_tx, proof_json)
+- manifests(version_id PK, manifest_hash, content_hash, title, license, classification, created_at, manifest_json)
+- edges(child_version_id, parent_version_id, PK(child,parent))
+- prices(version_id PK, satoshis)
+- receipts(receipt_id PK, version_id, quantity, content_hash, status, created_at) [post-MVP usage]
 
-Acceptance
-- P95 /ready (cached) < 150 ms; stable behavior across block boundaries.
+7. Performance & Scale
 
-4.2 Privacy & Confidentiality
+- Caching: bundles cached by versionId (+depth), short TTL; confirmations recomputed on read.
+- Limits: BUNDLE_MAX_DEPTH, BODY_MAX_SIZE, rate limits per route.
+- Targets: /ready cached < 200 ms P95; /bundle (depth ≤ 10) < 250 ms P95.
 
-4.2.1 Access Classes
-- Manifest.policy.classification ∈ {public, internal, restricted}; /ready enforces allow-lists and required attributes.
+8. Security & Compliance
 
-4.2.2 Gated Access by Receipts
-- /v1/data requires a valid, unexpired receipt with sufficient bandwidth; decrement bandwidth on completion.
+- SPV-first: never trust remote proofs; verify against local headers mirror.
+- Strict parsers and JSON Schema; reject malformed/oversize payloads.
+- Token-bucket rate limits; body size caps; timeouts.
+- Identity-signed producer routes (BRC-31 style) post-MVP toggleable by ENV.
 
-4.2.3 Minimal Sensitive Data Hygiene
-- Manifest.policy.pii_flags[]; default overlay policy can block or require attributes for flagged data.
+9. Operations
 
-4.2.4 Optional Encryption (FRG1)
-- Client-side ECDH + HKDF derived symmetric keys; overlay stores encrypted blobs; SDK adds helper functions.
-
-4.3 Developer Tooling
-
-4.3.1 JS/TS SDK
-- Minimal NPM package with: ready(), verifyBundle(), price(), pay(), streamData().
-
-Acceptance
-- Quickstart completes end-to-end in < 30 minutes.
-
-4.3.2 CLI
-- producer-onboard: register → submit DLM1 → set price → print listing/quote/dashboard URLs.
-- one-shot: publish → pay → ready → download for testing flows.
-
-Acceptance
-- producer-onboard finishes in one run with working URLs.
-
-4.3.3 Minimal Dashboard JSON
-- GET /producers/dashboard: profile, pricebook, last30d revenue (secured).
-
-4.4 Integrations
-
-4.4.1 Python Verifier CLI
-- verify_ready.py → calls /ready and returns exit 0/1 with reasons.
-
-4.4.2 Pre-Ingest Check Example
-- examples/preflight.sh → shows ready gating before MLflow/K8s steps.
-
-4.4.3 Export Formats
-- All complex endpoints return valid, structured JSON; no CSV/XML for MVP.
-
-4.5 Governance & Disputes
-
-4.5.1 Advisories/Recalls
-- POST /advisories; GET /advisories; /ready returns false if an advisory applies (unless policy ignores).
-
-4.5.2 Disputes (JSON Only)
-- POST /disputes with linked receiptId/resource and evidence. Log and notify producer/admin; manual refunds.
-
-4.5.3 Refund Policy
-- Public documentation; manual processing at MVP.
-
-5. API Endpoint Definitions (MVP)
-
-Method | Path | Description | Auth
-- POST /submit — Accepts a raw transaction with DLM1/TRN1/OTR1 OP_RETURN and optional manifest; maps manifestHash → producerId | Producer (signed request recommended)
-- GET /bundle?versionId&depth — Returns lineage graph, manifests, SPV proofs, confsUsed, bestHeight | None
-- GET /resolve?versionId|datasetId&cursor — Lists versions and parents with pagination | None
-- POST /ready — Body: { versionId, policy, receiptId? }; returns { ready, reasons[], confsUsed, bestHeight } | None
-- GET /price?resource&class — Returns per-producer quote (unit, price, requiredAttrs, expiresAt) | None
-- POST /pay — Body: { resource, quantity, attrs, payer? } → { receiptId, amountSat, expiresAt } and logs revenue event | Consumer
-- GET /v1/data?contentHash&receiptId — Streams bytes; enforces bandwidth/TTL; client verifies contentHash | Consumer
-- POST /producers/register — Registers producer profile/payout | Producer (signed request recommended)
-- POST /producers/price — Upserts price rules (pattern/unit/basePrice/tiers/requiredAttrs) | Producer (signed request recommended)
-- GET /producers/revenue?producerId&period&limit&offset — Returns totals and events | Producer
-- GET /producers/dashboard?producerId — Returns profile, pricebook, last30d revenue | Producer
-- POST /advisories — Create recall/supersede advisory | Producer/Admin
-- GET /advisories?versionId — List advisories for a version | None
-- GET /health, GET /metrics — Ops
-
-6. Data Models (Selected)
-
-Advisory
-{
-  versionId: string,
-  severity: "CRITICAL" | "WARNING",
-  reason: string,
-  signature: string // producer/admin identity key signature
-}
-
-Receipt (Overlay-signed)
-{
-  receiptId: string,
-  resource: string, // e.g., "manifest:<hash>" or "data:<hash>"
-  class: string,    // e.g., "gold"
-  quantity: number, // bytes or calls
-  amountSat: number,
-  expiresAt: string, // ISO
-  signature: string  // HMAC for MVP
-}
-
-7. Success Metrics (MVP)
-
-Performance & Verification
-- ≥ 99% of /ready calls complete < 200 ms for cached targets; /bundle (depth ≤ 10, cached) < 250 ms P95.
-- /v1/data sustains 50–100 MB/s on LAN with correct metering.
-
-Marketplace Adoption
-- ≥ 2 producers onboarded; ≥ 10 successful /pay receipts; revenue_events logged.
-
-Trust & Reliability
-- 0 SPV verification failures attributable to the overlay; < 1% disputes per 100 receipts.
-- Advisory flip causes /ready to return false immediately (documented test).
-
-8. Security, Abuse & Fraud (MVP)
-
-- Strict canonical CBOR for DLM1/TRN1/OTR1; reject non-canonical or oversize payloads.
-- Token-bucket rate limits; size/depth caps; timeouts; stream concurrency limits.
-- Identity-signed requests for /producers/* endpoints (recommended MVP+).
-- Single-use, TTL receipts; scope-bound (resource, class, quantity); anti-replay checks.
-- Attribute-gated tiers (enterprise:true, priority:gold) for higher limits/QoS.
-- Always verify SPV (never trust remote claims). Peer allowlist and maxHops if you federate later.
-
-9. Operations & Deployment
-
-- ENV: DB_PATH, OVERLAY_PORT, RECEIPT_SECRET, WALLET_URL, POLICY_MIN_CONFS, BUNDLE_MAX_DEPTH, BODY_MAX_SIZE, HEADERS_FILE/HEADERS_URL.
-- /health and /metrics provide liveness and counters (admissions/sec, proof latency, cache hits, 4xx/5xx).
-- Dockerize overlay; persist SQLite volume to ./data.
+- ENV: DB_PATH, OVERLAY_PORT, HEADERS_FILE, POLICY_MIN_CONFS, BUNDLE_MAX_DEPTH, BODY_MAX_SIZE, PRICE_DEFAULT_SATS
+- Headers mirror: scripts/attach-proofs.ts + external proof providers; verify locally.
+- Metrics: admissions/sec, proofLatencyMsP95, bundleLatencyMsP95, cacheHits, 4xx/5xx.
 
 10. Quickstarts
 
-Producer Onboarding (CLI)
-- genius producer-onboard → prints producerId, listing, quote, dashboard URLs.
+Producer
+- POST /submit/dlm1 with manifest → get outputs/scriptHex
+- Wallet builds/signs/broadcasts tx with OP_RETURN
+- POST /submit with rawTx (+manifest) → indexed; visible in /listings
 
 Consumer
-- GET /price → POST /pay → POST /ready → GET /v1/data → verify SHA-256(bytes) == manifest.content.contentHash.
-
-Audit
-- GET /bundle?versionId=<hash>&depth=ancestors → verify SPV, signatures, DAG offline.
+- GET /bundle → verify lineage & proofs; GET /ready → gate
+- GET /price → POST /pay → GET /v1/data (verify bytes == manifest.content.contentHash)
 
 11. Roadmap (Post-MVP)
 
-- BRC-100 pay-through with multi-output splits (producer/overlay/affiliate).
-- Event feed (/watch via SSE/webhooks).
-- Auctions/missions (commit–reveal, slashing, budgets).
-- Selective disclosure (Merkle proofs per manifest field).
-- Lightweight Web UI (catalog & lineage viewer).
+- Receipts/pay flow with TRN1 anchor (optional on-chain)
+- Producer registry & pricebooks; advisories/recalls; quotas & dashboards
+- SDK/CLI polish; Postman/OpenAPI; identity-signed producers
+- Federation & event feeds; selective disclosure (field proofs)
 
 12. Glossary
 
-- SPV: Simplified Payment Verification (merkle path + headers).
-- DLM1/TRN1/OTR1/FRG1: On-chain/Off-chain formats: dataset version, agent transition, ontology triple, encrypted fragment.
-- Lineage Bundle: Graph + manifests + SPV proofs package.
-- Receipt: Signed, scoped, time-limited access grant.
+- SPV: Simplified Payment Verification (merkle path + headers)
+- DLM1: Dataset version anchor (mh, parents)
+- Lineage Bundle: Graph + manifests + SPV proofs
+- Receipt: Time/byte-capped access grant (overlay-signed for MVP)
 
-Corrections you asked me to apply
-- TRN1 = Agent Transition (not a payment receipt).
-- OTR1 = Ontology Triple anchor (not an overlay trust root).
-- SPV envelopes are verifiable from chain data; no overlay signature required.
-- /ready is POST (accepts policy and optionally receiptId), not GET.
-- MVP uses overlay-signed receipts (HMAC); payments are logged in revenue_events; no on-chain payment anchoring required.
+Notes on alignment
+- /ready is GET with versionId for MVP (matches existing routes). A POST /ready (with policy/receipt in body) can be added later.
+- TRN1/OTR1 are reserved; not required for marketplace MVP.
+- All hashes in JSON are big-endian hex; hashing uses LE internal with byte reversal.
 
-If you want, I can provide an OpenAPI 3.0 YAML matching this PDR, plus JSON Schemas for DLM1 manifest, lineage bundle, advisory, and receipt.
+If you want, I can also produce a matching OpenAPI 3.0 YAML and a Postman collection so your team can run end-to-end flows in one click.
