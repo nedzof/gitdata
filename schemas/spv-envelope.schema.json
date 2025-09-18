@@ -124,5 +124,30 @@
          "minimum":0
       }
    },
+   "allOf":[
+      {
+         "if":{
+            "required":[
+               "txid"
+            ]
+         },
+         "then":{
+            "properties":{
+               "txid":{
+                  
+               },
+               "proof":{
+                  "properties":{
+                     "txid":{
+                        "const":{
+                           "$data":"1/txid"
+                        }
+                     }
+                  }
+               }
+            }
+         }
+      }
+   ],
    "additionalProperties":false
 }
