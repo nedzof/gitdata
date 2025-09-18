@@ -1,27 +1,27 @@
-# issues/D09-pricebook-per-producer.md
-# D9 — Pricebook pro Producer (in /price)
-Labels: backend, payments, producers
+# D09 — Pricebook pro Producer
+Labels: backend, api, marketplace
 Assignee: TBA
-Estimate: 2 PT
+Estimate: 2–3 PT
 
 Zweck
-- Per‑Producer Preisregeln; /price nutzt passende Regel.
+- Preisregeln auf Producer- oder Dataset‑Ebene (Overrides, Mengenrabatte/Tiers).
 
 Abhängigkeiten
-- D8
+- DB: prices (erweitern), producers
+- D05 /price Basis
 
 Aufgaben
-- [ ] POST /producers/price { producerId, pattern, unit, basePrice, tiers?, requiredAttrs? }.
-- [ ] /price Präzedenz: manifest:<hash> > dataset:<id> > producer:*.
+- [ ] Tabelle price_rules: { producer_id?, version_id?, tier_from?, satoshis }.
+- [ ] /price Logik: best-match (versionId → producerId → default).
+- [ ] (Optional) Mengenrabatte (quantity → best tier).
 
-Definition of Done
-- [ ] /price liefert Producer‑Quote (keine Defaultquote bei Regel).
+Definition of Done (DoD)
+- [ ] /price gibt konsistenten Preis entsprechend Regeln zurück.
+- [ ] Admin-API zum Setzen/Löschen von Regeln.
 
-Abnahmekriterien
-- [ ] Regel gesetzt → /price spiegelt unit/price/attrs korrekt wider.
-
-Artefakte
-- [ ] Rule JSON, Quote JSON.
+Abnahmekriterien (Tests)
+- [ ] Override-Kaskade korrekt (versionId > producer > default).
+- [ ] Tier-Auswahl korrekt.
 
 Risiken/Rollback
-- Fallback auf Defaultquote möglich.
+- Regelkonflikte → eindeutige Priorität definieren (versionId > producer > default).
