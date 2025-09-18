@@ -2,33 +2,30 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
-// Endianness policy: JSON/API hex are big-endian; hashing is done over little-endian bytes (byte-reversed).
-// We reverse inputs before hashing and reverse the final hash back to compare with big-endian targets.
-
-type Hex = string;
+export type Hex = string;
 
 export type MerkleNode = { hash: Hex; position: 'left' | 'right' };
 
 export type SPVEnvelope = {
   rawTx: Hex;
-  txid?: Hex; // big-endian hex; if missing, we derive from rawTx
+  txid?: Hex;
   proof: {
-    txid: Hex; // big-endian hex
-    merkleRoot: Hex; // big-endian hex (when provided)
-    path: MerkleNode[]; // node.hash are big-endian hex
+    txid: Hex;          // big-endian
+    merkleRoot: Hex;    // big-endian
+    path: MerkleNode[]; // nodes are big-endian hex
   };
   block:
-    | { blockHeader: Hex } // raw 80-byte header hex
-    | { blockHash: Hex; blockHeight: number }; // display big-endian hex
-  headerChain?: Hex[]; // optional list of raw 80-byte headers (hex), oldest->newest
+    | { blockHeader: Hex }              // raw 80-byte hex
+    | { blockHash: Hex; blockHeight: number };
+  headerChain?: Hex[];
   confirmations?: number;
   ts?: number;
 };
 
 export type HeaderRecord = {
-  hash: Hex;        // big-endian display hex
-  prevHash: Hex;    // big-endian display hex
-  merkleRoot: Hex;  // big-endian display hex
+  hash: Hex;        // big-endian hex
+  prevHash: Hex;    // big-endian hex
+  merkleRoot: Hex;  // big-endian hex
   height: number;
 };
 
@@ -39,79 +36,61 @@ export type HeadersIndex = {
   byHeight: Map<number, HeaderRecord>;
 };
 
-/* ------------------------ Hex/Bytes helpers ------------------------ */
+/* ------------------------ helpers ------------------------ */
 
-function normalizeHex(h: string): string {
+function normHex(h: string): string {
   return (h || '').toLowerCase();
 }
-
 function hexToBytesBE(hex: Hex): Buffer {
-  if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length % 2 !== 0) {
-    throw new Error('Invalid hex');
-  }
+  if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length % 2 !== 0) throw new Error('invalid hex');
   return Buffer.from(hex, 'hex');
 }
-
-function bytesToHexBE(buf: Buffer): Hex {
+function bytesToHexBE(buf: Buffer): Buffer {
   return buf.toString('hex');
 }
-
-function reverseBytes(buf: Buffer): Buffer {
+function rev(buf: Buffer): Buffer {
   const c = Buffer.from(buf);
   c.reverse();
   return c;
 }
-
 function sha256d(buf: Buffer): Buffer {
-  const h1 = createHash('sha256').update(buf).digest();
-  const h2 = createHash('sha256').update(h1).digest();
-  return h2;
+  const a = createHash('sha256').update(buf).digest();
+  const b = createHash('sha256').update(a).digest();
+  return b;
 }
 
-/* ------------------------ TXID helpers ------------------------ */
+/* ------------------------ txid & header parsing ------------------------ */
 
-// txidFromRawTx returns big-endian hex display string.
-// Internally: txid bytes = sha256d(rawTxBytes), then reversed for display.
 export function txidFromRawTx(rawTxHex: Hex): Hex {
-  const raw = hexToBytesBE(normalizeHex(rawTxHex));
-  const hashLE = sha256d(raw);           // little-endian bytes
-  const hashBE = reverseBytes(hashLE);   // display big-endian
-  return bytesToHexBE(hashBE);
+  const raw = hexToBytesBE(normHex(rawTxHex));
+  const le = sha256d(raw);
+  return bytesToHexBE(rev(le)); // display big-endian
 }
 
-/* ------------------------ Block header parsing ------------------------ */
-
-// Parse a raw 80-byte block header hex; return big-endian display fields and block hash.
 export function parseBlockHeader(raw80Hex: Hex): {
-  blockHash: Hex;      // big-endian
-  merkleRoot: Hex;     // big-endian
-  prevHash: Hex;       // big-endian
+  blockHash: Hex;
+  merkleRoot: Hex;
+  prevHash: Hex;
   version: number;
   time: number;
   bits: number;
   nonce: number;
 } {
-  const raw = hexToBytesBE(normalizeHex(raw80Hex));
+  const raw = hexToBytesBE(normHex(raw80Hex));
   if (raw.length !== 80) throw new Error('blockHeader must be 80 bytes');
 
   const versionLE = raw.readInt32LE(0);
-
   const prevHashLE = raw.subarray(4, 36);
   const merkleRootLE = raw.subarray(36, 68);
-
   const timeLE = raw.readUInt32LE(68);
   const bitsLE = raw.readUInt32LE(72);
   const nonceLE = raw.readUInt32LE(76);
 
   const blockHashLE = sha256d(raw);
-  const blockHashBE = bytesToHexBE(reverseBytes(blockHashLE));
-  const prevHashBE = bytesToHexBE(reverseBytes(prevHashLE));
-  const merkleRootBE = bytesToHexBE(reverseBytes(merkleRootLE));
-
   return {
-    blockHash: blockHashBE,
-    merkleRoot: merkleRootBE,
-    prevHash: prevHashBE,
+    blockHash: bytesToHexBE(rev(blockHashLE)),
+    merkleRoot: bytesToHexBE(rev(merkleRootLE)),
+    prevHash: bytesToHexBE(rev(prevHashLE)),
     version: versionLE,
     time: timeLE,
     bits: bitsLE,
@@ -119,75 +98,68 @@ export function parseBlockHeader(raw80Hex: Hex): {
   };
 }
 
-/* ------------------------ Merkle verification ------------------------ */
+/* ------------------------ merkle verification ------------------------ */
 
-// verifyMerklePath implements big-endian-at-API, little-endian-for-hashing policy.
-// - leafTxidHex, node.hash, and merkleRootHex are big-endian display hex.
-// - We reverse to LE for hashing, fold, then reverse final accumulator to compare to merkleRootHex.
 export function verifyMerklePath(
-  leafTxidHex: Hex,
+  leafTxidHexBE: Hex,
   path: MerkleNode[],
-  merkleRootHex: Hex,
+  merkleRootHexBE: Hex,
 ): boolean {
-  const leafBE = normalizeHex(leafTxidHex);
-  const rootBE = normalizeHex(merkleRootHex);
-  if (!/^[0-9a-fA-F]{64}$/.test(leafBE)) return false;
-  if (!/^[0-9a-fA-F]{64}$/.test(rootBE)) return false;
+  const leafBE = normHex(leafTxidHexBE);
+  const rootBE = normHex(merkleRootHexBE);
+  if (!/^[0-9a-fA-F]{64}$/.test(leafBE) || !/^[0-9a-fA-F]{64}$/.test(rootBE)) return false;
 
-  let accLE = reverseBytes(hexToBytesBE(leafBE)); // start in LE bytes
+  // Start with LE bytes for hashing
+  let accLE = rev(hexToBytesBE(leafBE));
   for (const step of path) {
-    const nodeBE = normalizeHex(step.hash);
-    if (!/^[0-9a-fA-F]{64}$/.test(nodeBE)) return false;
-    const nodeLE = reverseBytes(hexToBytesBE(nodeBE));
+    const nodeLE = rev(hexToBytesBE(normHex(step.hash)));
     const concat =
       step.position === 'left'
         ? Buffer.concat([nodeLE, accLE])
         : Buffer.concat([accLE, nodeLE]);
     accLE = sha256d(concat);
   }
-  const accBE = bytesToHexBE(reverseBytes(accLE));
+  const accBE = bytesToHexBE(rev(accLE));
   return accBE === rootBE;
 }
 
-/* ------------------------ Headers mirror loader ------------------------ */
-
-// We support two formats for your mirror file to reduce coupling:
-// A) { bestHeight, tipHash, headers: [{ hash, prevHash, merkleRoot, height }, ...] }
-// B) { bestHeight, tipHash, byHash: { [hash]: { height, merkleRoot, prevHash } } }
-// All hashes are expected in big-endian display hex.
+/* ------------------------ headers loader ------------------------ */
+/*
+  Supported JSON mirror formats:
+  A) {
+       "bestHeight": 800000,
+       "tipHash": "....",
+       "headers": [
+         { "hash": "...", "prevHash": "...", "merkleRoot": "...", "height": 799999 }
+       ]
+     }
+  B) {
+       "bestHeight": 800000,
+       "tipHash": "...",
+       "byHash": {
+         "<hash>": { "prevHash": "...", "merkleRoot": "...", "height": 799999 }
+       }
+     }
+*/
 export function loadHeaders(filePath: string): HeadersIndex {
   const abs = path.resolve(filePath);
-  const raw = fs.readFileSync(abs, 'utf8');
-  const json = JSON.parse(raw);
+  if (!fs.existsSync(abs)) throw new Error(`headers file not found: ${abs}`);
+  const json = JSON.parse(fs.readFileSync(abs, 'utf8'));
 
   const byHash = new Map<string, HeaderRecord>();
   const byHeight = new Map<number, HeaderRecord>();
-
+  const tipHash = normHex(json.tipHash || '');
   const bestHeight =
     typeof json.bestHeight === 'number'
       ? json.bestHeight
-      : (() => {
-          // If not provided, infer from max height found.
-          const heights: number[] = [];
-          if (Array.isArray(json.headers)) {
-            for (const h of json.headers) heights.push(h.height);
-          } else if (json.byHash && typeof json.byHash === 'object') {
-            for (const k of Object.keys(json.byHash)) heights.push(json.byHash[k].height);
-          }
-          return Math.max(...heights, -1);
-        })();
-
-  const tipHash: string =
-    typeof json.tipHash === 'string'
-      ? normalizeHex(json.tipHash)
-      : '';
+      : 0;
 
   if (Array.isArray(json.headers)) {
-    for (const h of json.headers as HeaderRecord[]) {
+    for (const h of json.headers) {
       const rec: HeaderRecord = {
-        hash: normalizeHex(h.hash),
-        prevHash: normalizeHex(h.prevHash),
-        merkleRoot: normalizeHex(h.merkleRoot),
+        hash: normHex(h.hash),
+        prevHash: normHex(h.prevHash),
+        merkleRoot: normHex(h.merkleRoot),
         height: h.height,
       };
       byHash.set(rec.hash, rec);
@@ -196,101 +168,78 @@ export function loadHeaders(filePath: string): HeadersIndex {
   } else if (json.byHash && typeof json.byHash === 'object') {
     for (const [hash, v] of Object.entries<any>(json.byHash)) {
       const rec: HeaderRecord = {
-        hash: normalizeHex(hash),
-        prevHash: normalizeHex(v.prevHash),
-        merkleRoot: normalizeHex(v.merkleRoot),
+        hash: normHex(hash),
+        prevHash: normHex(v.prevHash),
+        merkleRoot: normHex(v.merkleRoot),
         height: v.height,
       };
       byHash.set(rec.hash, rec);
       byHeight.set(rec.height, rec);
     }
   } else {
-    throw new Error('Unsupported headers format');
-  }
-
-  // Continuity sanity checks (light)
-  // - tipHash exists if provided
-  if (tipHash && !byHash.has(tipHash)) {
-    throw new Error('tipHash not present in headers set');
+    throw new Error('unsupported headers format');
   }
 
   return { bestHeight, tipHash, byHash, byHeight };
 }
 
-export function getHeader(idx: HeadersIndex, blockHash: Hex): HeaderRecord | undefined {
-  return idx.byHash.get(normalizeHex(blockHash));
+export function getHeader(idx: HeadersIndex, blockHashBE: Hex): HeaderRecord | undefined {
+  return idx.byHash.get(normHex(blockHashBE));
 }
 
-export function getConfirmationCount(idx: HeadersIndex, blockHash: Hex): number {
-  const h = getHeader(idx, blockHash);
-  if (!h) return 0;
-  return idx.bestHeight - h.height + 1;
+export function getConfirmationCount(idx: HeadersIndex, blockHashBE: Hex): number {
+  const rec = getHeader(idx, blockHashBE);
+  if (!rec) return 0;
+  return idx.bestHeight - rec.height + 1;
 }
 
-/* ------------------------ High-level envelope verification ------------------------ */
+/* ------------------------ envelope verification ------------------------ */
 
 export async function verifyEnvelopeAgainstHeaders(
   env: SPVEnvelope,
   idx: HeadersIndex,
   minConfs: number,
 ): Promise<{ ok: boolean; reason?: string; confirmations?: number }> {
-  // 1) txid consistency
-  const derivedTxid = txidFromRawTx(env.rawTx);
-  const proofTxid = normalizeHex(env.proof.txid);
-  if (env.txid && normalizeHex(env.txid) !== proofTxid) {
+  // txid consistency
+  const derived = txidFromRawTx(env.rawTx);
+  const proofTxid = normHex(env.proof.txid);
+  if (env.txid && normHex(env.txid) !== proofTxid) {
     return { ok: false, reason: 'txid-mismatch-top-level-vs-proof' };
   }
-  if (derivedTxid !== proofTxid) {
+  if (derived !== proofTxid) {
     return { ok: false, reason: 'txid-mismatch-rawtx-vs-proof' };
   }
 
-  // 2) Resolve merkleRoot (big-endian hex)
+  // Resolve merkleRoot
   let merkleRootBE: Hex | undefined;
+  let blockHashForConfs: Hex | undefined;
 
-  if ('blockHeader' in env.block && env.block.blockHeader) {
+  if ('blockHeader' in env.block) {
     try {
       const parsed = parseBlockHeader(env.block.blockHeader);
-      merkleRootBE = normalizeHex(parsed.merkleRoot);
-      // Optionally, you can also check parsed.blockHash against headers index if present there.
+      merkleRootBE = parsed.merkleRoot;
+      blockHashForConfs = parsed.blockHash;
     } catch {
       return { ok: false, reason: 'invalid-block-header' };
     }
   } else if ('blockHash' in env.block) {
     const rec = getHeader(idx, env.block.blockHash);
     if (!rec) return { ok: false, reason: 'unknown-block-hash' };
-    // Optional: if blockHeight provided, check consistency with mirror
-    if (
-      typeof env.block.blockHeight === 'number' &&
-      env.block.blockHeight !== rec.height
-    ) {
+    if (typeof env.block.blockHeight === 'number' && env.block.blockHeight !== rec.height) {
       return { ok: false, reason: 'block-height-mismatch' };
     }
     merkleRootBE = rec.merkleRoot;
+    blockHashForConfs = rec.hash;
   }
 
   if (!merkleRootBE) return { ok: false, reason: 'merkle-root-unavailable' };
 
-  // 3) Verify Merkle inclusion
+  // Merkle inclusion
   const ok = verifyMerklePath(proofTxid, env.proof.path, merkleRootBE);
   if (!ok) return { ok: false, reason: 'invalid-merkle-path' };
 
-  // 4) Compute confirmations via headers index
-  let blockHashForConf: string | undefined;
-  if ('blockHeader' in env.block && env.block.blockHeader) {
-    // Compute block hash from header and look it up
-    try {
-      const parsed = parseBlockHeader(env.block.blockHeader);
-      blockHashForConf = parsed.blockHash;
-    } catch {
-      return { ok: false, reason: 'invalid-block-header' };
-    }
-  } else if ('blockHash' in env.block) {
-    blockHashForConf = normalizeHex(env.block.blockHash);
-  }
-
-  if (!blockHashForConf) return { ok: false, reason: 'no-block-hash' };
-  const confs = getConfirmationCount(idx, blockHashForConf);
-
+  // Confirmations
+  const confs = blockHashForConfs ? getConfirmationCount(idx, blockHashForConfs) : 0;
   if (confs < minConfs) return { ok: false, reason: 'insufficient-confs', confirmations: confs };
 
   return { ok: true, confirmations: confs };
