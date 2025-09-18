@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { BRC22 } from '../brc/index';
 import { verifyEnvelopeAgainstHeaders, loadHeaders, type HeadersIndex, type SPVEnvelope } from '../spv/verify-envelope';
+import { findFirstOpReturn } from '../utils/opreturn';
 
 type DeclarationsRepo = {
   createOrGet(opts: {
@@ -26,21 +27,6 @@ function jsonError(res: Response, code: number, error: string, hint?: string) {
   return res.status(code).json({ error, hint });
 }
 
-// Optional: tiny OP_RETURN tag detector. This does NOT fully parse the TX; you likely already have a proper parser.
-// We keep it conservative and treat everything as UNKNOWN unless you later swap this with your robust parser.
-function detectTagFromTxHex(rawTx: string): 'DLM1' | 'TRN1' | 'UNKNOWN' {
-  const h = rawTx.toLowerCase();
-  // Very naive check: look for "006a" (OP_FALSE OP_RETURN) followed by push of ASCII "DLM1"/"TRN1"
-  // Note: This is best-effort and may produce false negatives; replace with real parsing.
-  const opReturnIdx = h.indexOf('006a');
-  if (opReturnIdx === -1) return 'UNKNOWN';
-  // Try to see a small push opcode and ASCII "444c4d31" (DLM1) or "54524e31" (TRN1)
-  const window = h.slice(opReturnIdx, opReturnIdx + 200);
-  if (window.includes('444c4d31')) return 'DLM1';
-  if (window.includes('54524e31')) return 'TRN1';
-  return 'UNKNOWN';
-}
-
 export function submitHandlerFactory(opts: {
   repo: DeclarationsRepo;
   headersFile: string;
@@ -63,7 +49,10 @@ export function submitHandlerFactory(opts: {
       }
 
       const txid = require('../spv/verify-envelope').txidFromRawTx(rawTx);
-      const detected = detectTagFromTxHex(rawTx);
+      
+      // Use the robust OP_RETURN parser
+      const opret = findFirstOpReturn(rawTx);
+      const detected = opret?.tagAscii === 'DLM1' || opret?.tagAscii === 'TRN1' ? opret.tagAscii : 'UNKNOWN';
 
       // Optional SPV check at submit-time (only if you provide a complete envelope here).
       // If you want to verify now, send an SPVEnvelope-like object inside body.suggestedEnvelope.
