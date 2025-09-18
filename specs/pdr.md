@@ -1,12 +1,3 @@
-Absolutely. Here’s a clean, unambiguous Product Design Document you can drop in. It aligns with the marketplace MVP you’ve implemented (Builder + Receiver, SPV-first, indexer-free), and matches the routes and behavior we’ve wired.
-
-Product Design Document: Gitdata MVP
-Version: 1.1
-Status: Final
-Author: Gitdata Team
-Date: 2025-09-18
-Reviewers: Core Development Team
-
 1. Introduction
 
 1.1 Problem Statement
