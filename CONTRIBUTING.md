@@ -47,3 +47,74 @@ BODY_MAX_SIZE=1048576
 HEADERS_FILE=./headers.json
 RATE_LIMITS_JSON='{"submit":5,"bundle":10,"ready":20,"data":10,"price":50,"pay":10}'
 CACHE_TTLS_JSON='{"headers":60000,"proofs":300000,"bundles":300000}'
+
+Profiles:
+
+dev: MIN_CONFS=0, relaxed rate limits, verbose logging.
+staging: MIN_CONFS=1, realistic limits, caching enabled.
+prod: MIN_CONFS>=1 (typically 3 or 6), strict limits, caching and metrics enabled.
+3. Coding Standards
+Language: TypeScript (strict: true in tsconfig.json).
+Linting/Formatting: ESLint and Prettier, enforced with a pre-commit hook.
+Module Rules:
+Validators must be pure functions and cover all edge cases (invalid, canonical, etc.).
+API endpoints should only assemble results. All business logic must reside in dedicated modules (/policy, /payments, etc.).
+All external API responses must return JSON, with the exception of /v1/data.
+Error Model:
+Use standard HTTP status codes: 400 (invalid input), 401 (unsigned), 402 (payment required), 403 (forbidden), 404 (not found), 413 (payload too large), 429 (rate limit), 500 (server error).
+Error responses must include a machine-readable JSON body: { "error": "description", "code": "optional_code", "hint": "optional_hint" }.
+4. Topic and Versioning Rules
+To ensure protocol stability, we follow strict versioning rules.
+
+Tags are Immutable: On-chain tags (e.g., DLM1, TRN1) are permanent.
+Breaking Changes: Any breaking change to a data structure requires a new tag (e.g., DLM2).
+JSON Schemas: Schema versions are part of their $id URI (e.g., .../v1/...). Old schemas must be kept for replayability.
+Golden Vectors: Test vectors must be maintained for each tag version.
+5. Testing Strategy
+Unit Tests: Cover validators (CBOR canonical ordering, sizes, key checks), SPV logic (Merkle proofs, endianness), and policy rules.
+Integration Tests: Verify flows like submit -> bundle -> ready and price -> pay -> data.
+E2E Tests: The full A2A demo script serves as our primary E2E test.
+API Conformance: The Postman collection is run via newman to validate the API against its specification.
+Golden Vectors: Located in /test/vectors, these provide standard test data. Any change to validators requires updating these vectors.
+6. CI/CD
+Our continuous integration pipeline runs the following jobs on every push:
+
+Lint, unit tests, and integration tests.
+newman run of the Postman collection.
+Build and tag a Docker image.
+7. Observability and Operations
+Logs: One JSON line per request, including method, path, status, ms, ip.
+Metrics: A /metrics endpoint exposes key indicators like admissions/sec, proofLatencyMsP95, and cache hit rates.
+Health: A /health endpoint returns { "ok": true } if all backend services (DB, header store) are reachable.
+8. Security Rails
+Identity: Endpoints for producers must be signed (see D19).
+Receipts: Receipts must be single-use, scope-bound, and have a TTL.
+Content Safety: Enforce policy.classification at the /ready endpoint.
+This guide is a living document. Please feel free to propose changes via a pull request.
+
+
+---
+
+### 2. Tooling Configuration
+
+Here are the configuration files you can add to your project.
+
+#### ESLint Configuration
+
+Save this as `.eslintrc.json`:
+
+```json
+{
+  "parser": "@typescript-eslint/parser",
+  "extends": [
+    "plugin:@typescript-eslint/recommended",
+    "plugin:prettier/recommended"
+  ],
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "module"
+  },
+  "rules": {
+    // Add any specific project rules here
+  }
+}
