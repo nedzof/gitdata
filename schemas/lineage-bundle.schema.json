@@ -95,7 +95,7 @@
             "additionalProperties":false
          }
       },
-     "proofs":{
+   "proofs":{
    "type":"array",
    "items":{
       "type":"object",
