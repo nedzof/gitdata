@@ -1,1 +1,618 @@
-
+{
+   "info":{
+      "name":"Genius System Overlay API (MVP) — Full Suite",
+      "postmanid":"6f4f0dd2-2d2c-4a0b-8d1e-123456789abc",
+      "description":"SPV-first, vendor-neutral overlay API for verifiable data lineage on BSV.\nIncludes: submit, bundle, resolve, ready, price, pay, data, producers, advisories, health, metrics.\nAdvisory flip scenario: run 'Ready (before advisory)' → 'Issue Advisory' → 'Ready (after advisory)'.",
+      "schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+   },
+   "variable":[
+      {
+         "key":"baseUrl",
+         "value":"https://overlay.example.com"
+      },
+      {
+         "key":"versionId",
+         "value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+         "key":"manifestHash",
+         "value":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+         "key":"contentHash",
+         "value":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      {
+         "key":"producerId",
+         "value":"02abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef"
+      },
+      {
+         "key":"datasetId",
+         "value":"org.example.dataset"
+      },
+      {
+         "key":"resource",
+         "value":"manifest:{{manifestHash}}"
+      },
+      {
+         "key":"class",
+         "value":"gold"
+      },
+      {
+         "key":"quantity",
+         "value":"1048576"
+      },
+      {
+         "key":"receiptId",
+         "value":"rctdemo123"
+      },
+      {
+         "key":"period",
+         "value":"30d"
+      }
+   ],
+   "item":[
+      {
+         "name":"Core Lineage",
+         "item":[
+            {
+               "name":"Submit (DLM1 Tx + Manifest)",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/submit",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "submit"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"rawTx\": \"0100000001deadbeef…\", \n \"manifest\": {\n \"type\": \"datasetVersionManifest\",\n \"datasetId\": \"{{datasetId}}\",\n \"description\": \"10k MRI scans (anonymized)\",\n \"content\": {\n \"contentHash\": \"{{contentHash}}\",\n \"sizeBytes\": 123456789,\n \"mimeType\": \"application/octet-stream\"\n },\n \"lineage\": {\n \"parents\": []\n },\n \"provenance\": {\n \"producer\": { \"identityKey\": \"{{producerId}}\" },\n \"createdAt\": \"2025-09-17T12:00:00Z\",\n \"locations\": [ { \"type\": \"https\", \"uri\": \"https://data.example.com/archive.tar.zst\" } ]\n },\n \"policy\": {\n \"license\": \"CC-BY-4.0\",\n \"classification\": \"public\",\n \"piiflags\": []\n },\n \"signatures\": {\n \"producer\": {\n \"publicKey\": \"{{producerId}}\",\n \"signature\": \"3045022100cafebabefeed…\"\n }\n }\n }\n}"
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Accepted",
+                     "originalRequest":{
+                        "method":"POST",
+                        "url":"{{baseUrl}}/submit"
+                     },
+                     "status":"OK",
+                     "code":200,
+                     "body":"{\n \"admitted\": [\n {\n \"txo\": \"abcd…1234:0\",\n \"type\": \"DLM1\",\n \"versionId\": \"{{manifestHash}}\"\n }\n ]\n}"
+                  },
+                  {
+                     "name":"400 Invalid",
+                     "originalRequest":{
+                        "method":"POST",
+                        "url":"{{baseUrl}}/submit"
+                     },
+                     "status":"Bad Request",
+                     "code":400,
+                     "body":"{ \"error\": \"Invalid transaction/CBOR/manifest\" }"
+                  }
+               ]
+            },
+            {
+               "name":"Bundle (Lineage Bundle)",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/bundle?versionId={{versionId}}&depth=10",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "bundle"
+                     ],
+                     "query":[
+                        {
+                           "key":"versionId",
+                           "value":"{{versionId}}"
+                        },
+                        {
+                           "key":"depth",
+                           "value":"10"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Bundle",
+                     "originalRequest":{
+                        "method":"GET",
+                        "url":"{{baseUrl}}/bundle?versionId={{versionId}}&depth=10"
+                     },
+                     "status":"OK",
+                     "code":200,
+                     "body":"{\n \"bundleType\": \"datasetLineageBundle\",\n \"target\": \"{{versionId}}\",\n \"graph\": {\n \"nodes\": [\n { \"versionId\": \"{{versionId}}\", \"manifestHash\": \"{{manifestHash}}\", \"txo\": \"abcd…:0\" }\n ],\n \"edges\": []\n },\n \"manifests\": [\n { \"manifestHash\": \"{{manifestHash}}\", \"manifest\": { \"type\": \"datasetVersionManifest\", \"datasetId\": \"{{datasetId}}\", \"content\": { \"contentHash\": \"{{contentHash}}\" } } }\n ],\n \"proofs\": [\n {\n \"versionId\": \"{{versionId}}\",\n \"envelope\": {\n \"rawTx\": \"010000…\",\n \"proof\": { \"merklePath\": \"…\", \"blockHeader\": \"…\" }\n }\n }\n ],\n \"confsUsed\": 2,\n \"bestHeight\": 850000\n}"
+                  }
+               ]
+            },
+            {
+               "name":"Resolve (Versions/Parents)",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/resolve?versionId={{versionId}}&limit=25",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "resolve"
+                     ],
+                     "query":[
+                        {
+                           "key":"versionId",
+                           "value":"{{versionId}}"
+                        },
+                        {
+                           "key":"limit",
+                           "value":"25"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Resolve",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{\n \"datasetId\": \"{{datasetId}}\",\n \"versions\": [\n {\n \"versionId\": \"{{versionId}}\",\n \"manifestHash\": \"{{manifestHash}}\",\n \"txo\": \"abcd…:0\",\n \"parents\": [],\n \"createdAt\": \"2025-09-17T12:00:00Z\"\n }\n ],\n \"paging\": { \"nextCursor\": null }\n}"
+                  }
+               ]
+            }
+         ]
+      },
+      {
+         "name":"Policy & Advisory (Flip Scenario)",
+         "item":[
+            {
+               "name":"Ready (before advisory) — expect true",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/ready",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "ready"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"versionId\": \"{{versionId}}\",\n \"policy\": {\n \"minConfs\": 2,\n \"classificationAllowList\": [\"public\",\"clinical-research\"],\n \"allowRecalled\": false\n }\n}"
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Ready-True",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{\n \"ready\": true,\n \"reasons\": [],\n \"confsUsed\": 2,\n \"bestHeight\": 850000\n}"
+                  }
+               ]
+            },
+            {
+               "name":"Issue Advisory (recall)",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/advisories",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "advisories"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"versionId\": \"{{versionId}}\",\n \"severity\": \"CRITICAL\",\n \"reason\": \"Data inconsistency discovered in source\",\n \"issuerKey\": \"{{producerId}}\",\n \"issuedAt\": \"2025-09-17T12:30:00Z\",\n \"signature\": \"3045022100feedbead…\"\n}"
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Advisory OK",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{ \"status\": \"ok\" }"
+                  }
+               ]
+            },
+            {
+               "name":"Ready (after advisory) — expect false",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/ready",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "ready"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"versionId\": \"{{versionId}}\",\n \"policy\": {\n \"minConfs\": 2,\n \"classificationAllowList\": [\"public\",\"clinical-research\"],\n \"allowRecalled\": false\n }\n}"
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Ready-False",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{\n \"ready\": false,\n \"reasons\": [\"AdvisoryIssued: CRITICAL - Data inconsistency discovered in source\"],\n \"confsUsed\": 2,\n \"bestHeight\": 850001\n}"
+                  }
+               ]
+            },
+            {
+               "name":"List Advisories for Version",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/advisories?versionId={{versionId}}",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "advisories"
+                     ],
+                     "query":[
+                        {
+                           "key":"versionId",
+                           "value":"{{versionId}}"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Advisories",
+                     "status":"OK",
+                     "code":200,
+                     "body":"[\n {\n \"versionId\": \"{{versionId}}\",\n \"severity\": \"CRITICAL\",\n \"reason\": \"Data inconsistency discovered in source\",\n \"issuerKey\": \"{{producerId}}\",\n \"issuedAt\": \"2025-09-17T12:30:00Z\",\n \"signature\": \"3045022100feedbead…\"\n }\n]"
+                  }
+               ]
+            }
+         ]
+      },
+      {
+         "name":"Payments & Access",
+         "item":[
+            {
+               "name":"Price (per-producer rule)",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/price?resource={{resource}}&class={{class}}",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "price"
+                     ],
+                     "query":[
+                        {
+                           "key":"resource",
+                           "value":"{{resource}}"
+                        },
+                        {
+                           "key":"class",
+                           "value":"{{class}}"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Quote",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{\n \"resource\": \"{{resource}}\",\n \"producerId\": \"{{producerId}}\",\n \"unit\": \"sat/byte\",\n \"price\": 0.00002,\n \"requiredAttrs\": [],\n \"class\": \"{{class}}\",\n \"expiresAt\": \"2025-09-17T13:00:00Z\"\n}"
+                  }
+               ]
+            },
+            {
+               "name":"Pay (get receipt)",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/pay",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "pay"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"resource\": \"{{resource}}\",\n \"quantity\": {{quantity}},\n \"attrs\": { \"priority\": \"{{class}}\" },\n \"payer\": \"agent:molecula\"\n}"
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Receipt",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{\n \"receiptId\": \"rctabc123\",\n \"resource\": \"{{resource}}\",\n \"class\": \"{{class}}\",\n \"quantity\": {{quantity}},\n \"amountSat\": 2048,\n \"expiresAt\": \"2025-09-17T13:05:00Z\",\n \"signature\": \"hmac:deadbeef…\"\n}"
+                  }
+               ]
+            },
+            {
+               "name":"Data (stream with receipt)",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/v1/data?contentHash={{contentHash}}&receiptId={{receiptId}}",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "v1",
+                        "data"
+                     ],
+                     "query":[
+                        {
+                           "key":"contentHash",
+                           "value":"{{contentHash}}"
+                        },
+                        {
+                           "key":"receiptId",
+                           "value":"{{receiptId}}"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Stream (octet-stream)",
+                     "status":"OK",
+                     "code":200,
+                     "body":""
+                  },
+                  {
+                     "name":"402 Quota/Expired",
+                     "status":"Payment Required",
+                     "code":402,
+                     "body":"{ \"error\": \"insufficient bandwidth or expired receipt\" }"
+                  }
+               ]
+            }
+         ]
+      },
+      {
+         "name":"Producers",
+         "item":[
+            {
+               "name":"Register Producer",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/producers/register",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "producers",
+                        "register"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"identityKey\": \"{{producerId}}\",\n \"payoutTarget\": \"paymail@example.com\",\n \"displayName\": \"Demo Producer\",\n \"contact\": \"https://example.com/contact\",\n \"attrs\": { \"enterprise\": true }\n}"
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Registered",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{ \"status\": \"ok\", \"producerId\": \"{{producerId}}\" }"
+                  }
+               ]
+            },
+            {
+               "name":"Upsert Price Rule",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/producers/price",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "producers",
+                        "price"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"producerId\": \"{{producerId}}\",\n \"pattern\": \"manifest:{{manifestHash}}\",\n \"unit\": \"sat/byte\",\n \"basePrice\": 0.00002,\n \"tiers\": { \"gold\": 1.5, \"silver\": 1.2 },\n \"requiredAttrs\": []\n}"
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Price Upserted",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{ \"status\": \"ok\" }"
+                  }
+               ]
+            },
+            {
+               "name":"Producer Revenue",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/producers/revenue?producerId={{producerId}}&period={{period}}&limit=50&offset=0",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "producers",
+                        "revenue"
+                     ],
+                     "query":[
+                        {
+                           "key":"producerId",
+                           "value":"{{producerId}}"
+                        },
+                        {
+                           "key":"period",
+                           "value":"{{period}}"
+                        },
+                        {
+                           "key":"limit",
+                           "value":"50"
+                        },
+                        {
+                           "key":"offset",
+                           "value":"0"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Revenue",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{\n \"profile\": { \"producerId\": \"{{producerId}}\", \"displayName\": \"Demo Producer\" },\n \"period\": { \"days\": 30, \"since\": 1726520000, \"now\": 1729120000 },\n \"totals\": { \"grossSat\": 4096, \"quantity\": 2097152 },\n \"events\": [\n { \"resource\": \"{{resource}}\", \"amountSat\": 2048, \"quantity\": 1048576, \"tier\": \"{{class}}\", \"ts\": 1729000000 }\n ]\n}"
+                  }
+               ]
+            },
+            {
+               "name":"Producer Dashboard",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/producers/dashboard?producerId={{producerId}}",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "producers",
+                        "dashboard"
+                     ],
+                     "query":[
+                        {
+                           "key":"producerId",
+                           "value":"{{producerId}}"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Dashboard",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{\n \"profile\": { \"producerId\": \"{{producerId}}\", \"displayName\": \"Demo Producer\", \"payoutTarget\": \"paymail@example.com\" },\n \"pricebook\": [\n { \"pattern\": \"manifest:{{manifestHash}}\", \"unit\": \"sat/byte\", \"basePrice\": 0.00002, \"tiers\": { \"gold\": 1.5 } }\n ],\n \"revenue30d\": { \"grossSat\": 4096, \"events\": 2 }\n}"
+                  }
+               ]
+            }
+         ]
+      },
+      {
+         "name":"Ops",
+         "item":[
+            {
+               "name":"Health",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/health",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "health"
+                     ]
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 OK",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{ \"ok\": true }"
+                  }
+               ]
+            },
+            {
+               "name":"Metrics",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/metrics",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "metrics"
+                     ]
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Metrics",
+                     "status":"OK",
+                     "code":200,
+                     "body":"{\n \"admissionsPerSec\": 1.2,\n \"proofLatencyMsP95\": 140,\n \"bundleLatencyMsP95\": 220,\n \"cacheHits\": 0.92,\n \"errors4xx\": 3,\n \"errors5xx\": 0\n}"
+                  }
+               ]
+            }
+         ]
+      }
+   ]
+}
