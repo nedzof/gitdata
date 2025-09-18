@@ -105,18 +105,18 @@ export function pushdataHeaderLen(len: number): number {
   return 5;
 }
 
-/** Script length for OP_FALSE OP_RETURN (single push) */
-export function opReturnScriptLen(dataLen: number): number {
-  const opcodes = 2; // OP_FALSE, OP_RETURN
-  return opcodes + pushdataHeaderLen(dataLen) + dataLen;
-}
-
 /** Bitcoin varint size for N */
 export function varIntSize(n: number): number {
   if (n < 0xfd) return 1;
   if (n <= 0xffff) return 3; // 0xfd + 2 bytes
   if (n <= 0xffffffff) return 5; // 0xfe + 4 bytes
   return 9; // 0xff + 8 bytes
+}
+
+/** Script length for OP_FALSE OP_RETURN (single push) */
+export function opReturnScriptLen(dataLen: number): number {
+  const opcodes = 2; // OP_FALSE, OP_RETURN
+  return opcodes + pushdataHeaderLen(dataLen) + dataLen;
 }
 
 /** Serialized output size: 8 (value) + varint(scriptLen) + scriptLen */
