@@ -76,5 +76,5 @@ jobs:
         with:
           context: .
           push: ${{ secrets.DOCKERHUB_USERNAME && secrets.DOCKERHUB_TOKEN }}
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/genius-overlay:${{ github.sha }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/gitdata-overlay:${{ github.sha }}
           platforms: linux/amd64

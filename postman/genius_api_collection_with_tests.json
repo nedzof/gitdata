@@ -1,6 +1,6 @@
 {
    "info":{
-      "name":"Genius System Overlay API (MVP) — Full Suite + Tests",
+      "name":"Gitdata Overlay API (MVP) — Full Suite + Tests",
       "postmanid":"0e9b2d4e-90a3-4a09-b6d4-99b1d0c0abcd",
       "description":"SPV-first, vendor-neutral overlay API for verifiable data lineage on BSV.\nThis collection includes tests and variable chaining for:\n- submit → bundle → resolve\n- ready → advisory flip → ready false\n- price → pay → data\n- producer registry, pricing, revenue, dashboard\n- ops (health, metrics)\nVariables are pulled from the environment and then refined via collection variables as the run proceeds.",
       "schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"

@@ -1,5 +1,5 @@
 /**
- * Minimal SDK client for Genius System Overlay (MVP)
+ * Minimal SDK client for Gitdata System Overlay (MVP)
  * - No external deps
  * - Fetch-injected for testability
  * - Types reflect OpenAPI shapes used most often
@@ -56,7 +56,7 @@ export type Receipt = {
   attrs?: Record<string, unknown>;
 };
 
-export class GeniusClient {
+export class GitdataClient {
   constructor(
     private baseUrl: string,
     private fetchImpl: typeof fetch = fetch, // allow DI in tests

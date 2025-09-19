@@ -1,9 +1,9 @@
 // src/example.ts
-import { GeniusClient } from './sdk';
+import { GitdataClient } from './sdk';
 import { verifyBundle } from './sdk/verify';
 
 const overlay = process.env.OVERLAY_URL || 'http://localhost:8788';
-const client = new GeniusClient(overlay);
+const client = new GitdataClient(overlay);
 
 // Ready gate
 const ready = await client.ready('aaaaaaaa...hex', { minConfs: 1, classificationAllowList: ['public'] });

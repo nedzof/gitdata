@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Genius System Overlay API (MVP)
+  title: Gitdata Overlay API (MVP)
   version: "1.0.0"
   description: >
     SPV-first, vendor-neutral overlay API for verifiable data lineage, payments, and receipt-gated access on Bitcoin SV.

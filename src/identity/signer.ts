@@ -1,7 +1,7 @@
 /**
  * Identity signer (BRC-31 style) for protected requests.
  * - secp256k1 compressed keys (hex)
- * - Signature over a domain-separated preimage: "Genius-Req|v1|" + nonce + "|" + sha256hex(body)
+ * - Signature over a domain-separated preimage: "Gitdata-Req|v1|" + nonce + "|" + sha256hex(body)
  *
  * Notes:
  * - Keep the preimage stable to avoid header replay ambiguity.
@@ -39,7 +39,7 @@ function randomNonce(): string {
  */
 export function buildPreimage(body: string, nonce: string): string {
   const bodyHash = sha256hex(utf8(body ?? ''));
-  return `Genius-Req|v1|${nonce}|${bodyHash}`;
+  return `Gitdata-Req|v1|${nonce}|${bodyHash}`;
 }
 
 // ---------- signer ----------

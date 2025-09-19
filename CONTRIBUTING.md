@@ -1,4 +1,4 @@
-# Contributing to Genius System (MVP)
+# Contributing to Gitdata (MVP)
 
 Thank you for contributing! This document defines the engineering rails (structure, standards, CI) so we stay fast, consistent, and safe. It also includes ready-to-use configs for ESLint/Prettier and a GitHub Actions CI workflow.
 
