@@ -51,6 +51,8 @@ export function payRouter(db: Database.Database): Router {
         status: 'pending',
         created_at: now,
         expires_at: expiresAt,
+        bytes_used: 0,
+        last_seen: null,
       });
 
       // Simple revenue log entry (pending)

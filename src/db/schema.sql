@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS prices (
   satoshis INTEGER NOT NULL
 );
 
+-- Receipts: add counters bytes_used and last_seen for D07
 CREATE TABLE IF NOT EXISTS receipts (
   receipt_id TEXT PRIMARY KEY,
   version_id TEXT NOT NULL,
@@ -45,7 +46,9 @@ CREATE TABLE IF NOT EXISTS receipts (
   amount_sat INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending', -- 'pending'|'paid'|'consumed'|'expired'
   created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL
+  expires_at INTEGER NOT NULL,
+  bytes_used INTEGER NOT NULL DEFAULT 0,
+  last_seen INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS prices (

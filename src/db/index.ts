@@ -35,6 +35,8 @@ export type ReceiptRow = {
   status: 'pending' | 'paid' | 'consumed' | 'expired';
   created_at: number;
   expires_at: number;
+  bytes_used: number;
+  last_seen: number | null;
 };
 
 export type RevenueEventRow = {
@@ -171,10 +173,10 @@ export function listListings(db: Database.Database, limit = 50, offset = 0) {
 }
 
 /* Receipts */
-export function insertReceipt(db: Database.Database, row: ReceiptRow) {
+export function insertReceipt(db: Database.Database, row: Omit<ReceiptRow, 'bytes_used' | 'last_seen'> & Partial<Pick<ReceiptRow, 'bytes_used' | 'last_seen'>>) {
   const stmt = db.prepare(`
-    INSERT INTO receipts(receipt_id, version_id, quantity, content_hash, amount_sat, status, created_at, expires_at)
-    VALUES (@receipt_id, @version_id, @quantity, @content_hash, @amount_sat, @status, @created_at, @expires_at)
+    INSERT INTO receipts(receipt_id, version_id, quantity, content_hash, amount_sat, status, created_at, expires_at, bytes_used, last_seen)
+    VALUES (@receipt_id, @version_id, @quantity, @content_hash, @amount_sat, @status, @created_at, @expires_at, COALESCE(@bytes_used,0), @last_seen)
   `);
   stmt.run(row as any);
 }
@@ -188,7 +190,23 @@ export function setReceiptStatus(
   receiptId: string,
   status: ReceiptRow['status'],
 ) {
-  db.prepare('UPDATE receipts SET status = ? WHERE receipt_id = ?').run(status, receiptId);
+  db.prepare('UPDATE receipts SET status = ?, last_seen = ? WHERE receipt_id = ?').run(status, Math.floor(Date.now()/1000), receiptId);
+}
+
+export function updateReceiptUsage(
+  db: Database.Database,
+  receiptId: string,
+  addBytes: number,
+) {
+  const now = Math.floor(Date.now() / 1000);
+  const tx = db.transaction(() => {
+    const r = getReceipt(db, receiptId);
+    if (!r) throw new Error('receipt-not-found');
+    const newBytes = (r.bytes_used || 0) + addBytes;
+    db.prepare('UPDATE receipts SET bytes_used = ?, last_seen = ? WHERE receipt_id = ?')
+      .run(newBytes, now, receiptId);
+  });
+  tx();
 }
 
 /* Revenue log */
