@@ -1,35 +1,39 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
-import {
-  getDeclarationByVersion,
-  getManifest,
-  getParents,
-  listListings,
-} from '../db';
-import { loadHeaders, verifyEnvelopeAgainstHeaders, type HeadersIndex } from '../spv/verify-envelope';
+import { getDeclarationByVersion, getManifest, getParents } from '../db';
+import { verifyEnvelopeAgainstHeaders } from '../spv/verify-envelope';
+import { getHeadersSnapshot } from '../spv/headers-cache';
+import { bundlesGet, bundlesSet, bundlesInvalidate, bundlesKey } from '../cache/bundles';
 
 const BUNDLE_MAX_DEPTH = Number(process.env.BUNDLE_MAX_DEPTH || 8);
 const POLICY_MIN_CONFS = Number(process.env.POLICY_MIN_CONFS || 1);
-const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
-
-let headersIdx: HeadersIndex | null = null;
-function ensureHeaders(): HeadersIndex {
-  if (!headersIdx) headersIdx = loadHeaders(HEADERS_FILE);
-  return headersIdx!;
+const VALIDATE_BUNDLE = /^true$/i.test(process.env.BUNDLE_VALIDATE || 'false');
+// Note: runtime schema validation optional (init validator only if enabled)
+let validatorReady = false;
+let validateBundleFn: ((doc: unknown) => { ok: boolean; errors?: any }) | null = null;
+function ensureValidator() {
+  if (!VALIDATE_BUNDLE || validatorReady) return;
+  const { initBundleValidator, validateBundle } = require('../validators/bundle');
+  initBundleValidator();
+  validateBundleFn = validateBundle;
+  validatorReady = true;
 }
 
+type NodeOut = { versionId: string; manifestHash: string; txo: string };
+type EdgeOut = { child: string; parent: string };
+
 async function collectLineage(db: Database.Database, root: string, depth = BUNDLE_MAX_DEPTH) {
-  const nodes: { versionId: string; manifestHash: string; txo: string }[] = [];
-  const edges: { child: string; parent: string }[] = [];
+  const nodes: NodeOut[] = [];
+  const edges: EdgeOut[] = [];
   const manifestsArr: any[] = [];
   const proofsArr: any[] = [];
 
   const visited = new Set<string>();
-  const stack: string[] = [root];
+  const stack: Array<{ v: string; d: number }> = [{ v: root, d: 0 }];
 
-  while (stack.length && visited.size < 1000) {
-    const v = stack.pop()!;
+  while (stack.length) {
+    const { v, d } = stack.pop()!;
     if (visited.has(v)) continue;
     visited.add(v);
 
@@ -37,28 +41,24 @@ async function collectLineage(db: Database.Database, root: string, depth = BUNDL
     const man = getManifest(db, v);
     if (!man) throw new Error(`missing-manifest:${v}`);
 
-    // Parse txo (discover vout only if we stored it; default to :0 for MVP)
     const vout = decl?.opret_vout ?? 0;
     const txo = decl?.txid ? `${decl.txid}:${vout}` : `${'0'.repeat(64)}:0`;
 
     nodes.push({ versionId: v, manifestHash: man.manifest_hash, txo });
     manifestsArr.push({ manifestHash: man.manifest_hash, manifest: JSON.parse(man.manifest_json) });
 
-    // Envelope (must exist and be valid for MVP bundle)
     if (decl?.proof_json) {
       const envelope = JSON.parse(decl.proof_json);
       proofsArr.push({ versionId: v, envelope });
     } else {
-      // No envelope persisted yet
       throw new Error(`missing-envelope:${v}`);
     }
 
-    // Parents
-    if (depth > 0) {
+    if (d < depth) {
       const parents = getParents(db, v);
       for (const p of parents) {
         edges.push({ child: v, parent: p });
-        stack.push(p);
+        if (!visited.has(p)) stack.push({ v: p, d: d + 1 });
       }
     }
   }
@@ -66,8 +66,30 @@ async function collectLineage(db: Database.Database, root: string, depth = BUNDL
   return { nodes, edges, manifestsArr, proofsArr };
 }
 
+/**
+ * Recompute confirmations for a cached bundle using current headers snapshot.
+ * Also enforce POLICY_MIN_CONFS; if violated, return { ok:false, reason }.
+ */
+async function recomputeConfsAndEnforce(
+  bundle: any,
+): Promise<{ ok: boolean; reason?: string }> {
+  const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
+  const idx = getHeadersSnapshot(HEADERS_FILE);
+  for (const p of bundle.proofs as any[]) {
+    const env = p.envelope;
+    const vr = await verifyEnvelopeAgainstHeaders(env, idx, POLICY_MIN_CONFS);
+    if (!vr.ok) {
+      return { ok: false, reason: vr.reason };
+    }
+    p.envelope.confirmations = vr.confirmations ?? 0; // dynamic
+  }
+  return { ok: true };
+}
+
 export function bundleRouter(db: Database.Database): Router {
   const router = makeRouter();
+
+  ensureValidator();
 
   router.get('/bundle', async (req: Request, res: Response) => {
     try {
@@ -75,18 +97,40 @@ export function bundleRouter(db: Database.Database): Router {
       if (!/^[0-9a-fA-F]{64}$/.test(versionId)) {
         return res.status(400).json({ error: 'bad-request', hint: 'Provide versionId=64-hex' });
       }
+      const depth = Number(req.query.depth || BUNDLE_MAX_DEPTH);
+      const key = bundlesKey(versionId, depth);
 
-      const { nodes, edges, manifestsArr, proofsArr } = await collectLineage(db, versionId, BUNDLE_MAX_DEPTH);
+      // 1) Try cache
+      const cached = bundlesGet(key);
+      if (cached) {
+        // Use a shallow copy so we don't mutate the cache body
+        const body = JSON.parse(JSON.stringify(cached.body));
+        const re = await recomputeConfsAndEnforce(body);
+        if (!re.ok) {
+          // If policy now fails (e.g., reorg or threshold), invalidate cache and fall through to rebuild
+          bundlesInvalidate(key);
+        } else {
+          if (VALIDATE_BUNDLE && validateBundleFn) {
+            const vb = validateBundleFn(body);
+            if (!vb.ok) return res.status(500).json({ error: 'bundle-schema-invalid', details: vb.errors });
+          }
+          res.setHeader('x-cache', 'hit');
+          return res.status(200).json(body);
+        }
+      }
 
-      // Verify each SPV envelope before serving (SPV-first)
-      const idx = ensureHeaders();
+      // 2) Build fresh
+      const { nodes, edges, manifestsArr, proofsArr } = await collectLineage(db, versionId, depth);
+
+      // Verify & compute confirmations with current headers
+      const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
+      const idx = getHeadersSnapshot(HEADERS_FILE);
       for (const p of proofsArr) {
         const env = p.envelope;
         const vr = await verifyEnvelopeAgainstHeaders(env, idx, POLICY_MIN_CONFS);
         if (!vr.ok) {
           return res.status(409).json({ error: 'invalid-envelope', versionId: p.versionId, reason: vr.reason });
         }
-        // update confirmations for freshness
         p.envelope.confirmations = vr.confirmations ?? 0;
       }
 
@@ -98,6 +142,14 @@ export function bundleRouter(db: Database.Database): Router {
         proofs: proofsArr,
       };
 
+      if (VALIDATE_BUNDLE && validateBundleFn) {
+        const vb = validateBundleFn(bundle);
+        if (!vb.ok) return res.status(500).json({ error: 'bundle-schema-invalid', details: vb.errors });
+      }
+
+      // 3) Cache (structure only). confirmations dynamic on future reads.
+      bundlesSet(key, bundle, true);
+      res.setHeader('x-cache', 'miss');
       return res.status(200).json(bundle);
     } catch (e: any) {
       const msg = String(e?.message || e);
