@@ -26,6 +26,7 @@ import { runPaymentsMigrations, paymentsRouter, reconcilePayments } from './src/
 import { storageRouter } from './src/routes/storage';
 import { createStorageEventsMigration } from './src/storage/lifecycle';
 import { runIngestMigrations, ingestRouter, startIngestWorker } from './src/ingest';
+import { startJobsWorker } from './src/agents/worker';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,6 +39,9 @@ app.use(express.json({ limit: BODY_SIZE_LIMIT }));
 
 // D12: Audit logging for all requests
 app.use(auditLogger());
+
+// UI - serve SvelteKit build BEFORE rate limiting
+app.use(express.static(path.join(__dirname, 'ui/build')));
 
 // DB
 const db = openDb();
@@ -71,7 +75,7 @@ app.use(rateLimit('ready'), readyRouter(db));
 app.use(rateLimit('price'), priceRouter(db));
 app.use(rateLimit('pay'), payRouter(db));
 app.use(rateLimit('data'), dataRouter(db));
-app.use(rateLimit('submit'), listingsRouter(db));
+app.use('/listings', rateLimit('submit'), listingsRouter(db));
 app.use(rateLimit('submit'), producersRouter(db));
 app.use(rateLimit('submit'), advisoriesRouter(db));
 
@@ -127,6 +131,9 @@ if (process.env.A2A_WORKER_ENABLED === 'true') {
 // D23: Start ingest worker for real-time event processing
 const stopIngestWorker = startIngestWorker(db);
 
+// D24: Start jobs worker for agent marketplace automation
+const stopJobsWorker = startJobsWorker(db);
+
 // D21: Initialize payments reconciliation job
 if (process.env.PAYMENTS_RECONCILE_ENABLED !== 'false') {
   setInterval(() => {
@@ -144,6 +151,7 @@ process.on('SIGINT', () => {
     jobProcessor.stop();
   }
   stopIngestWorker();
+  stopJobsWorker();
   process.exit(0);
 });
 
@@ -153,11 +161,11 @@ process.on('SIGTERM', () => {
     jobProcessor.stop();
   }
   stopIngestWorker();
+  stopJobsWorker();
   process.exit(0);
 });
 
-// UI
-app.use(express.static(path.join(__dirname, 'public')));
+// UI static files already served above before rate limiting
 
 // Start
 const PORT = Number(process.env.OVERLAY_PORT || 8788);
