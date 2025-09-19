@@ -59,6 +59,16 @@ export type RevenueEventRow = {
   type: 'pay' | 'refund' | 'adjust';
 };
 
+export type PriceRule = {
+  rule_id?: number;
+  version_id?: string | null;
+  producer_id?: string | null;
+  tier_from: number;
+  satoshis: number;
+  created_at: number;
+  updated_at: number;
+};
+
 export function openDb(dbPath = process.env.DB_PATH || './data/overlay.db') {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
@@ -276,4 +286,111 @@ export function logRevenue(db: Database.Database, ev: RevenueEventRow) {
     VALUES (@receipt_id, @version_id, @amount_sat, @quantity, @created_at, @type)
   `);
   stmt.run(ev as any);
+}
+
+/* Producers + Manifests (from D08) */
+export function getProducerIdForVersion(db: Database.Database, versionId: string): string | null {
+  const r = db.prepare('SELECT producer_id FROM manifests WHERE version_id = ?').get(versionId) as any;
+  return r?.producer_id || null;
+}
+
+/* Price rules (D09) */
+export function upsertPriceRule(db: Database.Database, rule: { version_id?: string | null; producer_id?: string | null; tier_from: number; satoshis: number }) {
+  const now = Math.floor(Date.now() / 1000);
+  const { version_id = null, producer_id = null, tier_from, satoshis } = rule;
+  if (!version_id && !producer_id) throw new Error('scope-required');
+  if (tier_from < 1 || !Number.isInteger(tier_from)) throw new Error('invalid-tier');
+  if (!Number.isInteger(satoshis) || satoshis <= 0) throw new Error('invalid-satoshis');
+
+  if (version_id) {
+    db.prepare(`
+      INSERT INTO price_rules(version_id, producer_id, tier_from, satoshis, created_at, updated_at)
+      VALUES (?, NULL, ?, ?, ?, ?)
+      ON CONFLICT(version_id, tier_from) DO UPDATE SET
+        satoshis = excluded.satoshis,
+        updated_at = excluded.updated_at
+    `).run(version_id.toLowerCase(), tier_from, satoshis, now, now);
+    return;
+  }
+  if (producer_id) {
+    db.prepare(`
+      INSERT INTO price_rules(version_id, producer_id, tier_from, satoshis, created_at, updated_at)
+      VALUES (NULL, ?, ?, ?, ?, ?)
+      ON CONFLICT(producer_id, tier_from) DO UPDATE SET
+        satoshis = excluded.satoshis,
+        updated_at = excluded.updated_at
+    `).run(producer_id, tier_from, satoshis, now, now);
+  }
+}
+
+export function deletePriceRule(db: Database.Database, where: { version_id?: string | null; producer_id?: string | null; tier_from?: number | null }) {
+  const { version_id = null, producer_id = null, tier_from = null } = where;
+  if (!version_id && !producer_id) throw new Error('scope-required');
+  if (version_id) {
+    if (tier_from) {
+      db.prepare('DELETE FROM price_rules WHERE version_id = ? AND tier_from = ?').run(version_id.toLowerCase(), tier_from);
+    } else {
+      db.prepare('DELETE FROM price_rules WHERE version_id = ?').run(version_id.toLowerCase());
+    }
+    return;
+  }
+  if (producer_id) {
+    if (tier_from) {
+      db.prepare('DELETE FROM price_rules WHERE producer_id = ? AND tier_from = ?').run(producer_id, tier_from);
+    } else {
+      db.prepare('DELETE FROM price_rules WHERE producer_id = ?').run(producer_id);
+    }
+  }
+}
+
+/**
+ * Resolve best-matching unit price for (versionId, quantity)
+ * Priority:
+ *   1) Version-scoped rules: highest tier_from <= quantity
+ *   2) Version override (prices table)
+ *   3) Producer-scoped rules: highest tier_from <= quantity (via manifests.producer_id)
+ *   4) Default PRICE_DEFAULT_SATS
+ */
+export function getBestUnitPrice(
+  db: Database.Database,
+  versionId: string,
+  quantity: number,
+  defaultSats: number,
+): { satoshis: number; source: 'version-rule' | 'version-override' | 'producer-rule' | 'default'; tier_from?: number; producer_id?: string | null } {
+  const qty = Math.max(1, Math.floor(quantity || 1));
+  const vid = versionId.toLowerCase();
+
+  // 1) Version-scoped rules
+  const vRule = db.prepare(`
+    SELECT tier_from, satoshis FROM price_rules
+    WHERE version_id = ? AND tier_from <= ?
+    ORDER BY tier_from DESC
+    LIMIT 1
+  `).get(vid, qty) as any;
+  if (vRule?.satoshis) {
+    return { satoshis: Number(vRule.satoshis), source: 'version-rule', tier_from: Number(vRule.tier_from) };
+  }
+
+  // 2) Version override (D05)
+  const vOverride = getPrice(db, vid);
+  if (typeof vOverride === 'number') {
+    return { satoshis: vOverride, source: 'version-override' };
+  }
+
+  // 3) Producer-scoped rules
+  const pid = getProducerIdForVersion(db, vid);
+  if (pid) {
+    const pRule = db.prepare(`
+      SELECT tier_from, satoshis FROM price_rules
+      WHERE producer_id = ? AND tier_from <= ?
+      ORDER BY tier_from DESC
+      LIMIT 1
+    `).get(pid, qty) as any;
+    if (pRule?.satoshis) {
+      return { satoshis: Number(pRule.satoshis), source: 'producer-rule', tier_from: Number(pRule.tier_from), producer_id: pid };
+    }
+  }
+
+  // 4) Default
+  return { satoshis: defaultSats, source: 'default' };
 }
