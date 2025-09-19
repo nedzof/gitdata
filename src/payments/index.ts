@@ -29,13 +29,17 @@ import { createHash } from 'crypto';
 
 // ------------ ENV / Config helpers ------------
 
-const PAY_SPLITS_JSON = process.env.PAY_SPLITS_JSON || '{"overlay":0.05,"producer":0.95}';
-const PAY_SCRIPTS_JSON = process.env.PAY_SCRIPTS_JSON || '{"overlay":""}';
-const PAY_PROVIDERS_JSON = process.env.PAY_PROVIDERS_JSON || '[]';
-const BROADCAST_MODE = (process.env.BROADCAST_MODE || 'dryrun').toLowerCase();
-const POLICY_MIN_CONFS = Number(process.env.POLICY_MIN_CONFS || 1);
-const QUOTE_TTL_SEC = Number(process.env.QUOTE_TTL_SEC || 120);
-const PAY_STRICT = /^true$/i.test(String(process.env.PAY_STRICT || 'true'));
+function getEnvConfig() {
+  return {
+    PAY_SPLITS_JSON: process.env.PAY_SPLITS_JSON || '{"overlay":0.05,"producer":0.95}',
+    PAY_SCRIPTS_JSON: process.env.PAY_SCRIPTS_JSON || '{"overlay":""}',
+    PAY_PROVIDERS_JSON: process.env.PAY_PROVIDERS_JSON || '[]',
+    BROADCAST_MODE: (process.env.BROADCAST_MODE || 'dryrun').toLowerCase(),
+    POLICY_MIN_CONFS: Number(process.env.POLICY_MIN_CONFS || 1),
+    QUOTE_TTL_SEC: Number(process.env.QUOTE_TTL_SEC || 120),
+    PAY_STRICT: /^true$/i.test(String(process.env.PAY_STRICT || 'true'))
+  };
+}
 
 type Splits = Record<string, number>;
 type PayoutScripts = Record<string, string>;
@@ -84,30 +88,23 @@ export function runPaymentsMigrations(db: Database.Database) {
     console.warn('[payments.migration] producers table missing or unmanaged in this scaffold.');
   }
 
-  // revenue_events table - check if exists and has proper columns
+  // Create payment_events table for D21 (separate from existing revenue_events)
   try {
-    const tableExists = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='revenue_events'`).get();
-    if (!tableExists) {
-      db.prepare(`
-        CREATE TABLE revenue_events (
-          event_id TEXT PRIMARY KEY,
-          type TEXT NOT NULL,            -- payment-quoted | payment-submitted | payment-confirmed | refund
-          receipt_id TEXT,
-          txid TEXT,
-          details_json TEXT,
-          created_at INTEGER NOT NULL
-        )
-      `).run();
-    } else {
-      // Add missing columns to existing table
-      ensureColumn(db, 'revenue_events', 'txid', 'TEXT');
-      ensureColumn(db, 'revenue_events', 'details_json', 'TEXT');
-    }
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS payment_events (
+        event_id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,            -- payment-quoted | payment-submitted | payment-confirmed | refund
+        receipt_id TEXT,
+        txid TEXT,
+        details_json TEXT,
+        created_at INTEGER NOT NULL
+      )
+    `).run();
 
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_revenue_events_type ON revenue_events(type)`).run();
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_revenue_events_receipt ON revenue_events(receipt_id)`).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_payment_events_type ON payment_events(type)`).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_payment_events_receipt ON payment_events(receipt_id)`).run();
   } catch (e) {
-    console.warn('[payments.migration] revenue_events table handling failed:', e);
+    console.warn('[payments.migration] payment_events table creation failed:', e);
   }
 }
 
@@ -153,9 +150,9 @@ function setReceiptConfirmed(db: Database.Database, receiptId: string) {
   db.prepare(`UPDATE receipts SET status='confirmed' WHERE receipt_id=?`).run(receiptId);
 }
 
-function logRevenueEvent(db: Database.Database, type: string, receiptId: string | null, txid: string | null, details: any) {
-  const id = 'rev_' + Math.random().toString(16).slice(2) + Date.now().toString(16);
-  db.prepare(`INSERT INTO revenue_events(event_id, type, receipt_id, txid, details_json, created_at) VALUES (?,?,?,?,?,?)`)
+function logPaymentEvent(db: Database.Database, type: string, receiptId: string | null, txid: string | null, details: any) {
+  const id = 'pay_' + Math.random().toString(16).slice(2) + Date.now().toString(16);
+  db.prepare(`INSERT INTO payment_events(event_id, type, receipt_id, txid, details_json, created_at) VALUES (?,?,?,?,?,?)`)
     .run(id, type, receiptId, txid, JSON.stringify(details || {}), nowSec());
 }
 
@@ -182,9 +179,12 @@ function buildPaymentTemplate(db: Database.Database, receipt: PaymentReceiptRow)
 
   const quantity = Math.max(1, Number(receipt.quantity || 1));
 
+  // Get dynamic environment configuration
+  const config = getEnvConfig();
+
   // splits configuration
-  const splits: Splits = safeParse<Splits>(PAY_SPLITS_JSON, { overlay: 0.05, producer: 0.95 });
-  const scripts: PayoutScripts = safeParse<PayoutScripts>(PAY_SCRIPTS_JSON, { overlay: '' });
+  const splits: Splits = safeParse<Splits>(config.PAY_SPLITS_JSON, { overlay: 0.05, producer: 0.95 });
+  const scripts: PayoutScripts = safeParse<PayoutScripts>(config.PAY_SCRIPTS_JSON, { overlay: '' });
 
   // resolve producer payout script
   const producer = getProducerByVersion(db, receipt.version_id);
@@ -199,8 +199,10 @@ function buildPaymentTemplate(db: Database.Database, receipt: PaymentReceiptRow)
     if (name === 'overlay') scriptHex = scripts.overlay || '';
     if (name === 'producer') scriptHex = producerScript;
     if (!scriptHex) continue; // skip unknown leg
-    outputs.push({ scriptHex, satoshis: raw });
-    allocated += raw;
+    if (raw > 0) { // only add outputs with positive amounts
+      outputs.push({ scriptHex, satoshis: raw });
+      allocated += raw;
+    }
   }
 
   // push remainder (dust rounding) to producer if present, else to first output
@@ -219,7 +221,7 @@ function buildPaymentTemplate(db: Database.Database, receipt: PaymentReceiptRow)
   const templateHash = sha256hex(canonical);
 
   // TTL
-  const expiresAt = nowSec() + QUOTE_TTL_SEC;
+  const expiresAt = nowSec() + config.QUOTE_TTL_SEC;
 
   return { amountSat, outputs, templateHash, expiresAt };
 }
@@ -284,7 +286,7 @@ export function paymentsRouter(db: Database.Database): Router {
 
       const tpl = buildPaymentTemplate(db, r);
       setReceiptQuote(db, receiptId, tpl.templateHash, tpl.expiresAt);
-      logRevenueEvent(db, 'payment-quoted', receiptId, null, { templateHash: tpl.templateHash, expiresAt: tpl.expiresAt });
+      logPaymentEvent(db, 'payment-quoted', receiptId, null, { templateHash: tpl.templateHash, expiresAt: tpl.expiresAt });
 
       return json(res, 200, {
         versionId: r.version_id,
@@ -328,13 +330,14 @@ export function paymentsRouter(db: Database.Database): Router {
       }
 
       // Broadcast via mAPI (or dryrun)
-      const providers = safeParse<string[]>(PAY_PROVIDERS_JSON, []);
-      const mode = BROADCAST_MODE === 'live' ? 'live' : 'dryrun';
+      const config = getEnvConfig();
+      const providers = safeParse<string[]>(config.PAY_PROVIDERS_JSON, []);
+      const mode = config.BROADCAST_MODE === 'live' ? 'live' : 'dryrun';
       const b = await broadcastTx(rawTxHex, providers, mode);
 
       // Persist payment fields
       setReceiptPaid(db, receiptId, b.txid, 0, tpl.outputs);
-      logRevenueEvent(db, 'payment-submitted', receiptId, b.txid, { provider: b.provider, mapi: b.mapi, mode });
+      logPaymentEvent(db, 'payment-submitted', receiptId, b.txid, { provider: b.provider, mapi: b.mapi, mode });
 
       return json(res, 200, { status: 'accepted', txid: b.txid, mapi: b.mapi });
     } catch (e: any) {
@@ -383,9 +386,10 @@ export async function reconcilePayments(db: Database.Database) {
     const txid = String(row.payment_txid);
     try {
       const confs = await verifyTxSPV(txid);
-      if (confs >= POLICY_MIN_CONFS) {
+      const config = getEnvConfig();
+      if (confs >= config.POLICY_MIN_CONFS) {
         setReceiptConfirmed(db, row.receipt_id);
-        logRevenueEvent(db, 'payment-confirmed', row.receipt_id, txid, { confs });
+        logPaymentEvent(db, 'payment-confirmed', row.receipt_id, txid, { confs });
       }
     } catch (e: any) {
       // keep as paid; reconcile will try again later

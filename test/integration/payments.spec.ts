@@ -41,9 +41,7 @@ describe('D21 Payments Integration Tests', () => {
       .post('/payments/quote')
       .send({ receiptId: 'receipt-1' });
 
-    if (response.status !== 200) {
-      console.log('Quote error response:', response.body);
-    }
+    // Quote should succeed
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       versionId: 'ver-1',
@@ -185,17 +183,26 @@ describe('D21 Payments Integration Tests', () => {
   });
 
   test('Payment splits should allocate correctly', async () => {
-    // Set environment for custom splits (90% producer, 10% overlay)
+    // Restart app with custom environment
+    const oldSplits = process.env.PAY_SPLITS_JSON;
+    const oldScripts = process.env.PAY_SCRIPTS_JSON;
+
     process.env.PAY_SPLITS_JSON = '{"overlay":0.10,"producer":0.90}';
     process.env.PAY_SCRIPTS_JSON = '{"overlay":"76a914overlay88ac"}';
 
-    const response = await request(app)
+    // Create new app instance with updated environment
+    const testApp = express();
+    testApp.use(express.json({ limit: '1mb' }));
+    testApp.use(paymentsRouter(db));
+
+    const response = await request(testApp)
       .post('/payments/quote')
       .send({ receiptId: 'receipt-1' });
 
     expect(response.status).toBe(200);
 
     const outputs = response.body.outputs;
+    // Outputs received with proper splits
     expect(outputs).toHaveLength(2);
 
     // Check splits: 5000 * 0.10 = 500 for overlay, 4500 for producer
@@ -206,8 +213,10 @@ describe('D21 Payments Integration Tests', () => {
     expect(producerOutput.satoshis).toBe(4500);
 
     // Cleanup env
-    delete process.env.PAY_SPLITS_JSON;
-    delete process.env.PAY_SCRIPTS_JSON;
+    if (oldSplits) process.env.PAY_SPLITS_JSON = oldSplits;
+    else delete process.env.PAY_SPLITS_JSON;
+    if (oldScripts) process.env.PAY_SCRIPTS_JSON = oldScripts;
+    else delete process.env.PAY_SCRIPTS_JSON;
   });
 
   test('Revenue events should be logged correctly', async () => {
@@ -217,8 +226,8 @@ describe('D21 Payments Integration Tests', () => {
     const rawTxHex = '0100000001000000000000000000000000000000000000000000000000000000000000000000000000ffffffff01f401000000000000001976a914deadbeef88ac00000000';
     await request(app).post('/payments/submit').send({ receiptId: 'receipt-1', rawTxHex });
 
-    // Check revenue events
-    const events = db.prepare('SELECT * FROM revenue_events WHERE receipt_id = ? ORDER BY created_at').all('receipt-1') as any[];
+    // Check payment events
+    const events = db.prepare('SELECT * FROM payment_events WHERE receipt_id = ? ORDER BY created_at').all('receipt-1') as any[];
 
     expect(events).toHaveLength(2);
     expect(events[0].type).toBe('payment-quoted');
