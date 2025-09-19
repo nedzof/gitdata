@@ -122,3 +122,51 @@ CREATE TABLE IF NOT EXISTS advisory_targets (
 
 CREATE INDEX IF NOT EXISTS idx_adv_targets_version ON advisory_targets(version_id);
 CREATE INDEX IF NOT EXISTS idx_adv_targets_producer ON advisory_targets(producer_id);
+
+-- D16: Agent Marketplace (A2A)
+CREATE TABLE IF NOT EXISTS agents (
+  agent_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  capabilities_json TEXT NOT NULL,           -- JSON array of capabilities
+  webhook_url TEXT NOT NULL,
+  identity_key TEXT,                         -- optional BRC-31 identity
+  status TEXT DEFAULT 'active',              -- 'active'|'inactive'
+  last_ping_at INTEGER,                      -- last successful ping timestamp
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
+CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
+CREATE INDEX IF NOT EXISTS idx_agents_identity ON agents(identity_key);
+
+CREATE TABLE IF NOT EXISTS rules (
+  rule_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  enabled INTEGER DEFAULT 1,                -- boolean: 1=enabled, 0=disabled
+  when_json TEXT NOT NULL,                  -- JSON: {"type":"ready","predicate":{...}}
+  find_json TEXT NOT NULL,                  -- JSON: {"source":"search","query":{...},"limit":N}
+  actions_json TEXT NOT NULL,               -- JSON array: [{"action":"notify","agentId":"..."}]
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_rules_enabled ON rules(enabled);
+CREATE INDEX IF NOT EXISTS idx_rules_name ON rules(name);
+
+CREATE TABLE IF NOT EXISTS jobs (
+  job_id TEXT PRIMARY KEY,
+  rule_id TEXT NOT NULL,
+  state TEXT DEFAULT 'queued',              -- 'queued'|'running'|'done'|'dead'
+  created_at INTEGER NOT NULL,
+  started_at INTEGER,                       -- when worker picked it up
+  completed_at INTEGER,                     -- when worker finished (done/dead)
+  retry_count INTEGER DEFAULT 0,
+  last_error TEXT,                          -- error message for failed jobs
+  evidence_json TEXT,                       -- JSON array of action results/evidence
+  FOREIGN KEY (rule_id) REFERENCES rules(rule_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_rule ON jobs(rule_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state);
+CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at);

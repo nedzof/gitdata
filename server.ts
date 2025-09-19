@@ -12,6 +12,10 @@ import { payRouter } from './src/routes/pay';
 import { dataRouter } from './src/routes/data';
 import { producersRouter } from './src/routes/producers';
 import { advisoriesRouter } from './src/routes/advisories';
+import { agentsRouter } from './src/routes/agents';
+import { rulesRouter } from './src/routes/rules';
+import { jobsRouter } from './src/routes/jobs';
+import { createJobProcessor } from './src/worker/job-processor';
 import { auditLogger } from './src/middleware/audit';
 import { rateLimit } from './src/middleware/limits';
 
@@ -41,6 +45,11 @@ app.use(rateLimit('submit'), listingsRouter(db));
 app.use(rateLimit('submit'), producersRouter(db));
 app.use(rateLimit('submit'), advisoriesRouter(db));
 
+// D16: A2A Agent marketplace routes
+app.use('/agents', agentsRouter(db));
+app.use('/rules', rulesRouter(db));
+app.use('/jobs', jobsRouter(db));
+
 // D01 Builder route with rate limiting
 app.use(rateLimit('submit'), submitDlm1Router());
 
@@ -54,9 +63,57 @@ app.use(
   })
 );
 
+// D16: Initialize A2A job processor if enabled
+let jobProcessor;
+if (process.env.A2A_WORKER_ENABLED === 'true') {
+  try {
+    jobProcessor = createJobProcessor(db);
+    jobProcessor.start();
+    console.log('[A2A] Job processor started');
+  } catch (error) {
+    console.warn('[A2A] Job processor could not start:', error);
+    console.warn('[A2A] Set AGENT_CALL_PRIVKEY environment variable to enable A2A worker');
+  }
+}
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('Shutting down...');
+  if (jobProcessor) {
+    jobProcessor.stop();
+  }
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('Shutting down...');
+  if (jobProcessor) {
+    jobProcessor.stop();
+  }
+  process.exit(0);
+});
+
 // UI
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Health endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: Math.floor(Date.now() / 1000),
+    services: {
+      database: 'connected',
+      a2aWorker: jobProcessor ? 'running' : 'disabled'
+    }
+  });
+});
+
 // Start
 const PORT = Number(process.env.OVERLAY_PORT || 8788);
-app.listen(PORT, () => console.log(`Overlay listening on :${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Overlay listening on :${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/health`);
+  if (process.env.A2A_WORKER_ENABLED === 'true') {
+    console.log(`A2A APIs: http://localhost:${PORT}/agents, /rules, /jobs`);
+  }
+});

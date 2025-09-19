@@ -78,6 +78,42 @@ export type AdvisoryRow = {
   payload_json: string | null;
 };
 
+// D16: Agent Marketplace Types
+export type AgentRow = {
+  agent_id: string;
+  name: string;
+  capabilities_json: string;
+  webhook_url: string;
+  identity_key?: string | null;
+  status: 'active' | 'inactive';
+  last_ping_at?: number | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type RuleRow = {
+  rule_id: string;
+  name: string;
+  enabled: number; // SQLite boolean: 1=true, 0=false
+  when_json: string;
+  find_json: string;
+  actions_json: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type JobRow = {
+  job_id: string;
+  rule_id: string;
+  state: 'queued' | 'running' | 'done' | 'dead';
+  created_at: number;
+  started_at?: number | null;
+  completed_at?: number | null;
+  retry_count: number;
+  last_error?: string | null;
+  evidence_json?: string | null;
+};
+
 export function openDb(dbPath = process.env.DB_PATH || './data/overlay.db') {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
@@ -164,6 +200,35 @@ export function upsertManifest(db: Database.Database, row: ManifestRow) {
 
 export function getManifest(db: Database.Database, versionId: string): ManifestRow | undefined {
   return db.prepare('SELECT * FROM manifests WHERE version_id = ?').get(versionId) as any;
+}
+
+export function searchManifests(db: Database.Database, opts: {
+  q?: string;
+  datasetId?: string;
+  limit?: number;
+}): ManifestRow[] {
+  let sql = 'SELECT * FROM manifests WHERE 1=1';
+  const params: any[] = [];
+
+  if (opts.q) {
+    sql += ' AND (dataset_id LIKE ? OR version_id LIKE ? OR manifest_json LIKE ?)';
+    const searchTerm = `%${opts.q}%`;
+    params.push(searchTerm, searchTerm, searchTerm);
+  }
+
+  if (opts.datasetId) {
+    sql += ' AND dataset_id = ?';
+    params.push(opts.datasetId);
+  }
+
+  sql += ' ORDER BY created_at DESC';
+
+  if (opts.limit && opts.limit > 0) {
+    sql += ' LIMIT ?';
+    params.push(opts.limit);
+  }
+
+  return db.prepare(sql).all(...params) as ManifestRow[];
 }
 
 /* Producers */
@@ -455,4 +520,161 @@ export function listAdvisoriesForProducerActive(
       AND (a.expires_at IS NULL OR a.expires_at >= ?)
   `).all(producerId, nowUnix) as any[];
   return rows as AdvisoryRow[];
+}
+
+/* D16: Agent Marketplace Functions */
+
+// Agents
+export function upsertAgent(db: Database.Database, agent: Partial<AgentRow>) {
+  const now = Math.floor(Date.now() / 1000);
+  const ins = db.prepare(`
+    INSERT INTO agents(agent_id, name, capabilities_json, webhook_url, identity_key, status, last_ping_at, created_at, updated_at)
+    VALUES (@agent_id, @name, @capabilities_json, @webhook_url, @identity_key, COALESCE(@status,'active'), @last_ping_at, COALESCE(@created_at,?), ?)
+    ON CONFLICT(agent_id) DO UPDATE SET
+      name = excluded.name,
+      capabilities_json = excluded.capabilities_json,
+      webhook_url = excluded.webhook_url,
+      identity_key = excluded.identity_key,
+      status = excluded.status,
+      last_ping_at = excluded.last_ping_at,
+      updated_at = excluded.updated_at
+  `);
+  ins.run({ ...agent, created_at: agent.created_at ?? now, updated_at: now }, now, now);
+}
+
+export function getAgent(db: Database.Database, agentId: string): AgentRow | null {
+  const row = db.prepare('SELECT * FROM agents WHERE agent_id = ?').get(agentId);
+  return row as AgentRow | null;
+}
+
+export function searchAgents(db: Database.Database, opts: { q?: string; capability?: string; status?: string; limit?: number }): AgentRow[] {
+  let sql = 'SELECT * FROM agents WHERE 1=1';
+  const params: any[] = [];
+
+  if (opts.q) {
+    sql += ' AND name LIKE ?';
+    params.push(`%${opts.q}%`);
+  }
+
+  if (opts.capability) {
+    sql += ' AND capabilities_json LIKE ?';
+    params.push(`%${opts.capability}%`);
+  }
+
+  if (opts.status) {
+    sql += ' AND status = ?';
+    params.push(opts.status);
+  }
+
+  sql += ' ORDER BY created_at DESC';
+
+  if (opts.limit) {
+    sql += ' LIMIT ?';
+    params.push(opts.limit);
+  }
+
+  return db.prepare(sql).all(...params) as AgentRow[];
+}
+
+export function updateAgentPing(db: Database.Database, agentId: string) {
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare('UPDATE agents SET last_ping_at = ?, updated_at = ? WHERE agent_id = ?')
+    .run(now, now, agentId);
+}
+
+// Rules
+export function upsertRule(db: Database.Database, rule: Partial<RuleRow>) {
+  const now = Math.floor(Date.now() / 1000);
+  const ins = db.prepare(`
+    INSERT INTO rules(rule_id, name, enabled, when_json, find_json, actions_json, created_at, updated_at)
+    VALUES (@rule_id, @name, COALESCE(@enabled,1), @when_json, @find_json, @actions_json, COALESCE(@created_at,?), ?)
+    ON CONFLICT(rule_id) DO UPDATE SET
+      name = excluded.name,
+      enabled = excluded.enabled,
+      when_json = excluded.when_json,
+      find_json = excluded.find_json,
+      actions_json = excluded.actions_json,
+      updated_at = excluded.updated_at
+  `);
+  ins.run({ ...rule, created_at: rule.created_at ?? now, updated_at: now }, now, now);
+}
+
+export function getRule(db: Database.Database, ruleId: string): RuleRow | null {
+  const row = db.prepare('SELECT * FROM rules WHERE rule_id = ?').get(ruleId);
+  return row as RuleRow | null;
+}
+
+export function listRules(db: Database.Database, opts?: { enabled?: boolean; limit?: number }): RuleRow[] {
+  let sql = 'SELECT * FROM rules WHERE 1=1';
+  const params: any[] = [];
+
+  if (opts?.enabled !== undefined) {
+    sql += ' AND enabled = ?';
+    params.push(opts.enabled ? 1 : 0);
+  }
+
+  sql += ' ORDER BY created_at DESC';
+
+  if (opts?.limit) {
+    sql += ' LIMIT ?';
+    params.push(opts.limit);
+  }
+
+  return db.prepare(sql).all(...params) as RuleRow[];
+}
+
+export function deleteRule(db: Database.Database, ruleId: string) {
+  db.prepare('DELETE FROM rules WHERE rule_id = ?').run(ruleId);
+}
+
+// Jobs
+export function insertJob(db: Database.Database, job: Partial<JobRow>) {
+  const now = Math.floor(Date.now() / 1000);
+  const ins = db.prepare(`
+    INSERT INTO jobs(job_id, rule_id, state, created_at, started_at, completed_at, retry_count, last_error, evidence_json)
+    VALUES (@job_id, @rule_id, COALESCE(@state,'queued'), COALESCE(@created_at,?), @started_at, @completed_at, COALESCE(@retry_count,0), @last_error, @evidence_json)
+  `);
+  ins.run({ ...job, created_at: job.created_at ?? now }, now);
+}
+
+export function updateJob(db: Database.Database, jobId: string, updates: Partial<JobRow>) {
+  const fields = Object.keys(updates).filter(k => k !== 'job_id').map(k => `${k} = @${k}`).join(', ');
+  if (!fields) return;
+
+  const sql = `UPDATE jobs SET ${fields} WHERE job_id = @job_id`;
+  db.prepare(sql).run({ ...updates, job_id: jobId });
+}
+
+export function getJob(db: Database.Database, jobId: string): JobRow | null {
+  const row = db.prepare('SELECT * FROM jobs WHERE job_id = ?').get(jobId);
+  return row as JobRow | null;
+}
+
+export function listJobs(db: Database.Database, opts?: { ruleId?: string; state?: string; limit?: number }): JobRow[] {
+  let sql = 'SELECT * FROM jobs WHERE 1=1';
+  const params: any[] = [];
+
+  if (opts?.ruleId) {
+    sql += ' AND rule_id = ?';
+    params.push(opts.ruleId);
+  }
+
+  if (opts?.state) {
+    sql += ' AND state = ?';
+    params.push(opts.state);
+  }
+
+  sql += ' ORDER BY created_at DESC';
+
+  if (opts?.limit) {
+    sql += ' LIMIT ?';
+    params.push(opts.limit);
+  }
+
+  return db.prepare(sql).all(...params) as JobRow[];
+}
+
+export function getNextQueuedJob(db: Database.Database): JobRow | null {
+  const row = db.prepare('SELECT * FROM jobs WHERE state = ? ORDER BY created_at ASC LIMIT 1').get('queued');
+  return row as JobRow | null;
 }

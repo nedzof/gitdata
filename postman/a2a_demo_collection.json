@@ -1,0 +1,519 @@
+{
+  "info": {
+    "name": "GitData A2A Demo API",
+    "description": "Collection for testing the Agent-to-Agent (A2A) demonstration system in GitData overlay",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3030",
+      "type": "string"
+    },
+    {
+      "key": "agentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "ruleId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "jobId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has required fields', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson).to.have.property('status');",
+              "    pm.expect(responseJson).to.have.property('timestamp');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Register Agent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Example Contract Agent\",\n  \"capabilities\": [\"contract.review\", \"data.analysis\", \"notification.handler\"],\n  \"webhookUrl\": \"http://localhost:9099/webhook\",\n  \"identityKey\": \"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/agents/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["agents", "register"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 201', function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test('Agent registration successful', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson).to.have.property('agentId');",
+              "    pm.expect(responseJson.name).to.eql('Example Contract Agent');",
+              "    pm.expect(responseJson.capabilities).to.be.an('array');",
+              "    pm.expect(responseJson.status).to.eql('active');",
+              "    ",
+              "    // Store agentId for subsequent requests",
+              "    pm.collectionVariables.set('agentId', responseJson.agentId);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Search Agents",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/agents/search?capability=contract.review&status=active",
+          "host": ["{{baseUrl}}"],
+          "path": ["agents", "search"],
+          "query": [
+            {
+              "key": "capability",
+              "value": "contract.review"
+            },
+            {
+              "key": "status",
+              "value": "active"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Agent search returns results', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson).to.have.property('agents');",
+              "    pm.expect(responseJson.agents).to.be.an('array');",
+              "    pm.expect(responseJson.agents.length).to.be.greaterThan(0);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Get Agent Details",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/agents/{{agentId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["agents", "{{agentId}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Agent details are correct', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson.agentId).to.eql(pm.collectionVariables.get('agentId'));",
+              "    pm.expect(responseJson.name).to.eql('Example Contract Agent');",
+              "    pm.expect(responseJson.webhookUrl).to.eql('http://localhost:9099/webhook');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Agent Ping",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/agents/{{agentId}}/ping",
+          "host": ["{{baseUrl}}"],
+          "path": ["agents", "{{agentId}}", "ping"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Ping successful', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson.status).to.eql('pinged');",
+              "    pm.expect(responseJson.agentId).to.eql(pm.collectionVariables.get('agentId'));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Create Rule",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Contract Detection Rule\",\n  \"enabled\": true,\n  \"when\": {\n    \"trigger\": \"manual\"\n  },\n  \"find\": {\n    \"source\": \"search\",\n    \"query\": {\n      \"q\": \"contract\",\n      \"datasetId\": \"test-dataset\"\n    },\n    \"limit\": 5\n  },\n  \"actions\": [\n    {\n      \"action\": \"notify\",\n      \"agentId\": \"{{agentId}}\"\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rules",
+          "host": ["{{baseUrl}}"],
+          "path": ["rules"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 201', function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test('Rule creation successful', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson).to.have.property('ruleId');",
+              "    pm.expect(responseJson.name).to.eql('Contract Detection Rule');",
+              "    pm.expect(responseJson.enabled).to.be.true;",
+              "    pm.expect(responseJson.actions).to.be.an('array');",
+              "    ",
+              "    // Store ruleId for subsequent requests",
+              "    pm.collectionVariables.set('ruleId', responseJson.ruleId);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. List Rules",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/rules?enabled=true",
+          "host": ["{{baseUrl}}"],
+          "path": ["rules"],
+          "query": [
+            {
+              "key": "enabled",
+              "value": "true"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Rules list contains created rule', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson).to.have.property('rules');",
+              "    pm.expect(responseJson.rules).to.be.an('array');",
+              "    ",
+              "    const createdRule = responseJson.rules.find(rule => rule.ruleId === pm.collectionVariables.get('ruleId'));",
+              "    pm.expect(createdRule).to.exist;",
+              "    pm.expect(createdRule.name).to.eql('Contract Detection Rule');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Get Rule Details",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/rules/{{ruleId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["rules", "{{ruleId}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Rule details are correct', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson.ruleId).to.eql(pm.collectionVariables.get('ruleId'));",
+              "    pm.expect(responseJson.name).to.eql('Contract Detection Rule');",
+              "    pm.expect(responseJson.when.trigger).to.eql('manual');",
+              "    pm.expect(responseJson.find.source).to.eql('search');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Trigger Rule Execution",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/rules/{{ruleId}}/run",
+          "host": ["{{baseUrl}}"],
+          "path": ["rules", "{{ruleId}}", "run"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Rule execution triggered', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson.status).to.eql('triggered');",
+              "    pm.expect(responseJson.ruleId).to.eql(pm.collectionVariables.get('ruleId'));",
+              "    pm.expect(responseJson).to.have.property('enqueued');",
+              "    pm.expect(responseJson).to.have.property('timestamp');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. List Jobs",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/jobs?ruleId={{ruleId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["jobs"],
+          "query": [
+            {
+              "key": "ruleId",
+              "value": "{{ruleId}}"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Jobs list contains created jobs', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson).to.have.property('jobs');",
+              "    pm.expect(responseJson.jobs).to.be.an('array');",
+              "    ",
+              "    if (responseJson.jobs.length > 0) {",
+              "        const job = responseJson.jobs[0];",
+              "        pm.expect(job.ruleId).to.eql(pm.collectionVariables.get('ruleId'));",
+              "        pm.expect(job).to.have.property('jobId');",
+              "        pm.expect(job).to.have.property('state');",
+              "        pm.expect(job).to.have.property('evidence');",
+              "        ",
+              "        // Store jobId for subsequent requests",
+              "        pm.collectionVariables.set('jobId', job.jobId);",
+              "    }",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Get Job Details",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/jobs/{{jobId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["jobs", "{{jobId}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200 or 404', function () {",
+              "    pm.expect([200, 404]).to.include(pm.response.code);",
+              "});",
+              "",
+              "if (pm.response.code === 200) {",
+              "    pm.test('Job details are valid', function () {",
+              "        const responseJson = pm.response.json();",
+              "        pm.expect(responseJson.jobId).to.eql(pm.collectionVariables.get('jobId'));",
+              "        pm.expect(responseJson.ruleId).to.eql(pm.collectionVariables.get('ruleId'));",
+              "        pm.expect(responseJson).to.have.property('state');",
+              "        pm.expect(responseJson).to.have.property('evidence');",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Update Rule (Disable)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"enabled\": false\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rules/{{ruleId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["rules", "{{ruleId}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Rule was disabled', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson.ruleId).to.eql(pm.collectionVariables.get('ruleId'));",
+              "    pm.expect(responseJson.enabled).to.be.false;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Delete Rule",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/rules/{{ruleId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["rules", "{{ruleId}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Rule was deleted', function () {",
+              "    const responseJson = pm.response.json();",
+              "    pm.expect(responseJson.status).to.eql('deleted');",
+              "    pm.expect(responseJson.ruleId).to.eql(pm.collectionVariables.get('ruleId'));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ]
+}
