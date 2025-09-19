@@ -1,318 +1,248 @@
-) Create file: scripts/a2a-demo.ts
-With content:
-```ts
-/**
- * A2A Demo (D16): GenoScreener → Molecula → ToxSim
- * Flow per stage:
- *  1) Prepare blob (bytes) and compute contentHash = sha256(bytes)
- *  2) Build manifest (datasetId, contentHash, provenance.producer identity) + publish:
- *     - POST /submit/dlm1 -> OP_RETURN scriptHex
- *     - Build synthetic rawTx (dev) and POST /submit { rawTx, manifest }
- *  3) POST /price (per-version price)
- *  4) GET /price -> POST /pay -> GET /v1/data -> compute sha256(download) == contentHash
- *  5) Stage i+1 references stage i via lineage.parents
- *  6) At the end: GET /bundle?versionId=<ToxSim> (depth 99), save all evidence JSON
- *
- * NOTE:
- * - This is a dev/staging demo. In production, replace synthetic TX with a real wallet-signed transaction.
- * - Requires DATA_ROOT to be accessible by /v1/data route (D07) to stream local files.
- */
+Here’s a single, D24‑kompatibles Template‑Dokument (eine Datei), das du direkt in euer Repo legen kannst. Es ist speziell auf euren Agent‑Marktplatz (Agents/Rules/Jobs) ausgerichtet und beschreibt optional den „Advanced“-Pfad mit submit/price/pay/ready/bundle, ohne Annahmen über nicht spezifizierte Payloads zu machen. Alle Beispiele nutzen nur die in D24 genannten Routen.
 
-import fs from 'fs';
-import path from 'path';
-import crypto from 'crypto';
+Dateiname-Vorschlag: docs/D16-A2A-Demo.md
 
-type Hex = string;
-type Json = any;
+------------------------------------------------------------
+# D16 — Demonstration einer autonomen Agent-zu-Agent (A2A) Wertschöpfungskette
 
-function exitErr(msg: string, code = 2): never {
-  console.error('[a2a] ERROR:', msg);
-  process.exit(code);
-}
+Labels: demo, e2e, autonomy, audit-trail  
+Assignee: TBA  
+Estimate: 2 PT
 
-function ensureDir(p: string) {
-  fs.mkdirSync(p, { recursive: true });
-}
+1) Zweck
+Diese Demonstration zeigt eine vollständige, durchgehende Wertschöpfungskette, orchestriert von autonomen KI-Agenten auf einem offenen Marktplatz (D24). Ziele:
+- Agenten treffen autonome Entscheidungen (finden, prüfen, benachrichtigen, optional kaufen/verkaufen).
+- Der Prozess erzeugt einen lückenlosen, kryptographisch gesicherten Audit‑Trail (SPV‑erst, vendor‑neutral).
+- Die Demo ist generisch und auf beliebige Domänen übertragbar.
 
-function sha256Hex(buf: Buffer): string {
-  return crypto.createHash('sha256').update(buf).digest('hex');
-}
+2) Komponentenüberblick
+- Overlay Service (D24) mit:
+  - /agents/register, /agents/search, /agents/:id/ping
+  - /rules (CRUD) und /rules/:id/run (manuelles Triggern)
+  - /jobs (Queue/Status; evidence_json pro Job)
+  - In‑Process Worker (führt Actions aus; notify, contract.generate simuliert)
+  - Optional aktiv in deiner Instanz: /submit, /bundle, /ready, /price, /pay, /v1/data
+- Beispiel‑Agent (Node/TS):
+  - Akzeptiert BRC‑31-signierte Webhooks (Header: X-Identity-Key, X-Nonce, X-Signature) und antwortet mit { ok: true }.
+- SQLite‑DB:
+  - agents (Registry), rules, jobs inkl. evidence_json (Aggregat der Aktionsbelege).
+- Signatur/Compliance:
+  - Outbound Webhooks des Overlays sind BRC‑31‑signiert (secp256k1).
+  - requireIdentity(false) erlaubt optionale identitäts-signierte Aufrufe.
 
-async function httpJson(method: 'GET' | 'POST', url: string, body?: any, timeoutMs = 10000): Promise<any> {
-  const ctl = new AbortController();
-  const tm = setTimeout(() => ctl.abort(), timeoutMs);
-  try {
-    const r = await fetch(url, {
-      method,
-      signal: ctl.signal as any,
-      headers: { 'accept': 'application/json', ...(body ? { 'content-type': 'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const text = await r.text();
-    if (!r.ok) {
-      let err: any;
-      try { err = JSON.parse(text); } catch { err = text; }
-      exitErr(`HTTP ${r.status} ${r.statusText} ${url} ${typeof err === 'string' ? err : JSON.stringify(err)}`, 1);
-    }
-    try { return JSON.parse(text); } catch { return { raw: text }; }
-  } finally {
-    clearTimeout(tm);
-  }
-}
+3) Voraussetzungen
+- Overlay läuft (server.ts), Schema initialisiert.
+- Beispiel‑Agent gestartet: npm run agent:example (lauscht auf http://localhost:9099/webhook).
+- AGENT_CALL_PRIVKEY im Overlay gesetzt (Pflicht für signierte Webhooks).
+- Optional (Advanced): Deine Instanz hat /submit, /price, /pay, /ready, /bundle, /v1/data montiert (siehe 6.5–6.8).
 
-async function httpBinary(url: string, timeoutMs = 20000): Promise<Uint8Array> {
-  const ctl = new AbortController();
-  const tm = setTimeout(() => ctl.abort(), timeoutMs);
-  try {
-    const r = await fetch(url, { signal: ctl.signal as any });
-    if (!r.ok) exitErr(`HTTP ${r.status} ${r.statusText} ${url}`, 1);
-    const ab = await r.arrayBuffer();
-    return new Uint8Array(ab);
-  } finally {
-    clearTimeout(tm);
-  }
-}
+4) Akteure (abstrakt)
+- Agent A (Produzent): Erzeugt aus einer Eingabe ein erstes Artefakt.
+- Agent B (Verarbeiter): Entdeckt A, prüft Vertrauen/Readiness, veredelt → Artefakt B.
+- Agent C (Analyst): Entdeckt B, prüft Readiness, erstellt finalen Report.
+- Operator (Mensch): Startet Demo, stößt optional Uploads/Payments an, prüft Audit‑Trail.
 
-// --- Minimal TX builder for OP_RETURN-only (dev demo) ---
-function varInt(n: number): Uint8Array {
-  if (n < 0xfd) return Uint8Array.of(n);
-  if (n <= 0xffff) return Uint8Array.of(0xfd, n & 0xff, (n >> 8) & 0xff);
-  return Uint8Array.of(0xfe, n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff);
-}
-function fromHex(hex: string): Uint8Array {
-  if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length % 2 !== 0) throw new Error('invalid hex');
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
-}
-function toHex(b: Uint8Array): string {
-  return Array.from(b).map((x) => x.toString(16).padStart(2, '0')).join('');
-}
-function concatBytes(arr: Uint8Array[]): Uint8Array {
-  const len = arr.reduce((n, a) => n + a.length, 0);
-  const out = new Uint8Array(len);
-  let o = 0;
-  for (const a of arr) { out.set(a, o); o += a.length; }
-  return out;
-}
-function buildRawTxWithOpReturn(scriptHex: string): string {
-  const version = Uint8Array.of(1, 0, 0, 0);
-  const vinCount = varInt(1);
-  const prevTxid = new Uint8Array(32);
-  const prevVout = Uint8Array.of(0xff, 0xff, 0xff, 0xff);
-  const scriptSigLen = varInt(0);
-  const sequence = Uint8Array.of(0xff, 0xff, 0xff, 0xff);
-  const voutCount = varInt(1);
-  const value0 = new Uint8Array(8);
-  const script = fromHex(scriptHex);
-  const scriptLen = varInt(script.length);
-  const locktime = new Uint8Array(4);
-  const tx = concatBytes([version, vinCount, prevTxid, prevVout, scriptSigLen, sequence, voutCount, value0, scriptLen, script, locktime]);
-  return toHex(tx);
-}
+5) Datenfluss‑Varianten
+- Minimal (immer verfügbar):
+  - Ereignisse werden über Regeln/Jobs orchestriert; notify löst Agent‑Aktionen aus.
+  - contract.generate ist simuliert; Evidenz landet im evidence_json des Jobs.
+- Erweitert (falls Overlay‑Routen verfügbar):
+  - Agenten publizieren Artefakte (/submit), setzen Preise (/price), bezahlen (/pay).
+  - Operator bündelt den Herkunftsbeweis (/bundle) mit SPV/Evidence‑Pack; Readiness‑Checks via /ready.
+  - Dieser Pfad ist optional und abhängig von deiner Instanzkonfiguration.
 
-// --- Evidence writer ---
-function saveEvidence(dir: string, name: string, obj: Json | Buffer | Uint8Array | string) {
-  ensureDir(dir);
-  const p = path.join(dir, name);
-  if (obj instanceof Uint8Array || Buffer.isBuffer(obj)) {
-    fs.writeFileSync(p, Buffer.from(obj));
-  } else if (typeof obj === 'string') {
-    fs.writeFileSync(p, obj, 'utf8');
-  } else {
-    fs.writeFileSync(p, JSON.stringify(obj, null, 2), 'utf8');
-  }
-  console.log('[a2a] saved', p);
-}
+6) Schritt‑für‑Schritt (Runbook, reproduzierbar)
 
-async function main() {
-  const host = (process.env.OVERLAY_URL || 'http://localhost:8788').replace(/\/+$/, '');
-  const dataRoot = process.env.DATA_ROOT || path.resolve(process.cwd(), 'data', 'blobs');
-  const outDir = path.resolve(process.cwd(), 'evidence', 'a2a-' + Date.now());
-  ensureDir(outDir);
-  ensureDir(dataRoot);
+6.1 Setup und Agenten registrieren
+- Agent A registrieren (gleiches Schema für B und C; derselbe Webhook ist ok):
+```
+curl -sS -X POST "{{BASE}}/agents/register" \
+  -H "content-type: application/json" \
+  -d '{
+    "name":"Agent-A",
+    "capabilities":[{"name":"notify"}],
+    "webhookUrl":"http://localhost:9099/webhook"
+  }'
+```
+→ Antwort enthält agentId (z. B. ag_...).
 
-  // Agents and datasetIds
-  const stages = [
-    { key: 'genoscreener', datasetId: 'geno-screener' },
-    { key: 'molecula', datasetId: 'molecula' },
-    { key: 'toxsim', datasetId: 'tox-sim' },
-  ];
-  const identityKey = (process.env.IDENTITY_KEY || '02').padEnd(66, 'a'); // demo
-
-  const produced: { versionId: Hex; datasetId: string; contentHash: Hex; txid: Hex }[] = [];
-
-  for (let i = 0; i < stages.length; i++) {
-    const s = stages[i];
-    const stageDir = path.join(outDir, `${(i + 1).toString().padStart(2, '0')}-${s.key}`);
-    ensureDir(stageDir);
-
-    // 1) Prepare blob & contentHash
-    const fakeBytes = crypto.randomBytes(256 + i * 10);
-    const contentHash = sha256Hex(fakeBytes);
-    fs.writeFileSync(path.join(dataRoot, contentHash), fakeBytes);
-    saveEvidence(stageDir, `blob-${s.key}.bin`, fakeBytes);
-
-    // 2) Build manifest with optional parent
-    const parents = i > 0 ? [produced[i - 1].versionId] : [];
-    const manifest = {
-      type: 'datasetVersionManifest',
-      datasetId: s.datasetId,
-      description: `A2A demo stage: ${s.key}`,
-      content: { contentHash },
-      lineage: { parents },
-      provenance: {
-        createdAt: new Date().toISOString(),
-        producer: { identityKey, name: 'A2A Demo Producer', website: 'https://example.com' },
-        locations: [{ type: 'local', uri: `file://${path.join(dataRoot, contentHash)}` }]
-      },
-      policy: { license: 'cc-by-4.0', classification: 'public' }
-    };
-    saveEvidence(stageDir, `manifest-${s.key}.json`, manifest);
-
-    // 3) Builder → scriptHex
-    const build = await httpJson('POST', `${host}/submit/dlm1`, { manifest });
-    saveEvidence(stageDir, `builder-${s.key}.json`, build);
-    const versionId: Hex = build.versionId;
-    const scriptHex: string = build.opReturnScriptHex || build.outputs?.[0]?.scriptHex;
-    if (!versionId || !scriptHex) exitErr('builder missing versionId/scriptHex');
-
-    // 4) Synthetic rawTx + Receiver
-    const rawTx = buildRawTxWithOpReturn(scriptHex);
-    const submit = await httpJson('POST', `${host}/submit`, { rawTx, manifest });
-    saveEvidence(stageDir, `submit-${s.key}.json`, submit);
-    const txid: Hex = submit.txid;
-
-    // 5) Set price (demo: 1000 + i*500 sat)
-    const setP = await httpJson('POST', `${host}/price`, { versionId, satoshis: 1000 + i * 500 });
-    saveEvidence(stageDir, `price-set-${s.key}.json`, setP);
-
-    // 6) Quote & Pay
-    const quote = await httpJson('GET', `${host}/price?versionId=${versionId}`, undefined);
-    saveEvidence(stageDir, `price-get-${s.key}.json`, quote);
-    const receipt = await httpJson('POST', `${host}/pay`, { versionId, quantity: 1 });
-    saveEvidence(stageDir, `pay-${s.key}.json`, receipt);
-
-    // 7) Download (stream) and verify hash
-    const bytes = await httpBinary(`${host}/v1/data?contentHash=${contentHash}&receiptId=${receipt.receiptId}`);
-    saveEvidence(stageDir, `download-${s.key}.bin`, bytes);
-    const gotHash = sha256Hex(Buffer.from(bytes));
-    const hashOk = gotHash.toLowerCase() === contentHash.toLowerCase();
-    saveEvidence(stageDir, `hash-check-${s.key}.json`, { gotHash, expected: contentHash, ok: hashOk });
-    if (!hashOk) exitErr(`hash mismatch at stage ${s.key}`);
-
-    console.log(`[a2a] stage ${s.key} published versionId=${versionId}, txid=${txid}`);
-    produced.push({ versionId, datasetId: s.datasetId, contentHash, txid });
-  }
-
-  // Final: bundle for last version (depth 99), and ready check
-  const last = produced.at(-1)!;
-  const bundle = await httpJson('GET', `${host}/bundle?versionId=${last.versionId}`, undefined);
-  saveEvidence(outDir, `final-bundle.json`, bundle);
-
-  const ready = await httpJson('GET', `${host}/ready?versionId=${last.versionId}`, undefined);
-  saveEvidence(outDir, `final-ready.json`, ready);
-
-  // Evidence: minimal revenue log snapshot (optional: direct DB)
-  // Attempt to snapshot revenue_events via DB if DB_PATH set, else skip
-  try {
-    const dbPath = process.env.DB_PATH;
-    if (dbPath && fs.existsSync(dbPath)) {
-      // lazy import better-sqlite3 only when available
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const Database = require('better-sqlite3');
-      const db = new Database(dbPath);
-      const evs = db.prepare('SELECT * FROM revenue_events ORDER BY created_at DESC LIMIT 100').all();
-      saveEvidence(outDir, `revenue_events.json`, evs);
-      db.close();
-    }
-  } catch (e: any) {
-    console.warn('[a2a] revenue snapshot skipped:', String(e?.message || e));
-  }
-
-  // Print shareable links
-  const links = {
-    ready: `${host}/ready?versionId=${last.versionId}`,
-    bundle: `${host}/bundle?versionId=${last.versionId}&depth=99`,
-    price: `${host}/price?versionId=${last.versionId}`,
-    listings: `${host}/listings`,
-  };
-  console.log('---');
-  console.log('[a2a] DONE');
-  console.log(JSON.stringify({ chain: produced, links }, null, 2));
-}
-
-main().catch((e) => exitErr(String(e?.message || e)));
+- Optional: Reachability‑Proof
+```
+curl -sS -X POST "{{BASE}}/agents/{agentIdA}/ping"
 ```
 
-2) Update file: package.json
-With content patch (add a convenient script):
-```json
-{
-  "scripts": {
-    "cli:a2a": "ts-node scripts/a2a-demo.ts"
-  }
-}
+- Verifizieren:
+```
+curl -sS "{{BASE}}/agents/search?q=Agent-A"
 ```
 
-3) Create file: scripts/README-a2a-demo.md
-With content:
-```md
-# A2A Demo Script (GenoScreener → Molecula → ToxSim)
+6.2 Regel R_A anlegen (notify auf gefundene Items)
+- Erzeuge Regel R_A (findet mind. 1 Item; passe q bei Bedarf an):
+```
+curl -sS -X POST "{{BASE}}/rules" \
+  -H "content-type: application/json" \
+  -d '{
+    "name":"R_A",
+    "enabled":true,
+    "when":{"type":"ready","predicate":{"eq":{"always":true}}},
+    "find":{"source":"search","query":{"q":""},"limit":1},
+    "actions":[{"action":"notify","agentId":"{agentIdA}"}]
+  }'
+```
+→ Antwort: ruleId (rl_...).
 
-Purpose
-- End-to-end showcase of a three-agent chain that anchors DLM1 versions, pays/streams, and produces a final lineage bundle with evidence.
+6.3 Regel R_A auslösen (manuelles Enqueue)
+```
+curl -sS -X POST "{{BASE}}/rules/{ruleIdA}/run"
+```
+→ Antwort: enqueued: N  
+Hinweis: Wenn N=0, liefert euer searchManifests aktuell keine Treffer (siehe „Hinweise zum Datenbestand“).
 
-Prereqs
-- Overlay running (D01–D15 implemented)
-- DATA_ROOT configured for /v1/data (D07)
-- Optional: DB_PATH set if you want revenue_events snapshot
+6.4 Jobs überwachen und Evidenz prüfen
+- Liste Jobs:
+```
+curl -sS "{{BASE}}/jobs"
+```
+Erwartung:
+- Jobs für ruleIdA gehen queued → running → done.
+- evidence_json enthält einen Eintrag mit action: "notify", status < 300, body.ok === true (BRC‑31‑signierter Round‑Trip).
+- Falls Agent nicht erreichbar oder Signatur‑Setup fehlt:
+  - Worker versucht Retries (exponentiell, begrenzt durch JOB_RETRY_MAX); endzustand: dead mit last_error.
 
-Run
-```bash
-OVERLAY_URL=http://localhost:8788 \
-DATA_ROOT=./data/blobs \
-IDENTITY_KEY=02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-npm run cli:a2a
+6.5 Erweiterung (optional) — A produziert und bepreist
+Voraussetzung: Deine Instanz hat /submit und /price montiert. Bodies sind implementierungsspezifisch; bitte die jeweils gültigen Felder in eurer API verwenden.
+
+- Publizieren (Submit): POST /submit mit z. B. contentHash, Metadaten, parentVersionId (z. B. SOURCE-ASSET-01).
+- Preis setzen: POST /price (oder /producers/price) für die neue versionId.
+- Ergebnis: versionId für A (z. B. INTERMEDIATE-RESULT-A-15).
+
+6.6 Regel(n) für Agent B
+- R_B: Benachrichtigt Agent B, wenn Ergebnisse von A gefunden werden (Query anpassen):
+```
+curl -sS -X POST "{{BASE}}/rules" \
+  -H "content-type: application/json" \
+  -d '{
+    "name":"R_B",
+    "enabled":true,
+    "when":{"type":"ready","predicate":{"eq":{"always":true}}},
+    "find":{"source":"search","query":{"q":"INTERMEDIATE-RESULT-A"},"limit":1},
+    "actions":[{"action":"notify","agentId":"{agentIdB}"}]
+  }'
+```
+- Triggern:
+```
+curl -sS -X POST "{{BASE}}/rules/{ruleIdB}/run"
+```
+- Beobachten: /jobs → done; evidence_json enthält notify (B wurde angestoßen).
+
+- Erweiterung (falls verfügbar):
+  - Vertrauensprüfung: GET /ready?versionId=INTERMEDIATE-RESULT-A-15
+  - Kauf/Bezahlung: POST /pay (erhält receiptId)
+  - Produktion B: POST /submit mit parentVersionId=INTERMEDIATE-RESULT-A-15 → neue versionId (z. B. INTERMEDIATE-RESULT-B-42)
+  - Preis setzen für B (POST /price)
+
+6.7 Regel für Agent C
+- R_C analog zu R_B, aber mit Query „INTERMEDIATE-RESULT-B“ und notify an {agentIdC}.
+- Triggern und /jobs überwachen.
+- Erweiterung (falls verfügbar):
+  - Ready‑Check (GET /ready?versionId=INTERMEDIATE-RESULT-B-42)
+  - Kauf (POST /pay)
+  - Finales Artefakt publizieren (POST /submit mit parentVersionId=INTERMEDIATE-RESULT-B-42 → FINAL-REPORT-C-99)
+  - Preis setzen (POST /price)
+
+6.8 Finaler Audit‑Trail
+- Minimal:
+  - Prüfe /jobs für alle Regeln; evidence_json bildet die A2A‑Abläufe (inkl. BRC‑31‑notify‑Belege) ab.
+- Erweitert:
+```
+curl -sS "{{BASE}}/bundle?versionId=FINAL-REPORT-C-99&depth=99"
+```
+→ Liefert einen kryptographisch gesicherten, lückenlosen Herkunftsnachweis (inkl. Manifeste, Receipts, SPV‑Proofs – sofern in deiner Instanz bereitgestellt).
+
+Hinweise zum Datenbestand (find.source = "search")
+- /rules/:id/run nutzt intern searchManifests(db, { q, datasetId, limit }).
+- Wenn enqueued=0 zurückkommt:
+  - Seed Daten publizieren (POST /submit), um SOURCE-ASSET-01 und Folgeartefakte (A, B, C) zu erzeugen.
+  - Oder find.query.q so anpassen, dass vorhandene Manifeste gefunden werden.
+- Der when.predicate wird im Worker‑Skelett nicht ausgewertet; das Triggern erfolgt manuell via /rules/:id/run.
+
+7) Definition of Done (DoD)
+- E2E‑Minimal:
+  - A, B, C sind registriert und über /agents/search auffindbar.
+  - Für R_A, R_B, R_C wurde /rules/:id/run ausgeführt.
+  - Mindestens eine Regel erzeugt Jobs, die in /jobs auf state=done gehen.
+  - evidence_json enthält für notify‑Ereignisse status < 300 und body.ok === true.
+- E2E‑Erweitert (falls Routen verfügbar):
+  - Für die finale versionId (z. B. FINAL-REPORT-C-99) liefert /bundle eine durchgehende, verifizierbare Kette (Tiefe ≥ 3).
+  - Ein Evidence‑Pack (Manifeste, Receipts, SPV‑Proofs) ist vollständig.
+
+8) Abnahmekriterien
+- Registry/Auffindbarkeit:
+  - /agents/register liefert agentId; /agents/search findet den Agenten per q/capability.
+  - /agents/:id/ping aktualisiert Status/lastPingAt.
+- Regeln/Queue:
+  - /rules CRUD funktioniert; /rules/:id/run liefert enqueued ≥ 0.
+  - /jobs zeigt konsistente Zustandsübergänge (queued → running → done | dead).
+- Evidenz:
+  - evidence_json pro Job enthält Aktionsbelege (insb. notify; optional contract.generate).
+  - Bei Erfolg: notify.body.ok === true; bei Fehler: last_error gesetzt; Retries bis DLQ (dead).
+- Optional (erweitert):
+  - contentHash/Lineage‑Checks über /ready und /bundle laufen ohne Warnungen.
+  - Einnahmenbuchung (revenue) korrekt verbucht, sofern Käufe (pay) getätigt wurden.
+
+9) Artefakte
+- a2a-demo-evidence/ (empfohlen zu erzeugen, z. B. durch ein Skript)
+  - agents.json (Registrierungen, Search‑Ergebnisse)
+  - rules.json (IDs, Bodies)
+  - jobs.json (Zustände, Timestamps)
+  - evidence/*.json (pro Job evidence_json)
+  - optional: bundle/FINAL-REPORT-C-99.json (vollständiger Herkunftsnachweis)
+  - summary.md (Kurzbericht: Versionen, Receipts, Metriken)
+
+10) Betrieb/Sicherheit/Compliance
+- Webhook‑Signaturen:
+  - Overlay signiert Outbound Calls (BRC‑31): X-Identity-Key, X-Nonce, X-Signature.
+  - Beispiel‑Agent akzeptiert; Signaturprüfung kann serverseitig ergänzt werden.
+- Identität:
+  - /agents/register unterstützt optional Identity (requireIdentity(false)).
+- Zuverlässigkeit:
+  - Worker‑Retries mit exponentiellem Backoff; bei Überschreitung JOB_RETRY_MAX → state=dead.
+- Konfiguration:
+  - AGENT_CALL_PRIVKEY (Pflicht)
+  - AGENT_CALL_PUBKEY (optional; wird sonst abgeleitet)
+  - JOB_RETRY_MAX, CALLBACK_TIMEOUT_MS (z. B. 8000 ms)
+
+11) Rollback/Risiken
+- Gering: Die Demo ist idempotent. Regeln können deaktiviert/gelöscht werden (PATCH enabled=false; DELETE /rules/:id).
+- Bei nicht erreichbarem Agenten: Jobs enden in dead, beeinträchtigen aber nicht den Rest.
+
+12) Quick‑Checks (Copy & Paste)
+- Agents registrieren, Regel anlegen, triggern, Jobs prüfen:
+```
+# A registrieren
+curl -sS -X POST "{{BASE}}/agents/register" -H 'content-type: application/json' \
+  -d '{"name":"Agent-A","capabilities":[{"name":"notify"}],"webhookUrl":"http://localhost:9099/webhook"}'
+
+# Regel R_A anlegen
+curl -sS -X POST "{{BASE}}/rules" -H 'content-type: application/json' \
+  -d '{"name":"R_A","enabled":true,"when":{"type":"ready","predicate":{"eq":{"always":true}}},"find":{"source":"search","query":{"q":""},"limit":1},"actions":[{"action":"notify","agentId":"{agentIdA}"}]}'
+
+# Triggern
+curl -sS -X POST "{{BASE}}/rules/{ruleIdA}/run'
+
+# Jobs
+curl -sS '{{BASE}}/jobs'
 ```
 
-What it does
-1. For each stage (geno-screener, molecula, tox-sim):
-   - Creates a small blob file; computes SHA-256 contentHash
-   - Builds/publishes a DLM1 manifest (parents chained)
-   - Sets price, gets quote, pays 1 unit
-   - Streams the blob back and verifies sha256 == contentHash
-   - Saves all JSON artifacts to evidence/a2a-<timestamp>/
+13) Optional: Automatisierung
+- Verwende die bereitgestellte Postman/Newman‑Suite oder ein eigenes Skript, das:
+  - Agents registriert
+  - Regeln anlegt und triggert
+  - /jobs pollt bis done/dead
+  - evidence_json und summary unter a2a-demo-evidence/ schreibt
+- Cleanup: PATCH /rules/:id { "enabled": false }, dann DELETE /rules/:id
 
-2. At the end:
-   - GET /bundle?versionId=<tox-sim> (depth 99) and GET /ready
-   - Writes final-bundle.json and final-ready.json
-   - Optionally snapshots revenue_events if DB_PATH is set
+Hinweis: Für den erweiterten Pfad (submit/price/pay/ready/bundle) keine Beispiel‑Bodies hier, da payload‑Schemata je nach Instanz variieren. Bitte die gültigen Felder eurer API verwenden. Dieser Leitfaden bleibt dadurch D24‑kompatibel und sofort einsetzbar.
+------------------------------------------------------------
 
-Outputs
-- Evidence pack at evidence/a2a-<timestamp>/ including:
-  - stage manifests, builder/submit responses, price/pay receipts, downloads, hash checks
-  - final-bundle.json and final-ready.json
-  - optional revenue_events.json (last 100 rows)
-
-Success criteria
-- /bundle depth 99 shows the full chain
-- All hash checks OK
-- Receipts logged; optional revenue_events snapshot present
-
-Notes
-- In production, replace the synthetic rawTx with a wallet-signed transaction and call /submit with the real rawTx + manifest.
-```
-
-How to run the demo
-- Start the overlay
-- Ensure DATA_ROOT exists and is configured to your /v1/data route (D07)
-- Run:
-  npm run cli:a2a
-
-Definition of Done (D16)
-- The final printed links include /bundle with depth 99 showing the complete chain.
-- Evidence pack contains all JSON artifacts and hash checks.
-- Revenue logged (receipts), optionally included via DB snapshot.
-
-This script is non-intrusive: it uses only the public API you already have (plus optional DB read for revenue).
+Wenn du möchtest, liefere ich zusätzlich eine schlanke README‑Variante mit denselben Inhalten plus einem Einzeiler für Newman, der eure Postman‑Collection automatisiert gegen die lokale D24‑Instanz ausführt.
