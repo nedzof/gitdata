@@ -15,6 +15,7 @@ import { advisoriesRouter } from './src/routes/advisories';
 import { agentsRouter } from './src/routes/agents';
 import { rulesRouter } from './src/routes/rules';
 import { jobsRouter } from './src/routes/jobs';
+import { catalogRouter } from './src/routes/catalog';
 import { createJobProcessor } from './src/worker/job-processor';
 import { opsRouter } from './src/routes/metrics';
 import { auditLogger } from './src/middleware/audit';
@@ -63,6 +64,9 @@ app.use(rateLimit('submit'), advisoriesRouter(db));
 app.use('/agents', agentsRouter(db));
 app.use('/rules', rulesRouter(db));
 app.use('/jobs', jobsRouter(db));
+
+// D18: Catalog routes (/search and /resolve)
+app.use(catalogRouter(db));
 
 // D17: Ops routes (/health and /metrics)
 app.use(opsRouter(db));

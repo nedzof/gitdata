@@ -690,3 +690,34 @@ export function getNextQueuedJob(db: Database.Database): JobRow | null {
   const row = db.prepare('SELECT * FROM jobs WHERE state = ? ORDER BY created_at ASC LIMIT 1').get('queued');
   return row as JobRow | null;
 }
+
+// D18: Search and Resolve functionality
+export type SearchItem = {
+  version_id: string;
+  dataset_id: string | null;
+  title: string | null;
+  license: string | null;
+  classification: string | null;
+  content_hash: string | null;
+  created_at: string | null;
+  manifest_json: string;
+};
+
+/**
+ * listVersionsByDataset:
+ * - returns versions for a datasetId, sorted newest-first
+ */
+export function listVersionsByDataset(
+  db: Database.Database,
+  datasetId: string,
+  limit: number,
+  offset: number,
+): { version_id: string; created_at: string | null; content_hash: string | null }[] {
+  const sql = `
+    SELECT version_id, created_at, content_hash
+    FROM manifests
+    WHERE dataset_id = ?
+    ORDER BY COALESCE(created_at, '') DESC
+    LIMIT ? OFFSET ?`;
+  return db.prepare(sql).all(datasetId, limit, offset) as any[];
+}
