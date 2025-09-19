@@ -1,6 +1,3 @@
-Here’s a new deliverable in the same style, focused on turning your local DATA_ROOT into a production-grade storage + CDN stack with tiering, large-file streaming, and redundancy.
-
-File: issues/D22-storage-cdn.md
 # D22 — Storage Backend & CDN Integration
 
 Labels: storage, cdn, perf, ops
