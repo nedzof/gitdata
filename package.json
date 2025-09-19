@@ -21,6 +21,8 @@
     "test:sdk": "tsx test/integration/sdk.spec.ts",
     "cli:ready": "python3 tools/python/verify_ready.py --host ${OVERLAY_URL:-http://localhost:8788} --versionId ${VERSION_ID:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}",
     "test:cli": "test/cli/ready-cli.spec.sh",
+    "cli:onboard": "tsx scripts/producer-onboard.ts",
+    "test:onboard": "tsx test/integration/producer-onboard.spec.ts",
     "newman": "newman run postman/collection.postman_collection.json -e postman/env.postman_environment.json --reporters cli,junit --reporter-junit-export test-results/newman.xml",
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/mock/overlay-mock-extended.ts",
