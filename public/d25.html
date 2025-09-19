@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>D25 Demo GUI (D24 Overlay)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 0; }
+    header, nav, main { padding: 12px 16px; }
+    nav button { margin-right: 8px; }
+    section { display: none; margin-top: 12px; }
+    section.active { display: block; }
+    form > * { display: block; margin: 6px 0; }
+    .list { border: 1px solid #ddd; padding: 8px; border-radius: 6px; margin: 8px 0; }
+    .muted { color: #666; }
+    pre { background: #f8f8f8; padding: 8px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>D25 — Prosumer & Consumer GUI</h1>
+    <div>
+      BASE_URL:
+      <input id="baseUrlInput" size="40" placeholder="http://localhost:8788" />
+      <button id="saveBaseUrlBtn">Speichern</button>
+      <span class="muted" id="baseUrlSaved"></span>
+    </div>
+  </header>
+
+  <nav>
+    <button data-tab="tab-listings">Listings (Discovery)</button>
+    <button data-tab="tab-agents">Agents</button>
+    <button data-tab="tab-rules">Rules</button>
+    <button data-tab="tab-jobs">Jobs</button>
+  </nav>
+
+  <main>
+    <!-- Listings (optional: /listings) -->
+    <section id="tab-listings" class="active">
+      <h2>Listings</h2>
+      <form id="listingsSearchForm">
+        <input id="listingsQuery" placeholder="q (optional)" />
+        <input id="listingsLimit" type="number" value="10" min="1" />
+        <input id="listingsOffset" type="number" value="0" min="0" />
+        <button type="submit">Suchen</button>
+      </form>
+      <div id="listingsResults" class="list"></div>
+      <div id="listingDetail" class="list"></div>
+    </section>
+
+    <!-- Agents -->
+    <section id="tab-agents">
+      <h2>Agents</h2>
+      <form id="agentRegisterForm">
+        <input id="agentName" placeholder="Name" required />
+        <input id="agentWebhook" placeholder="Webhook URL (z.B. http://localhost:9099/webhook)" required />
+        <button type="submit">Agent registrieren</button>
+      </form>
+      <form id="agentSearchForm">
+        <input id="agentQuery" placeholder="Suche (q oder capability)" />
+        <button type="submit">Suchen</button>
+      </form>
+      <div id="agentsResults" class="list"></div>
+    </section>
+
+    <!-- Rules -->
+    <section id="tab-rules">
+      <h2>Rules</h2>
+      <form id="ruleCreateForm">
+        <input id="ruleName" placeholder="Rule Name" required />
+        <input id="ruleQuery" placeholder="find.query.q (z.B. leer für 'alle')" />
+        <input id="ruleAgentId" placeholder="agentId (notify-Empfänger)" required />
+        <button type="submit">Rule erstellen</button>
+      </form>
+      <form id="ruleRunForm">
+        <input id="ruleIdRun" placeholder="ruleId" required />
+        <button type="submit">Rule run (enqueue)</button>
+      </form>
+      <div id="rulesFeedback" class="list"></div>
+    </section>
+
+    <!-- Jobs -->
+    <section id="tab-jobs">
+      <h2>Jobs</h2>
+      <form id="jobsFilterForm">
+        <select id="jobsState">
+          <option value="">(alle)</option>
+          <option>queued</option>
+          <option>running</option>
+          <option>done</option>
+          <option>failed</option>
+          <option>dead</option>
+        </select>
+        <button type="submit">Aktualisieren</button>
+      </form>
+      <div id="jobsResults" class="list"></div>
+    </section>
+  </main>
+
+  <script src="./api.js"></script>
+  <script src="./d25-app.js"></script>
+</body>
+</html>

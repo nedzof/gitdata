@@ -1,44 +1,505 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Gitdata Marketplace MVP</title>
+  <title>BSV Data Overlay - Agent Marketplace & Discovery</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: system-ui, Arial; margin: 0; padding: 0; color: #222; }
-    header { background: #111; color: #fff; padding: 12px 16px; }
-    main { padding: 16px; max-width: 1000px; margin: 0 auto; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-    .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; background: #fff; }
-    .muted { color: #666; font-size: 12px; word-break: break-all; }
-    button { padding: 8px 12px; border: 1px solid #222; background: #f6f6f6; cursor: pointer; border-radius: 6px; }
-    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .badge { padding: 2px 6px; border-radius: 999px; font-size: 12px; border: 1px solid #ccc; }
-    .ready-yes { color: #0a0; border-color: #0a0; }
-    .ready-no { color: #a00; border-color: #a00; }
-    input[type=text] { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; min-width: 280px; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      color: #333;
+    }
+
+    header {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      padding: 20px 24px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+    }
+
+    .header-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .logo-section h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .logo-section .subtitle {
+      font-size: 14px;
+      color: #666;
+      margin: 4px 0 0 0;
+    }
+
+    .url-config {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,0.7);
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+
+    .url-config label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #555;
+    }
+
+    #baseUrlInput {
+      padding: 6px 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      width: 200px;
+    }
+
+    #saveBaseUrlBtn {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    #saveBaseUrlBtn:hover { background: #5a6fd8; }
+
+    nav {
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(20px);
+      padding: 0 24px;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+      overflow-x: auto;
+    }
+
+    .nav-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      gap: 2px;
+    }
+
+    nav button {
+      background: none;
+      border: none;
+      padding: 16px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #666;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      transition: all 0.3s ease;
+      white-space: nowrap;
+    }
+
+    nav button:hover {
+      color: #667eea;
+      background: rgba(102, 126, 234, 0.05);
+    }
+
+    nav button.active {
+      color: #667eea;
+      border-bottom-color: #667eea;
+      background: rgba(102, 126, 234, 0.1);
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 24px;
+    }
+
+    section {
+      display: none;
+      animation: fadeIn 0.3s ease-in;
+    }
+
+    section.active { display: block; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .section-header {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      padding: 24px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+
+    .section-header h2 {
+      margin: 0 0 8px 0;
+      font-size: 24px;
+      font-weight: 700;
+      color: #333;
+    }
+
+    .section-header p {
+      margin: 0;
+      color: #666;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      border: 1px solid rgba(255,255,255,0.3);
+      transition: all 0.3s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #555;
+    }
+
+    input, select, textarea {
+      padding: 12px 16px;
+      border: 2px solid #e1e5e9;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: all 0.2s;
+      background: rgba(255,255,255,0.9);
+    }
+
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    button[type="submit"] {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      align-self: flex-start;
+    }
+
+    button[type="submit"]:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+    }
+
+    .results-container {
+      display: grid;
+      gap: 16px;
+    }
+
+    .result-item {
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .result-item:hover {
+      background: rgba(255, 255, 255, 1);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+
+    .result-title {
+      font-weight: 600;
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 8px;
+    }
+
+    .result-meta {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .status-queued { background: #fef3c7; color: #92400e; }
+    .status-running { background: #dbeafe; color: #1e40af; }
+    .status-done { background: #d1fae5; color: #065f46; }
+    .status-failed { background: #fee2e2; color: #991b1b; }
+    .status-unknown { background: #f3f4f6; color: #374151; }
+    .status-up { background: #d1fae5; color: #065f46; }
+    .status-down { background: #fee2e2; color: #991b1b; }
+
+    .muted { color: #9ca3af; font-size: 14px; }
+
+    .success-message {
+      background: #d1fae5;
+      color: #065f46;
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: 1px solid #a7f3d0;
+      margin-bottom: 16px;
+    }
+
+    .error-message {
+      background: #fee2e2;
+      color: #991b1b;
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: 1px solid #fca5a5;
+      margin-bottom: 16px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #6b7280;
+      background: rgba(255,255,255,0.5);
+      border-radius: 8px;
+      border: 2px dashed #d1d5db;
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+
+    @media (max-width: 768px) {
+      .header-content { flex-direction: column; align-items: stretch; }
+      .url-config { justify-content: space-between; }
+      #baseUrlInput { width: 150px; }
+      main { padding: 20px 16px; }
+      .form-grid { grid-template-columns: 1fr; }
+      nav { padding: 0 16px; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <strong>Gitdata Marketplace (MVP)</strong>
-  </header>
-  <main>
-    <section>
-      <div class="row">
-        <input id="search" type="text" placeholder="Search title or license…" />
-        <button onclick="loadListings()">Search</button>
+    <div class="header-content">
+      <div class="logo-section">
+        <h1>BSV Data Overlay</h1>
+        <p class="subtitle">Agent Marketplace & Data Discovery Platform</p>
       </div>
+      <div class="url-config">
+        <label>API:</label>
+        <input id="baseUrlInput" placeholder="http://localhost:8788" />
+        <button id="saveBaseUrlBtn">Save</button>
+        <span class="muted" id="baseUrlSaved"></span>
+      </div>
+    </div>
+  </header>
+
+  <nav>
+    <div class="nav-container">
+      <button data-tab="tab-listings" class="active">📊 Data Discovery</button>
+      <button data-tab="tab-agents">🤖 Agents</button>
+      <button data-tab="tab-rules">⚡ Automation</button>
+      <button data-tab="tab-jobs">📋 Jobs</button>
+    </div>
+  </nav>
+
+  <main>
+    <!-- Data Discovery -->
+    <section id="tab-listings" class="active">
+      <div class="section-header">
+        <h2>Data Discovery</h2>
+        <p>Search and discover data assets published on the BSV blockchain. Browse datasets, manifests, and digital content with built-in verification.</p>
+      </div>
+
+      <div class="card">
+        <form id="listingsSearchForm">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Search Query</label>
+              <input id="listingsQuery" placeholder="Enter keywords, dataset ID, or content hash..." />
+            </div>
+            <div class="form-group">
+              <label>Results Limit</label>
+              <input id="listingsLimit" type="number" value="10" min="1" max="100" />
+            </div>
+            <div class="form-group">
+              <label>Offset</label>
+              <input id="listingsOffset" type="number" value="0" min="0" />
+            </div>
+          </div>
+          <button type="submit">🔍 Search Data</button>
+        </form>
+      </div>
+
+      <div id="listingsResults" class="results-container"></div>
+      <div id="listingDetail" class="card" style="display: none;"></div>
     </section>
 
-    <h3>Listings</h3>
-    <div id="listings" class="grid"></div>
+    <!-- Agent Marketplace -->
+    <section id="tab-agents">
+      <div class="section-header">
+        <h2>Agent Marketplace</h2>
+        <p>Register automation agents and discover services that can process your data. Agents provide capabilities like notifications, document generation, and custom workflows.</p>
+      </div>
 
-    <h3>Details</h3>
-    <div id="details" class="card">Select a listing to view details.</div>
+      <div class="card">
+        <h3>Register New Agent</h3>
+        <form id="agentRegisterForm">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Agent Name</label>
+              <input id="agentName" placeholder="My Data Processing Agent" required />
+            </div>
+            <div class="form-group">
+              <label>Webhook URL</label>
+              <input id="agentWebhook" placeholder="https://myservice.com/webhook" required />
+            </div>
+          </div>
+          <button type="submit">🚀 Register Agent</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3>Discover Agents</h3>
+        <form id="agentSearchForm">
+          <div class="form-group">
+            <label>Search Agents</label>
+            <input id="agentQuery" placeholder="Search by name or capability..." />
+          </div>
+          <button type="submit">🔍 Search Agents</button>
+        </form>
+      </div>
+
+      <div id="agentsResults" class="results-container"></div>
+    </section>
+
+    <!-- Automation Rules -->
+    <section id="tab-rules">
+      <div class="section-header">
+        <h2>Automation Rules</h2>
+        <p>Create automated workflows that trigger when new data matches your criteria. Rules can notify agents, generate documents, or execute custom actions.</p>
+      </div>
+
+      <div class="card">
+        <h3>Create New Rule</h3>
+        <form id="ruleCreateForm">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Rule Name</label>
+              <input id="ruleName" placeholder="New Data Notification Rule" required />
+            </div>
+            <div class="form-group">
+              <label>Data Filter</label>
+              <input id="ruleQuery" placeholder="Leave empty for all data, or enter keywords..." />
+            </div>
+            <div class="form-group">
+              <label>Target Agent ID</label>
+              <input id="ruleAgentId" placeholder="ag_123456789abcdef" required />
+            </div>
+          </div>
+          <button type="submit">⚡ Create Rule</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3>Manual Execution</h3>
+        <form id="ruleRunForm">
+          <div class="form-group">
+            <label>Rule ID</label>
+            <input id="ruleIdRun" placeholder="rl_123456789abcdef" required />
+          </div>
+          <button type="submit">▶️ Run Rule Now</button>
+        </form>
+      </div>
+
+      <div id="rulesFeedback" class="results-container"></div>
+    </section>
+
+    <!-- Job Monitoring -->
+    <section id="tab-jobs">
+      <div class="section-header">
+        <h2>Job Monitoring</h2>
+        <p>Monitor the execution of automated tasks and workflows. Track job status, view results, and debug issues in real-time.</p>
+      </div>
+
+      <div class="card">
+        <form id="jobsFilterForm">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Filter by Status</label>
+              <select id="jobsState">
+                <option value="">All Jobs</option>
+                <option value="queued">⏳ Queued</option>
+                <option value="running">🏃 Running</option>
+                <option value="done">✅ Completed</option>
+                <option value="failed">❌ Failed</option>
+                <option value="dead">💀 Dead</option>
+              </select>
+            </div>
+          </div>
+          <button type="submit">🔄 Refresh Jobs</button>
+        </form>
+      </div>
+
+      <div id="jobsResults" class="results-container"></div>
+    </section>
   </main>
 
-  <script type="module" src="./app.js"></script>
+  <script src="./api.js"></script>
+  <script src="./d25-app.js"></script>
 </body>
 </html>

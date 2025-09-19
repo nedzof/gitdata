@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS manifests (
   license TEXT,
   classification TEXT,
   created_at TEXT,                   -- ISO date-time from manifest.provenance.createdAt
-  manifest_json TEXT NOT NULL
+  manifest_json TEXT NOT NULL,
+  dataset_id TEXT,
+  producer_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS edges (
@@ -79,10 +81,7 @@ CREATE TABLE IF NOT EXISTS producers (
 
 CREATE INDEX IF NOT EXISTS idx_producers_identity ON producers(identity_key);
 
--- Extend manifests with dataset_id and producer_id for mapping
-ALTER TABLE manifests ADD COLUMN dataset_id TEXT;
-ALTER TABLE manifests ADD COLUMN producer_id TEXT;
-
+-- Indexes for manifests dataset_id and producer_id columns
 CREATE INDEX IF NOT EXISTS idx_manifests_dataset ON manifests(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_manifests_producer ON manifests(producer_id);
 
@@ -123,50 +122,43 @@ CREATE TABLE IF NOT EXISTS advisory_targets (
 CREATE INDEX IF NOT EXISTS idx_adv_targets_version ON advisory_targets(version_id);
 CREATE INDEX IF NOT EXISTS idx_adv_targets_producer ON advisory_targets(producer_id);
 
--- D16: Agent Marketplace (A2A)
+-- D24: Agent Marketplace & Automation
 CREATE TABLE IF NOT EXISTS agents (
   agent_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  capabilities_json TEXT NOT NULL,           -- JSON array of capabilities
+  capabilities_json TEXT NOT NULL,
   webhook_url TEXT NOT NULL,
-  identity_key TEXT,                         -- optional BRC-31 identity
-  status TEXT DEFAULT 'active',              -- 'active'|'inactive'
-  last_ping_at INTEGER,                      -- last successful ping timestamp
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  identity_key TEXT,
+  status TEXT DEFAULT 'unknown',
+  last_ping_at INTEGER,
+  created_at INTEGER NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
-CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
 CREATE INDEX IF NOT EXISTS idx_agents_identity ON agents(identity_key);
 
 CREATE TABLE IF NOT EXISTS rules (
   rule_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  enabled INTEGER DEFAULT 1,                -- boolean: 1=enabled, 0=disabled
-  when_json TEXT NOT NULL,                  -- JSON: {"type":"ready","predicate":{...}}
-  find_json TEXT NOT NULL,                  -- JSON: {"source":"search","query":{...},"limit":N}
-  actions_json TEXT NOT NULL,               -- JSON array: [{"action":"notify","agentId":"..."}]
+  enabled INTEGER NOT NULL DEFAULT 1,
+  when_json TEXT NOT NULL,
+  find_json TEXT NOT NULL,
+  actions_json TEXT NOT NULL,
+  owner_producer_id TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
-
 CREATE INDEX IF NOT EXISTS idx_rules_enabled ON rules(enabled);
-CREATE INDEX IF NOT EXISTS idx_rules_name ON rules(name);
 
 CREATE TABLE IF NOT EXISTS jobs (
   job_id TEXT PRIMARY KEY,
   rule_id TEXT NOT NULL,
-  state TEXT DEFAULT 'queued',              -- 'queued'|'running'|'done'|'dead'
+  target_id TEXT,
+  state TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_run_at INTEGER NOT NULL,
+  last_error TEXT,
+  evidence_json TEXT,
   created_at INTEGER NOT NULL,
-  started_at INTEGER,                       -- when worker picked it up
-  completed_at INTEGER,                     -- when worker finished (done/dead)
-  retry_count INTEGER DEFAULT 0,
-  last_error TEXT,                          -- error message for failed jobs
-  evidence_json TEXT,                       -- JSON array of action results/evidence
-  FOREIGN KEY (rule_id) REFERENCES rules(rule_id)
+  updated_at INTEGER NOT NULL
 );
-
+CREATE INDEX IF NOT EXISTS idx_jobs_state_next ON jobs(state, next_run_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_rule ON jobs(rule_id);
-CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state);
-CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at);

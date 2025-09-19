@@ -1,177 +1,51 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
-import crypto from 'crypto';
-import {
-  upsertAgent,
-  getAgent,
-  searchAgents,
-  updateAgentPing,
-  type AgentRow
-} from '../db';
-import { rateLimit } from '../middleware/limits';
+import { upsertAgent, getAgent, searchAgents, setAgentPing } from '../db';
+import { requireIdentity } from '../middleware/identity';
+
+function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
 export function agentsRouter(db: Database.Database): Router {
   const router = makeRouter();
 
-  // Apply rate limiting to all agent routes
-  router.use(rateLimit('agents'));
-
-  // POST /agents/register - Register a new agent
-  router.post('/register', async (req: Request, res: Response) => {
+  // POST /register (identity-signed recommended)
+  router.post('/register', requireIdentity(false), (req: Request & { identityKey?: string }, res: Response) => {
     try {
-      const { name, capabilities, webhookUrl, identityKey } = req.body;
-
-      if (!name || typeof name !== 'string') {
-        return res.status(400).json({ error: 'bad-request', hint: 'name is required' });
+      const { name, capabilities, webhookUrl, identityKey } = req.body || {};
+      if (!name || !webhookUrl || !Array.isArray(capabilities)) {
+        return json(res, 400, { error: 'bad-request', hint: 'name, webhookUrl, capabilities[] required' });
       }
-
-      if (!Array.isArray(capabilities)) {
-        return res.status(400).json({ error: 'bad-request', hint: 'capabilities must be an array' });
-      }
-
-      if (!webhookUrl || typeof webhookUrl !== 'string') {
-        return res.status(400).json({ error: 'bad-request', hint: 'webhookUrl is required' });
-      }
-
-      // Validate webhook URL format
-      try {
-        new URL(webhookUrl);
-      } catch {
-        return res.status(400).json({ error: 'bad-request', hint: 'webhookUrl must be a valid URL' });
-      }
-
-      // Validate identity key if provided
-      if (identityKey && !/^[0-9a-fA-F]{66}$/.test(identityKey)) {
-        return res.status(400).json({ error: 'bad-request', hint: 'identityKey must be 66-character hex' });
-      }
-
-      // Generate agent ID
-      const agentId = 'ag_' + crypto.randomBytes(16).toString('hex');
-
-      const agent: Partial<AgentRow> = {
-        agent_id: agentId,
-        name: name.trim(),
-        capabilities_json: JSON.stringify(capabilities),
-        webhook_url: webhookUrl.trim(),
-        identity_key: identityKey?.toLowerCase() || null,
-        status: 'active'
-      };
-
-      upsertAgent(db, agent);
-
-      res.status(201).json({
-        agentId,
-        name: agent.name,
-        capabilities,
-        webhookUrl: agent.webhook_url,
-        identityKey: agent.identity_key,
-        status: agent.status
+      const agentId = upsertAgent(db, {
+        name, webhook_url: webhookUrl, capabilities_json: JSON.stringify(capabilities),
+        identity_key: (identityKey || req.identityKey || '').toLowerCase(),
+        status: 'unknown'
       });
-
-    } catch (e: any) {
-      console.error('Agent registration error:', e);
-      res.status(500).json({ error: 'registration-failed', message: String(e?.message || e) });
+      return json(res, 200, { status: 'ok', agentId });
+    } catch (e:any) {
+      return json(res, 500, { error: 'register-failed', message: String(e?.message || e) });
     }
   });
 
-  // GET /agents/search - Search for agents
-  router.get('/search', async (req: Request, res: Response) => {
-    try {
-      const { q, capability, status, limit } = req.query;
-
-      const opts: Parameters<typeof searchAgents>[1] = {};
-
-      if (q && typeof q === 'string') {
-        opts.q = q.trim();
-      }
-
-      if (capability && typeof capability === 'string') {
-        opts.capability = capability.trim();
-      }
-
-      if (status && typeof status === 'string') {
-        opts.status = status.trim();
-      }
-
-      if (limit) {
-        const limitNum = parseInt(String(limit));
-        if (limitNum > 0 && limitNum <= 100) {
-          opts.limit = limitNum;
-        }
-      }
-
-      const agents = searchAgents(db, opts);
-
-      const results = agents.map(agent => ({
-        agentId: agent.agent_id,
-        name: agent.name,
-        capabilities: JSON.parse(agent.capabilities_json),
-        webhookUrl: agent.webhook_url,
-        identityKey: agent.identity_key,
-        status: agent.status,
-        lastPingAt: agent.last_ping_at,
-        createdAt: agent.created_at
-      }));
-
-      res.json({ agents: results });
-
-    } catch (e: any) {
-      console.error('Agent search error:', e);
-      res.status(500).json({ error: 'search-failed', message: String(e?.message || e) });
-    }
+  // GET /search?q&capability
+  router.get('/search', (req: Request, res: Response) => {
+    const q = req.query.q ? String(req.query.q) : undefined;
+    const cap = req.query.capability ? String(req.query.capability) : undefined;
+    const items = searchAgents(db, q, cap, 50, 0).map(a => ({
+      agentId: a.agent_id, name: a.name,
+      capabilities: JSON.parse(a.capabilities_json || '[]'),
+      webhookUrl: a.webhook_url, status: a.status, lastPingAt: a.last_ping_at || null
+    }));
+    return json(res, 200, { items });
   });
 
-  // GET /agents/:id - Get specific agent
-  router.get('/:id', async (req: Request, res: Response) => {
-    try {
-      const agentId = req.params.id;
-
-      const agent = getAgent(db, agentId);
-      if (!agent) {
-        return res.status(404).json({ error: 'agent-not-found' });
-      }
-
-      res.json({
-        agentId: agent.agent_id,
-        name: agent.name,
-        capabilities: JSON.parse(agent.capabilities_json),
-        webhookUrl: agent.webhook_url,
-        identityKey: agent.identity_key,
-        status: agent.status,
-        lastPingAt: agent.last_ping_at,
-        createdAt: agent.created_at,
-        updatedAt: agent.updated_at
-      });
-
-    } catch (e: any) {
-      console.error('Get agent error:', e);
-      res.status(500).json({ error: 'get-failed', message: String(e?.message || e) });
-    }
-  });
-
-  // POST /agents/:id/ping - Update agent ping timestamp
-  router.post('/:id/ping', async (req: Request, res: Response) => {
-    try {
-      const agentId = req.params.id;
-
-      const agent = getAgent(db, agentId);
-      if (!agent) {
-        return res.status(404).json({ error: 'agent-not-found' });
-      }
-
-      updateAgentPing(db, agentId);
-
-      res.json({
-        agentId,
-        status: 'pinged',
-        timestamp: Math.floor(Date.now() / 1000)
-      });
-
-    } catch (e: any) {
-      console.error('Agent ping error:', e);
-      res.status(500).json({ error: 'ping-failed', message: String(e?.message || e) });
-    }
+  // POST /:id/ping (agent calls back to prove reachability)
+  router.post('/:id/ping', requireIdentity(false), (req: Request & { identityKey?: string }, res: Response) => {
+    const id = String(req.params.id);
+    const ag = getAgent(db, id);
+    if (!ag) return json(res, 404, { error: 'not-found' });
+    setAgentPing(db, id, true);
+    return json(res, 200, { status: 'ok' });
   });
 
   return router;

@@ -27,5 +27,6 @@
   <div class="links">
     <a href="/docs">Docs</a>
     <a href="/explorer">Explorer</a>
+    <a href="/models">Models</a>
   </div>
 </main>

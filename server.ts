@@ -27,6 +27,7 @@ import { storageRouter } from './src/routes/storage';
 import { createStorageEventsMigration } from './src/storage/lifecycle';
 import { runIngestMigrations, ingestRouter, startIngestWorker } from './src/ingest';
 import { startJobsWorker } from './src/agents/worker';
+import { runModelsMigrations, modelsRouter } from './src/models/scaffold';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +57,9 @@ createStorageEventsMigration(db);
 // D23: Initialize ingest schema
 runIngestMigrations(db);
 
+// D27: Initialize models schema
+runModelsMigrations(db);
+
 // Attach per-route metrics wrappers before routers (best-effort)
 app.use('/ready', metricsRoute('ready'));
 app.use('/price', metricsRoute('price'));
@@ -68,6 +72,7 @@ app.use('/agents', metricsRoute('agents'));
 app.use('/rules', metricsRoute('rules'));
 app.use('/jobs', metricsRoute('jobs'));
 app.use('/payments', metricsRoute('payments'));
+app.use('/api/models', metricsRoute('models'));
 
 // API routes with rate limiting
 app.use(rateLimit('bundle'), bundleRouter(db));
@@ -101,6 +106,9 @@ app.use(rateLimit('storage'), storageRouter(db));
 
 // D23: Real-time event ingestion (/ingest/events, /ingest/feed, /watch)
 app.use(rateLimit('ingest'), ingestRouter(db));
+
+// D27: Model provenance & reverse lineage (/api/models/connect, /api/models/search, etc.)
+app.use('/api/models', rateLimit('models'), modelsRouter(db));
 
 // D01 Builder route with rate limiting
 app.use(rateLimit('submit'), submitDlm1Router());
