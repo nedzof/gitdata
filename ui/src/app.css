@@ -237,7 +237,7 @@ body {
   word-break: break-all;
 }
 
-/* Lineage Visualization - Git-style */
+/* Interactive Lineage Visualization */
 .lineage {
   background: #0d1117;
   border: 1px solid #30363d;
@@ -246,7 +246,7 @@ body {
   margin: 24px 0;
   font-family: 'SF Mono', monospace;
   font-size: 13px;
-  line-height: 1.8;
+  line-height: 1.6;
 }
 
 .lineage h2 {
@@ -255,22 +255,160 @@ body {
   color: #ffffff;
   margin-bottom: 16px;
   font-family: system-ui, sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.lineage-item {
-  margin: 8px 0;
+.lineage-controls {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.lineage-controls:hover {
+  background: #30363d;
   color: #f0f6fc;
 }
 
+.lineage-item {
+  margin: 12px 0;
+  transition: all 0.2s;
+  border-radius: 4px;
+  padding: 8px 0;
+}
+
+.lineage-item:hover {
+  background: #161b22;
+  padding: 8px 12px;
+  margin: 12px -12px;
+}
+
 .lineage-item.current {
+  border-left: 3px solid #58a6ff;
+  padding-left: 16px;
+  margin-left: -16px;
+}
+
+.lineage-item.hovered {
+  background: #21262d;
+  border-radius: 6px;
+}
+
+.lineage-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tree-icon {
+  color: #58a6ff;
+  font-weight: bold;
+}
+
+.tree-connector {
+  color: #30363d;
+  font-family: monospace;
+}
+
+.tree-connector-line {
+  color: #30363d;
+  margin-left: 8px;
+  font-family: monospace;
+  line-height: 1.2;
+}
+
+.version-link {
+  background: none;
+  border: none;
+  color: #f0f6fc;
+  font-family: inherit;
+  font-size: inherit;
+  text-decoration: none;
+  cursor: default;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.version-link.clickable {
+  cursor: pointer;
+  color: #58a6ff;
+}
+
+.version-link.clickable:hover {
+  background: #21262d;
+  text-decoration: underline;
+}
+
+.current-badge {
   color: #58a6ff;
   font-weight: 500;
+  font-size: 11px;
+}
+
+.root-badge {
+  color: #8b949e;
+  font-size: 11px;
+}
+
+.expand-toggle {
+  background: none;
+  border: none;
+  color: #8b949e;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  transition: all 0.2s;
+  margin-left: auto;
+}
+
+.expand-toggle:hover {
+  background: #30363d;
+  color: #f0f6fc;
+}
+
+.copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  opacity: 0.6;
+  transition: all 0.2s;
+}
+
+.copy-btn:hover {
+  opacity: 1;
+  background: #30363d;
+}
+
+.lineage-details {
+  margin-left: 24px;
+  margin-top: 8px;
+  padding: 12px;
+  background: #161b22;
+  border-radius: 6px;
+  border-left: 2px solid #30363d;
 }
 
 .lineage-meta {
   color: #8b949e;
-  margin-left: 20px;
+  margin: 4px 0;
   font-size: 12px;
+}
+
+.lineage-meta strong {
+  color: #f0f6fc;
+  font-weight: 500;
 }
 
 /* Policy Check Widget */
