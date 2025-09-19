@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
 import { getManifest, getReceipt, setReceiptStatus, updateReceiptUsage } from '../db';
+import { getStorageDriver, parseRange, formatContentRange } from '../storage';
 
 // Config (can be tuned via ENV)
 const DATA_ROOT = process.env.DATA_ROOT || path.resolve(process.cwd(), 'data', 'blobs');
@@ -11,6 +12,10 @@ const DATA_ROOT = process.env.DATA_ROOT || path.resolve(process.cwd(), 'data', '
 const BYTES_MAX_PER_RECEIPT = Number(process.env.BYTES_MAX_PER_RECEIPT || 104857600); // 100 MB default
 // If true, mark receipt as consumed after first successful delivery
 const SINGLE_USE_RECEIPTS = /^true$/i.test(process.env.SINGLE_USE_RECEIPTS || 'false');
+// Storage tier for data delivery (default: hot for fast access)
+const DATA_DELIVERY_TIER = (process.env.DATA_DELIVERY_TIER || 'hot') as 'hot' | 'warm' | 'cold';
+// Presigned URL mode: direct|presigned|stream
+const DATA_DELIVERY_MODE = process.env.DATA_DELIVERY_MODE || 'presigned';
 
 function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
@@ -22,11 +27,16 @@ function resolveBlobPath(contentHash: string): string {
 }
 
 /**
- * GET /v1/data?contentHash=&receiptId=
- * Validates the receipt, enforces TTL and quotas, then streams local file bytes from DATA_ROOT/contentHash.
- * Notes:
- * - For production, prefer presigned URLs to your object store/CDN and update counters when links are redeemed.
- * - This MVP streams from disk to demonstrate quota/TTL enforcement and atomic counters.
+ * GET /v1/data?contentHash=&receiptId=[&redirect=true]
+ * D22 modernized data delivery with storage backend integration.
+ *
+ * Modes:
+ * - presigned (default): Returns presigned URL for direct CDN/S3 access
+ * - stream: Streams content through the overlay (fallback mode)
+ * - direct: Returns CDN URL directly (if available)
+ *
+ * With redirect=true: automatically redirects to presigned URL
+ * Without redirect: returns JSON with presigned URL for client handling
  */
 export function dataRouter(db: Database.Database): Router {
   const router = makeRouter();
@@ -35,6 +45,7 @@ export function dataRouter(db: Database.Database): Router {
     try {
       const contentHash = String(req.query.contentHash || '').toLowerCase();
       const receiptId = String(req.query.receiptId || '');
+      const redirect = String(req.query.redirect || '').toLowerCase() === 'true';
 
       if (!/^[0-9a-fA-F]{64}$/.test(contentHash)) {
         return json(res, 400, { error: 'bad-request', hint: 'contentHash=64-hex required' });
@@ -63,54 +74,125 @@ export function dataRouter(db: Database.Database): Router {
         return json(res, 409, { error: 'content-mismatch' });
       }
 
-      // Optional manifest presence (not strictly required for streaming)
+      // Optional manifest validation
       const man = getManifest(db, rc.version_id);
       if (!man) {
-        // Not fatal for streaming, but return a clear message
         return json(res, 409, { error: 'manifest-missing', hint: 'manifest not found for version' });
       }
 
-      // Enforce quota: total bytes per receipt
-      const blobPath = resolveBlobPath(contentHash);
-      if (!fs.existsSync(blobPath) || !fs.statSync(blobPath).isFile()) {
-        return json(res, 404, { error: 'not-found', hint: 'content blob not found on server' });
-      }
-      const size = fs.statSync(blobPath).size;
-      const used = rc.bytes_used || 0;
-      if (BYTES_MAX_PER_RECEIPT > 0 && used + size > BYTES_MAX_PER_RECEIPT) {
-        return json(res, 409, { error: 'quota-exceeded', hint: `limit=${BYTES_MAX_PER_RECEIPT}, used=${used}, size=${size}` });
+      // Get storage driver and check object existence
+      const storage = getStorageDriver();
+      const objectExists = await storage.objectExists(contentHash, DATA_DELIVERY_TIER);
+
+      if (!objectExists) {
+        return json(res, 404, { error: 'not-found', hint: 'content not found in storage' });
       }
 
-      // Stream headers
-      res.setHeader('content-type', 'application/octet-stream');
-      res.setHeader('content-length', String(size));
+      // Get object metadata for quota checks
+      const metadata = await storage.headObject(contentHash, DATA_DELIVERY_TIER);
+      const size = metadata.contentLength || 0;
+      const used = rc.bytes_used || 0;
+
+      if (BYTES_MAX_PER_RECEIPT > 0 && used + size > BYTES_MAX_PER_RECEIPT) {
+        return json(res, 409, {
+          error: 'quota-exceeded',
+          hint: `limit=${BYTES_MAX_PER_RECEIPT}, used=${used}, size=${size}`
+        });
+      }
+
+      // Handle different delivery modes
+      if (DATA_DELIVERY_MODE === 'presigned' || DATA_DELIVERY_MODE === 'direct') {
+        try {
+          const presignedUrl = await storage.getPresignedUrl(contentHash, DATA_DELIVERY_TIER);
+
+          // Update usage counters when URL is generated (optimistic counting)
+          updateReceiptUsage(db, receiptId, size);
+          if (SINGLE_USE_RECEIPTS) {
+            setReceiptStatus(db, receiptId, 'consumed');
+          }
+
+          if (redirect) {
+            // Direct redirect to presigned URL
+            return res.redirect(302, presignedUrl.url);
+          } else {
+            // Return URL in JSON response
+            return json(res, 200, {
+              success: true,
+              delivery: {
+                method: 'presigned-url',
+                url: presignedUrl.url,
+                expiresAt: presignedUrl.expiresAt,
+                headers: presignedUrl.headers || {}
+              },
+              metadata: {
+                contentHash,
+                receiptId,
+                versionId: rc.version_id,
+                size,
+                tier: DATA_DELIVERY_TIER,
+                bytesUsed: used + size,
+                bytesLimit: BYTES_MAX_PER_RECEIPT
+              }
+            });
+          }
+        } catch (error) {
+          // Fallback to streaming if presigned URL fails
+          console.warn('Presigned URL generation failed, falling back to streaming:', error);
+        }
+      }
+
+      // Streaming mode (fallback or explicit)
+      const rangeHeader = req.headers.range;
+      let range = undefined;
+
+      if (rangeHeader) {
+        range = parseRange(rangeHeader, size);
+        if (!range) {
+          return json(res, 416, { error: 'range-not-satisfiable' });
+        }
+      }
+
+      const { data, metadata: streamMetadata } = await storage.getObject(contentHash, DATA_DELIVERY_TIER, range);
+
+      // Set response headers
+      res.setHeader('content-type', streamMetadata.contentType || 'application/octet-stream');
       res.setHeader('x-receipt-id', receiptId);
       res.setHeader('x-version-id', rc.version_id);
       res.setHeader('x-bytes-used', String(used));
       res.setHeader('x-bytes-limit', String(BYTES_MAX_PER_RECEIPT));
+      res.setHeader('x-storage-tier', DATA_DELIVERY_TIER);
+      res.setHeader('accept-ranges', 'bytes');
 
-      // Start streaming
-      const rs = fs.createReadStream(blobPath);
-      rs.on('error', (err) => {
+      if (range) {
+        res.status(206);
+        res.setHeader('content-range', formatContentRange(range.start!, range.end!, size));
+        res.setHeader('content-length', String(range.end! - range.start! + 1));
+      } else {
+        res.setHeader('content-length', String(size));
+      }
+
+      // Stream data
+      data.on('error', (err) => {
         if (!res.headersSent) {
           return json(res, 500, { error: 'stream-error', message: String((err as any)?.message || err) });
         }
         try { res.end(); } catch {}
       });
-      rs.on('open', () => {
-        rs.pipe(res);
-      });
-      rs.on('end', () => {
-        // Update counters atomically after full delivery
+
+      data.on('end', () => {
+        // Update counters after successful delivery
         try {
-          updateReceiptUsage(db, receiptId, size);
-          if (SINGLE_USE_RECEIPTS) {
+          updateReceiptUsage(db, receiptId, range ? (range.end! - range.start! + 1) : size);
+          if (SINGLE_USE_RECEIPTS && !range) {
             setReceiptStatus(db, receiptId, 'consumed');
           }
         } catch {
           // swallow DB errors here; delivery succeeded
         }
       });
+
+      data.pipe(res);
+
     } catch (e: any) {
       return json(res, 500, { error: 'data-failed', message: String(e?.message || e) });
     }

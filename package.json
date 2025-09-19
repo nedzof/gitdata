@@ -21,6 +21,8 @@
     "test:catalog": "tsx test/integration/catalog.spec.ts",
     "test:identity": "tsx test/integration/identity.spec.ts",
     "test:payments": "tsx test/integration/payments.spec.ts",
+    "test:storage": "tsx test/integration/storage.spec.ts",
+    "test:ingest": "tsx test/integration/ingest.spec.ts",
     "test:a2a": "tsx test/integration/a2a-e2e.spec.ts",
     "test:a2a-full": "tsx scripts/run-a2a-tests.ts",
     "agent:example": "tsx examples/agent-webhook.ts",

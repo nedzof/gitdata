@@ -23,6 +23,9 @@ import { auditLogger } from './src/middleware/audit';
 import { rateLimit } from './src/middleware/limits';
 import { metricsRoute } from './src/middleware/metrics';
 import { runPaymentsMigrations, paymentsRouter, reconcilePayments } from './src/payments';
+import { storageRouter } from './src/routes/storage';
+import { createStorageEventsMigration } from './src/storage/lifecycle';
+import { runIngestMigrations, ingestRouter, startIngestWorker } from './src/ingest';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +45,12 @@ initSchema(db);
 
 // D21: Initialize payments schema
 runPaymentsMigrations(db);
+
+// D22: Initialize storage events schema
+createStorageEventsMigration(db);
+
+// D23: Initialize ingest schema
+runIngestMigrations(db);
 
 // Attach per-route metrics wrappers before routers (best-effort)
 app.use('/ready', metricsRoute('ready'));
@@ -83,6 +92,12 @@ app.use(opsRouter(db));
 // D21: BSV Payments routes (/payments/quote, /payments/submit, /payments/:receiptId)
 app.use(rateLimit('payments'), paymentsRouter(db));
 
+// D22: Storage backend monitoring (/v1/storage/health, /v1/storage/stats, etc.)
+app.use(rateLimit('storage'), storageRouter(db));
+
+// D23: Real-time event ingestion (/ingest/events, /ingest/feed, /watch)
+app.use(rateLimit('ingest'), ingestRouter(db));
+
 // D01 Builder route with rate limiting
 app.use(rateLimit('submit'), submitDlm1Router());
 
@@ -108,6 +123,9 @@ if (process.env.A2A_WORKER_ENABLED === 'true') {
     console.warn('[A2A] Set AGENT_CALL_PRIVKEY environment variable to enable A2A worker');
   }
 }
+
+// D23: Start ingest worker for real-time event processing
+startIngestWorker(db);
 
 // D21: Initialize payments reconciliation job
 if (process.env.PAYMENTS_RECONCILE_ENABLED !== 'false') {
