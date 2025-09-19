@@ -1,7 +1,10 @@
 import { GitdataSDK } from '../../src/sdk';
 import { SDKOptions, ReadyResult, PriceQuote, Receipt, LineageBundle } from '../../src/sdk/types';
 
-(async function run() {
+import { describe, test } from 'vitest';
+
+describe('SDK Types Integration Test', () => {
+  test('should have all SDK types available and working', async () => {
   // Test type imports work
   const opts: SDKOptions = {
     baseUrl: 'http://localhost:8788',
@@ -41,8 +44,6 @@ import { SDKOptions, ReadyResult, PriceQuote, Receipt, LineageBundle } from '../
     proofs: []
   };
 
-  console.log('OK: SDK types and imports work correctly.');
-})().catch((e) => {
-  console.error('SDK type tests failed:', e);
-  process.exit(1);
+    // This test validates type imports and basic structure
+  });
 });

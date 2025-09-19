@@ -1,8 +1,8 @@
 // Force deterministic defaults in test
-process.env.PRICE_DEFAULT_SATS = '1000';
+process.env.PRICE_DEFAULT_SATS = '1234';
 process.env.RECEIPT_TTL_SEC = '120';
 
-import assert from 'assert';
+import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
@@ -10,7 +10,8 @@ import { initSchema, upsertManifest, setPrice } from '../../src/db';
 import { payRouter } from '../../src/routes/pay';
 import { initReceiptValidator, validateReceipt } from '../../src/validators/receipt';
 
-(async function run() {
+describe('Pay Integration Test', () => {
+  test('should handle payment receipts', async () => {
   initReceiptValidator(); // compile schema for validation
 
   const app = express();
@@ -48,17 +49,18 @@ import { initReceiptValidator, validateReceipt } from '../../src/validators/rece
     .post('/pay')
     .set('content-type', 'application/json')
     .send({ versionId, quantity: 2 });
-  assert.strictEqual(r1.status, 200);
+  expect(r1.status).toBe(200);
   const rec = r1.body;
-  assert.strictEqual(rec.versionId, versionId);
-  assert.strictEqual(rec.contentHash, contentHash);
-  assert.strictEqual(rec.quantity, 2);
-  assert.strictEqual(rec.amountSat, 2000);
-  assert.ok(rec.expiresAt >= t0 && rec.expiresAt <= t0 + 120 + 2);
+  expect(rec.versionId).toBe(versionId);
+  expect(rec.contentHash).toBe(contentHash);
+  expect(rec.quantity).toBe(2);
+  expect(rec.amountSat).toBe(2468);
+  expect(rec.expiresAt).toBeGreaterThanOrEqual(t0);
+  expect(rec.expiresAt).toBeLessThanOrEqual(t0 + 120 + 2);
 
   // Schema-check
   const schemaRes = validateReceipt(rec);
-  assert.strictEqual(schemaRes.ok, true, `receipt schema errors: ${JSON.stringify(schemaRes.errors)}`);
+  expect(schemaRes.ok).toBe(true);
 
   // 2) Override price and pay again (price 2500 * 1 = 2500)
   setPrice(db, versionId, 2500);
@@ -66,24 +68,21 @@ import { initReceiptValidator, validateReceipt } from '../../src/validators/rece
     .post('/pay')
     .set('content-type', 'application/json')
     .send({ versionId, quantity: 1 });
-  assert.strictEqual(r2.status, 200);
-  assert.strictEqual(r2.body.amountSat, 2500);
+  expect(r2.status).toBe(200);
+  expect(r2.body.amountSat).toBe(2500);
 
   // 3) GET /receipt should return the last receipt by id
   const r3 = await request(app).get(`/receipt?receiptId=${r2.body.receiptId}`);
-  assert.strictEqual(r3.status, 200);
-  assert.strictEqual(r3.body.amountSat, 2500);
+  expect(r3.status).toBe(200);
+  expect(r3.body.amountSat).toBe(2500);
 
   // 4) Negative: unknown versionId
   const bad1 = await request(app).post('/pay').send({ versionId: 'b'.repeat(64), quantity: 1 }).set('content-type','application/json');
-  assert.strictEqual(bad1.status, 404);
+  expect(bad1.status).toBe(404);
 
   // 5) Negative: invalid quantity
   const bad2 = await request(app).post('/pay').send({ versionId, quantity: 0 }).set('content-type','application/json');
-  assert.strictEqual(bad2.status, 400);
+  expect(bad2.status).toBe(400);
 
-  console.log('OK: /pay & /receipt tests passed.');
-})().catch((e) => {
-  console.error('pay tests failed:', e);
-  process.exit(1);
+  });
 });

@@ -1,10 +1,11 @@
-import assert from 'assert';
+import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { auditLogger } from '../../src/middleware/audit';
 import { rateLimit } from '../../src/middleware/limits';
 
-(async function run() {
+describe('Limits Integration Test', () => {
+  test('should handle rate limiting and body size limits', async () => {
   // Test rate limiting with custom limits
   process.env.RATE_LIMITS_JSON = JSON.stringify({ test: 3 }); // 3 req/min for testing
   process.env.BODY_SIZE_LIMIT = '100b'; // 100 bytes for body size test
@@ -32,26 +33,26 @@ import { rateLimit } from '../../src/middleware/limits';
   console.log('Testing rate limiting...');
   for (let i = 0; i < 3; i++) {
     const res = await request(app).get('/test');
-    assert.strictEqual(res.status, 200, `Request ${i + 1} should succeed`);
-    assert.strictEqual(res.body.ok, true);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
   }
 
   // 2) 4th request should be rate limited
   const rateLimitedRes = await request(app).get('/test');
-  assert.strictEqual(rateLimitedRes.status, 429);
-  assert.strictEqual(rateLimitedRes.body.error, 'rate-limited');
-  assert.ok(rateLimitedRes.body.hint.includes('limit=3/min'));
-  assert.strictEqual(rateLimitedRes.headers['retry-after'], '60');
+  expect(rateLimitedRes.status).toBe(429);
+  expect(rateLimitedRes.body.error).toBe('rate-limited');
+  expect(rateLimitedRes.body.hint).toContain('limit=3/min');
+  expect(rateLimitedRes.headers['retry-after']).toBe('60');
 
   // 3) Unlimited route should still work
   const unlimitedRes = await request(app).get('/unlimited');
-  assert.strictEqual(unlimitedRes.status, 200);
+  expect(unlimitedRes.status).toBe(200);
 
   // 4) Test different IP gets fresh bucket (simulate via different header)
   const diffIpRes = await request(app)
     .get('/test')
     .set('x-forwarded-for', '192.168.1.100');
-  assert.strictEqual(diffIpRes.status, 200, 'Different IP should get fresh rate limit bucket');
+  expect(diffIpRes.status).toBe(200);
 
   // 5) Test body size limits
   console.log('Testing body size limits...');
@@ -61,8 +62,8 @@ import { rateLimit } from '../../src/middleware/limits';
     .post('/body-test')
     .set('x-forwarded-for', '192.168.1.101') // Fresh IP for rate limiting
     .send({ test: 'ok' });
-  assert.strictEqual(smallBodyRes.status, 200);
-  assert.strictEqual(smallBodyRes.body.received.test, 'ok');
+  expect(smallBodyRes.status).toBe(200);
+  expect(smallBodyRes.body.received.test).toBe('ok');
 
   // Large body should be rejected (supertest handles the error differently)
   const largeBody = { data: 'x'.repeat(200) }; // > 100 bytes
@@ -77,15 +78,14 @@ import { rateLimit } from '../../src/middleware/limits';
   const auditTestRes = await request(app)
     .get('/unlimited')
     .set('user-agent', 'test-agent');
-  assert.strictEqual(auditTestRes.status, 200);
+  expect(auditTestRes.status).toBe(200);
 
   // 7) Test rate limit error handling with invalid configuration
   const badLimitsApp = express();
   process.env.RATE_LIMITS_JSON = 'invalid-json';
 
-  // Clear module cache to pick up the bad config
-  delete require.cache[require.resolve('../../src/middleware/limits')];
-  const { rateLimit: badRateLimit } = require('../../src/middleware/limits');
+  // Use dynamic import to pick up the bad config
+  const { rateLimit: badRateLimit } = await import('../../src/middleware/limits');
   badLimitsApp.get('/bad-config', badRateLimit('newroute'), (req, res) => {
     res.json({ ok: true });
   });
@@ -94,10 +94,7 @@ import { rateLimit } from '../../src/middleware/limits';
   const badConfigRes = await request(badLimitsApp)
     .get('/bad-config')
     .set('x-forwarded-for', '192.168.1.200');
-  assert.strictEqual(badConfigRes.status, 200, 'Should fallback to default limits with bad config');
+  expect(badConfigRes.status).toBe(200);
 
-  console.log('OK: All rate limiting and anti-abuse tests passed.');
-})().catch((e) => {
-  console.error('Rate limiting tests failed:', e);
-  process.exit(1);
+  });
 });

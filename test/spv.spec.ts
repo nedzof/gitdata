@@ -2,6 +2,7 @@ import assert from 'assert';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { describe, test, expect } from 'vitest';
 import {
   verifyMerklePath,
   verifyEnvelopeAgainstHeaders,
@@ -52,81 +53,139 @@ function writeHeadersIndex(headersPath: string, blockHash: string, merkleRoot: s
   fs.writeFileSync(headersPath, JSON.stringify(json, null, 2));
 }
 
-(async function run() {
-  // Leaf tx (raw hex can be any; txidFromRawTx will hash bytes)
-  const rawTx = '00';
-  const txid = txidFromRawTx(rawTx); // big-endian display
-  assert.strictEqual(txid.length, 64);
+describe('SPV unit/integration tests', () => {
+  test('merkle path verification works correctly', () => {
+    // Leaf tx (raw hex can be any; txidFromRawTx will hash bytes)
+    const rawTx = '00';
+    const txid = txidFromRawTx(rawTx); // big-endian display
+    expect(txid.length).toBe(64);
 
-  // Good path (two-leaf tree): root = sha256d(LE(txid) || LE(sibling)) when sibling is on the right
-  const sibling = '11'.repeat(32);
-  const txidLE = rev(hexToBuf(txid));
-  const siblingLE = rev(hexToBuf(sibling));
-  const rootBE = bufToHex(rev(sha256d(concat(txidLE, siblingLE))));
+    // Good path (two-leaf tree): root = sha256d(LE(txid) || LE(sibling)) when sibling is on the right
+    const sibling = '11'.repeat(32);
+    const txidLE = rev(hexToBuf(txid));
+    const siblingLE = rev(hexToBuf(sibling));
+    const rootBE = bufToHex(rev(sha256d(concat(txidLE, siblingLE))));
 
-  // verifyMerklePath positive
-  const ok = verifyMerklePath(txid, [{ hash: sibling, position: 'right' }], rootBE);
-  assert.strictEqual(ok, true, 'verifyMerklePath must accept correct right-sibling');
+    // verifyMerklePath positive
+    const ok = verifyMerklePath(txid, [{ hash: sibling, position: 'right' }], rootBE);
+    expect(ok).toBe(true);
 
-  // verifyMerklePath negative (wrong order/direction)
-  const bad = verifyMerklePath(txid, [{ hash: sibling, position: 'left' }], rootBE);
-  assert.strictEqual(bad, false, 'verifyMerklePath must reject wrong direction');
+    // verifyMerklePath negative (wrong order/direction)
+    const bad = verifyMerklePath(txid, [{ hash: sibling, position: 'left' }], rootBE);
+    expect(bad).toBe(false);
+  });
 
-  // Build header for that root
-  const { headerHex, blockHash } = buildHeaderWithRoot(rootBE);
-  const parsed = parseBlockHeader(headerHex);
-  assert.strictEqual(parsed.merkleRoot.toLowerCase(), rootBE.toLowerCase());
-  assert.strictEqual(parsed.blockHash.toLowerCase(), blockHash.toLowerCase());
+  test('block header parsing works correctly', () => {
+    const rawTx = '00';
+    const txid = txidFromRawTx(rawTx);
+    const sibling = '11'.repeat(32);
+    const txidLE = rev(hexToBuf(txid));
+    const siblingLE = rev(hexToBuf(sibling));
+    const rootBE = bufToHex(rev(sha256d(concat(txidLE, siblingLE))));
 
-  // Create temp headers file
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spv-'));
-  const headersPath = path.join(tmpDir, 'headers.json');
-  writeHeadersIndex(headersPath, blockHash, rootBE, 100, 105);
+    // Build header for that root
+    const { headerHex, blockHash } = buildHeaderWithRoot(rootBE);
+    const parsed = parseBlockHeader(headerHex);
+    expect(parsed.merkleRoot.toLowerCase()).toBe(rootBE.toLowerCase());
+    expect(parsed.blockHash.toLowerCase()).toBe(blockHash.toLowerCase());
+  });
 
-  const idx: HeadersIndex = loadHeaders(headersPath);
+  test('envelope verification against headers works', async () => {
+    const rawTx = '00';
+    const txid = txidFromRawTx(rawTx);
+    const sibling = '11'.repeat(32);
+    const txidLE = rev(hexToBuf(txid));
+    const siblingLE = rev(hexToBuf(sibling));
+    const rootBE = bufToHex(rev(sha256d(concat(txidLE, siblingLE))));
+    const { headerHex, blockHash } = buildHeaderWithRoot(rootBE);
 
-  // Envelope using blockHeader (confirms via headers index using blockHash)
-  const envA: SPVEnvelope = {
-    rawTx,
-    proof: { txid, merkleRoot: rootBE, path: [{ hash: sibling, position: 'right' }] },
-    block: { blockHeader: headerHex },
-  };
-  const resA = await verifyEnvelopeAgainstHeaders(envA, idx, 0);
-  assert.strictEqual(resA.ok, true, `envA should verify: ${resA.reason || ''}`);
+    // Create temp headers file
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spv-'));
+    const headersPath = path.join(tmpDir, 'headers.json');
+    writeHeadersIndex(headersPath, blockHash, rootBE, 100, 105);
 
-  // Envelope using blockHash+height
-  const envB: SPVEnvelope = {
-    rawTx,
-    proof: { txid, merkleRoot: rootBE, path: [{ hash: sibling, position: 'right' }] },
-    block: { blockHash, blockHeight: 100 },
-  };
-  const resB = await verifyEnvelopeAgainstHeaders(envB, idx, 0);
-  assert.strictEqual(resB.ok, true, `envB should verify: ${resB.reason || ''}`);
+    const idx: HeadersIndex = loadHeaders(headersPath);
 
-  // Unknown block hash -> fail
-  const envC: SPVEnvelope = {
-    rawTx,
-    proof: { txid, merkleRoot: rootBE, path: [{ hash: sibling, position: 'right' }] },
-    block: { blockHash: 'aa'.repeat(32), blockHeight: 100 },
-  };
-  const resC = await verifyEnvelopeAgainstHeaders(envC, idx, 0);
-  assert.strictEqual(resC.ok, false);
-  assert.strictEqual(resC.reason, 'unknown-block-hash');
+    // Envelope using blockHeader (confirms via headers index using blockHash)
+    const envA: SPVEnvelope = {
+      rawTx,
+      proof: { txid, merkleRoot: rootBE, path: [{ hash: sibling, position: 'right' }] },
+      block: { blockHeader: headerHex },
+    };
+    const resA = await verifyEnvelopeAgainstHeaders(envA, idx, 0);
+    expect(resA.ok).toBe(true);
 
-  // Insufficient confirmations
-  const resBMin = await verifyEnvelopeAgainstHeaders(envB, idx, 10_000);
-  assert.strictEqual(resBMin.ok, false);
-  assert.strictEqual(resBMin.reason, 'insufficient-confs');
+    // Envelope using blockHash+height
+    const envB: SPVEnvelope = {
+      rawTx,
+      proof: { txid, merkleRoot: rootBE, path: [{ hash: sibling, position: 'right' }] },
+      block: { blockHash, blockHeight: 100 },
+    };
+    const resB = await verifyEnvelopeAgainstHeaders(envB, idx, 0);
+    expect(resB.ok).toBe(true);
+  });
 
-  // Reorg simulation: tip moves (bestHeight increases -> more confirmations)
-  writeHeadersIndex(headersPath, blockHash, rootBE, 100, 110);
-  const idx2 = loadHeaders(headersPath);
-  const resB2 = await verifyEnvelopeAgainstHeaders(envB, idx2, 0);
-  assert.strictEqual(resB2.ok, true);
-  assert.ok((resB2.confirmations || 0) > (resB.confirmations || 0));
+  test('envelope verification handles errors correctly', async () => {
+    const rawTx = '00';
+    const txid = txidFromRawTx(rawTx);
+    const sibling = '11'.repeat(32);
+    const txidLE = rev(hexToBuf(txid));
+    const siblingLE = rev(hexToBuf(sibling));
+    const rootBE = bufToHex(rev(sha256d(concat(txidLE, siblingLE))));
+    const { headerHex, blockHash } = buildHeaderWithRoot(rootBE);
 
-  console.log('OK: SPV unit/integration tests passed.');
-})().catch((e) => {
-  console.error('SPV tests failed:', e);
-  process.exit(1);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spv-'));
+    const headersPath = path.join(tmpDir, 'headers.json');
+    writeHeadersIndex(headersPath, blockHash, rootBE, 100, 105);
+    const idx: HeadersIndex = loadHeaders(headersPath);
+
+    // Unknown block hash -> fail
+    const envC: SPVEnvelope = {
+      rawTx,
+      proof: { txid, merkleRoot: rootBE, path: [{ hash: sibling, position: 'right' }] },
+      block: { blockHash: 'aa'.repeat(32), blockHeight: 100 },
+    };
+    const resC = await verifyEnvelopeAgainstHeaders(envC, idx, 0);
+    expect(resC.ok).toBe(false);
+    expect(resC.reason).toBe('unknown-block-hash');
+
+    // Insufficient confirmations
+    const envB: SPVEnvelope = {
+      rawTx,
+      proof: { txid, merkleRoot: rootBE, path: [{ hash: sibling, position: 'right' }] },
+      block: { blockHash, blockHeight: 100 },
+    };
+    const resBMin = await verifyEnvelopeAgainstHeaders(envB, idx, 10_000);
+    expect(resBMin.ok).toBe(false);
+    expect(resBMin.reason).toBe('insufficient-confs');
+  });
+
+  test('reorg simulation works correctly', async () => {
+    const rawTx = '00';
+    const txid = txidFromRawTx(rawTx);
+    const sibling = '11'.repeat(32);
+    const txidLE = rev(hexToBuf(txid));
+    const siblingLE = rev(hexToBuf(sibling));
+    const rootBE = bufToHex(rev(sha256d(concat(txidLE, siblingLE))));
+    const { headerHex, blockHash } = buildHeaderWithRoot(rootBE);
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spv-'));
+    const headersPath = path.join(tmpDir, 'headers.json');
+    writeHeadersIndex(headersPath, blockHash, rootBE, 100, 105);
+    const idx: HeadersIndex = loadHeaders(headersPath);
+
+    const envB: SPVEnvelope = {
+      rawTx,
+      proof: { txid, merkleRoot: rootBE, path: [{ hash: sibling, position: 'right' }] },
+      block: { blockHash, blockHeight: 100 },
+    };
+    const resB = await verifyEnvelopeAgainstHeaders(envB, idx, 0);
+
+    // Reorg simulation: tip moves (bestHeight increases -> more confirmations)
+    writeHeadersIndex(headersPath, blockHash, rootBE, 100, 110);
+    const idx2 = loadHeaders(headersPath);
+    const resB2 = await verifyEnvelopeAgainstHeaders(envB, idx2, 0);
+    expect(resB2.ok).toBe(true);
+    expect((resB2.confirmations || 0) > (resB.confirmations || 0)).toBe(true);
+  });
 });

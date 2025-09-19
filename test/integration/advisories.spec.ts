@@ -1,4 +1,4 @@
-import assert from 'assert';
+import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
@@ -11,7 +11,8 @@ import os from 'os';
 import path from 'path';
 import { getDeclarationByVersion, upsertDeclaration, replaceEdges } from '../../src/db';
 
-(async function run() {
+describe('Advisories Integration Test', () => {
+  test('should handle advisories and recalls', async () => {
   // headers for /ready
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adv-'));
   const headersPath = path.join(tmpDir, 'headers.json');
@@ -91,26 +92,26 @@ import { getDeclarationByVersion, upsertDeclaration, replaceEdges } from '../../
       reason: 'security issue',
       targets: { versionIds: [vid] }
     });
-  assert.strictEqual(post.status, 200);
+  expect(post.status).toBe(200);
   const advisoryId = post.body.advisoryId;
-  assert.ok(advisoryId);
+  expect(advisoryId).toBeTruthy();
 
   // 2) GET /advisories?versionId=... returns the advisory
   const getAdv = await request(app).get(`/advisories?versionId=${vid}`);
-  assert.strictEqual(getAdv.status, 200);
-  assert.strictEqual(getAdv.body.items.length, 1);
+  expect(getAdv.status).toBe(200);
+  expect(getAdv.body.items.length).toBe(1);
 
   // 3) Check advisory blocking by directly querying functions (skip /ready SPV complexity for now)
   const now = Math.floor(Date.now() / 1000);
   const { listAdvisoriesForVersionActive } = await import('../../src/db');
   const advs = listAdvisoriesForVersionActive(db, vid, now);
-  assert.strictEqual(advs.length, 1);
-  assert.strictEqual(advs[0].type, 'BLOCK');
+  expect(advs.length).toBe(1);
+  expect(advs[0].type).toBe('BLOCK');
 
   // 4) Expire the advisory; should no longer appear in active list
   db.prepare('UPDATE advisories SET expires_at = ? WHERE advisory_id = ?').run(now - 10, advisoryId);
   const advs2 = listAdvisoriesForVersionActive(db, vid, now);
-  assert.strictEqual(advs2.length, 0);
+  expect(advs2.length).toBe(0);
 
   // 5) Create a WARN advisory on producer scope; /advisories returns it, /ready still true
   const post2 = await request(app)
@@ -121,20 +122,17 @@ import { getDeclarationByVersion, upsertDeclaration, replaceEdges } from '../../
       reason: 'informational notice',
       targets: { producerIds: [producerId] }
     });
-  assert.strictEqual(post2.status, 200);
+  expect(post2.status).toBe(200);
   const list2 = await request(app).get(`/advisories?versionId=${vid}`);
-  assert.strictEqual(list2.status, 200);
+  expect(list2.status).toBe(200);
   // Should include both version and producer advisories (expired one won't show, new WARN one should)
-  assert.ok(list2.body.items.length >= 1, `Expected at least 1 advisory, got ${list2.body.items.length}`);
+  expect(list2.body.items.length).toBeGreaterThanOrEqual(1);
 
   // Test producer-scope advisory (WARN doesn't block)
   const { listAdvisoriesForProducerActive } = await import('../../src/db');
   const prodAdvs = listAdvisoriesForProducerActive(db, producerId, Math.floor(Date.now() / 1000));
-  assert.strictEqual(prodAdvs.length, 1);
-  assert.strictEqual(prodAdvs[0].type, 'WARN');
+  expect(prodAdvs.length).toBe(1);
+  expect(prodAdvs[0].type).toBe('WARN');
 
-  console.log('OK: Advisories & Recalls tests passed.');
-})().catch((e) => {
-  console.error('advisories tests failed:', e);
-  process.exit(1);
+  });
 });

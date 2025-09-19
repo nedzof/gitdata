@@ -10,6 +10,8 @@ import {
   type SPVEnvelope,
 } from '../spv/verify-envelope';
 import { ingestSubmission } from '../services/ingest';
+import { metricsRoute } from '../middleware/metrics';
+import { incAdmissions } from '../metrics/registry';
 
 // This new factory function connects directly to the database
 // instead of a generic 'repo'.
@@ -21,6 +23,9 @@ export function submitReceiverRouter(db: Database.Database, opts: {
   const router = makeRouter();
   const { headersFile, minConfs, bodyMaxSize } = opts;
   let headersIdx: HeadersIndex | null = null;
+
+  // metrics for submit route
+  router.use('/submit', metricsRoute('submit'));
 
   function ensureHeaders(): HeadersIndex {
     if (!headersIdx) headersIdx = loadHeaders(headersFile);
@@ -78,6 +83,9 @@ export function submitReceiverRouter(db: Database.Database, opts: {
         rawTx,
         envelopeJson: envelopeToPersist,
       });
+
+      // Count successful admission
+      incAdmissions(1);
 
       // Your existing 'topics' logic is preserved
       const topics = Array.isArray(body.topics) ? body.topics : [];

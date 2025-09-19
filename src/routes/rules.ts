@@ -169,7 +169,12 @@ export function rulesRouter(db: Database.Database): Router {
       const { name, enabled, when, find, actions } = req.body;
 
       const updates: Partial<RuleRow> = {
-        rule_id: ruleId
+        rule_id: ruleId,
+        // Preserve existing values for required fields
+        name: existingRule.name,
+        when_json: existingRule.when_json,
+        find_json: existingRule.find_json,
+        actions_json: existingRule.actions_json
       };
 
       if (name !== undefined) {

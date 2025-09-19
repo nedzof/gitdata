@@ -5,6 +5,8 @@ import { getDeclarationByVersion, getManifest, getParents } from '../db';
 import { verifyEnvelopeAgainstHeaders } from '../spv/verify-envelope';
 import { getHeadersSnapshot } from '../spv/headers-cache';
 import { bundlesGet, bundlesSet, bundlesInvalidate, bundlesKey } from '../cache/bundles';
+import { metricsRoute } from '../middleware/metrics';
+import { cacheHit, cacheMiss, observeProofLatency } from '../metrics/registry';
 
 const BUNDLE_MAX_DEPTH = Number(process.env.BUNDLE_MAX_DEPTH || 8);
 const POLICY_MIN_CONFS = Number(process.env.POLICY_MIN_CONFS || 1);
@@ -91,6 +93,9 @@ export function bundleRouter(db: Database.Database): Router {
 
   ensureValidator();
 
+  // record request metrics for bundle route
+  router.use('/bundle', metricsRoute('bundle'));
+
   router.get('/bundle', async (req: Request, res: Response) => {
     try {
       const versionId = String(req.query.versionId || '').toLowerCase();
@@ -103,9 +108,12 @@ export function bundleRouter(db: Database.Database): Router {
       // 1) Try cache
       const cached = bundlesGet(key);
       if (cached) {
+        cacheHit();
         // Use a shallow copy so we don't mutate the cache body
         const body = JSON.parse(JSON.stringify(cached.body));
+        const t0 = Date.now();
         const re = await recomputeConfsAndEnforce(body);
+        observeProofLatency(Date.now() - t0);
         if (!re.ok) {
           // If policy now fails (e.g., reorg or threshold), invalidate cache and fall through to rebuild
           bundlesInvalidate(key);
@@ -117,6 +125,8 @@ export function bundleRouter(db: Database.Database): Router {
           res.setHeader('x-cache', 'hit');
           return res.status(200).json(body);
         }
+      } else {
+        cacheMiss();
       }
 
       // 2) Build fresh
@@ -125,6 +135,7 @@ export function bundleRouter(db: Database.Database): Router {
       // Verify & compute confirmations with current headers
       const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
       const idx = getHeadersSnapshot(HEADERS_FILE);
+      const t1 = Date.now();
       for (const p of proofsArr) {
         const env = p.envelope;
         const vr = await verifyEnvelopeAgainstHeaders(env, idx, POLICY_MIN_CONFS);
@@ -133,6 +144,7 @@ export function bundleRouter(db: Database.Database): Router {
         }
         p.envelope.confirmations = vr.confirmations ?? 0;
       }
+      observeProofLatency(Date.now() - t1);
 
       const bundle = {
         bundleType: 'datasetLineageBundle',

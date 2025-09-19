@@ -1,11 +1,12 @@
-import assert from 'assert';
+import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { initSchema, upsertProducer, upsertManifest } from '../../src/db';
 import { producersRouter } from '../../src/routes/producers';
 
-(async function run() {
+describe('Producers Integration Test', () => {
+  test('should handle producer registry and mapping', async () => {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
   const db = new Database(':memory:');
@@ -37,17 +38,14 @@ import { producersRouter } from '../../src/routes/producers';
 
   // Resolve by datasetId
   const r1 = await request(app).get(`/producers?datasetId=${encodeURIComponent(datasetId)}`);
-  assert.strictEqual(r1.status, 200);
-  assert.strictEqual(r1.body.producerId, producerId);
-  assert.strictEqual(r1.body.name, 'Acme Data');
+  expect(r1.status).toBe(200);
+  expect(r1.body.producerId).toBe(producerId);
+  expect(r1.body.name).toBe('Acme Data');
 
   // Fetch by id
   const r2 = await request(app).get(`/producers/${producerId}`);
-  assert.strictEqual(r2.status, 200);
-  assert.strictEqual(r2.body.identityKey?.startsWith('02'), true);
+  expect(r2.status).toBe(200);
+  expect(r2.body.identityKey?.startsWith('02')).toBe(true);
 
-  console.log('OK: Producers registry & mapping tests passed.');
-})().catch((e) => {
-  console.error('producers tests failed:', e);
-  process.exit(1);
+  });
 });

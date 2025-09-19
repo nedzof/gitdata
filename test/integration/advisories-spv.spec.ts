@@ -1,4 +1,4 @@
-import assert from 'assert';
+import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
@@ -11,7 +11,8 @@ import os from 'os';
 import path from 'path';
 import { upsertDeclaration } from '../../src/db';
 
-(async function run() {
+describe('Advisories SPV Integration Test', () => {
+  test('should handle advisories with SPV verification', async () => {
   // Create temporary headers file
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adv-spv-'));
   const headersPath = path.join(tmpDir, 'headers.json');
@@ -83,8 +84,8 @@ import { upsertDeclaration } from '../../src/db';
   // Test 1: Ready should work without advisories
   console.log('Testing /ready without advisories...');
   const rdy1 = await request(app).get(`/ready?versionId=${vid}`);
-  assert.strictEqual(rdy1.status, 200);
-  assert.strictEqual(rdy1.body.ready, true, `Expected ready=true, got: ${JSON.stringify(rdy1.body)}`);
+  expect(rdy1.status).toBe(200);
+  expect(rdy1.body.ready).toBe(true);
 
   // Test 2: Create BLOCK advisory, ready should fail
   console.log('Creating BLOCK advisory...');
@@ -96,12 +97,12 @@ import { upsertDeclaration } from '../../src/db';
       reason: 'security issue',
       targets: { versionIds: [vid] }
     });
-  assert.strictEqual(post.status, 200);
+  expect(post.status).toBe(200);
 
   const rdy2 = await request(app).get(`/ready?versionId=${vid}`);
-  assert.strictEqual(rdy2.status, 200);
-  assert.strictEqual(rdy2.body.ready, false);
-  assert.strictEqual(rdy2.body.reason, 'advisory-blocked', `Expected advisory-blocked, got: ${JSON.stringify(rdy2.body)}`);
+  expect(rdy2.status).toBe(200);
+  expect(rdy2.body.ready).toBe(false);
+  expect(rdy2.body.reason).toBe('advisory-blocked');
 
   // Test 3: Expire advisory, ready should work again
   console.log('Expiring advisory...');
@@ -109,8 +110,8 @@ import { upsertDeclaration } from '../../src/db';
   db.prepare('UPDATE advisories SET expires_at = ? WHERE advisory_id = ?').run(now - 10, post.body.advisoryId);
 
   const rdy3 = await request(app).get(`/ready?versionId=${vid}`);
-  assert.strictEqual(rdy3.status, 200);
-  assert.strictEqual(rdy3.body.ready, true, `Expected ready=true after expiry, got: ${JSON.stringify(rdy3.body)}`);
+  expect(rdy3.status).toBe(200);
+  expect(rdy3.body.ready).toBe(true);
 
   // Test 4: Create producer-scoped BLOCK advisory
   console.log('Creating producer-scoped BLOCK advisory...');
@@ -122,23 +123,20 @@ import { upsertDeclaration } from '../../src/db';
       reason: 'producer security issue',
       targets: { producerIds: [producerId] }
     });
-  assert.strictEqual(post2.status, 200);
+  expect(post2.status).toBe(200);
 
   const rdy4 = await request(app).get(`/ready?versionId=${vid}`);
-  assert.strictEqual(rdy4.status, 200);
-  assert.strictEqual(rdy4.body.ready, false);
-  assert.strictEqual(rdy4.body.reason, 'advisory-blocked', `Expected advisory-blocked for producer, got: ${JSON.stringify(rdy4.body)}`);
+  expect(rdy4.status).toBe(200);
+  expect(rdy4.body.ready).toBe(false);
+  expect(rdy4.body.reason).toBe('advisory-blocked');
 
   // Test 5: WARN advisory should not block
   console.log('Testing WARN advisory...');
   db.prepare('UPDATE advisories SET type = ? WHERE advisory_id = ?').run('WARN', post2.body.advisoryId);
 
   const rdy5 = await request(app).get(`/ready?versionId=${vid}`);
-  assert.strictEqual(rdy5.status, 200);
-  assert.strictEqual(rdy5.body.ready, true, `Expected ready=true with WARN, got: ${JSON.stringify(rdy5.body)}`);
+  expect(rdy5.status).toBe(200);
+  expect(rdy5.body.ready).toBe(true);
 
-  console.log('OK: Advisories + SPV integration tests passed.');
-})().catch((e) => {
-  console.error('advisories SPV tests failed:', e);
-  process.exit(1);
+  });
 });

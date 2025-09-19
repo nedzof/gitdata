@@ -16,8 +16,10 @@ import { agentsRouter } from './src/routes/agents';
 import { rulesRouter } from './src/routes/rules';
 import { jobsRouter } from './src/routes/jobs';
 import { createJobProcessor } from './src/worker/job-processor';
+import { opsRouter } from './src/routes/metrics';
 import { auditLogger } from './src/middleware/audit';
 import { rateLimit } from './src/middleware/limits';
+import { metricsRoute } from './src/middleware/metrics';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,6 +37,18 @@ app.use(auditLogger());
 const db = openDb();
 initSchema(db);
 
+// Attach per-route metrics wrappers before routers (best-effort)
+app.use('/ready', metricsRoute('ready'));
+app.use('/price', metricsRoute('price'));
+app.use('/v1/data', metricsRoute('data'));
+app.use('/pay', metricsRoute('pay'));
+app.use('/advisories', metricsRoute('advisories'));
+app.use('/producers', metricsRoute('producers'));
+app.use('/listings', metricsRoute('listings'));
+app.use('/agents', metricsRoute('agents'));
+app.use('/rules', metricsRoute('rules'));
+app.use('/jobs', metricsRoute('jobs'));
+
 // API routes with rate limiting
 app.use(rateLimit('bundle'), bundleRouter(db));
 app.use(rateLimit('ready'), readyRouter(db));
@@ -49,6 +63,9 @@ app.use(rateLimit('submit'), advisoriesRouter(db));
 app.use('/agents', agentsRouter(db));
 app.use('/rules', rulesRouter(db));
 app.use('/jobs', jobsRouter(db));
+
+// D17: Ops routes (/health and /metrics)
+app.use(opsRouter(db));
 
 // D01 Builder route with rate limiting
 app.use(rateLimit('submit'), submitDlm1Router());
@@ -96,23 +113,12 @@ process.on('SIGTERM', () => {
 // UI
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Health endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    timestamp: Math.floor(Date.now() / 1000),
-    services: {
-      database: 'connected',
-      a2aWorker: jobProcessor ? 'running' : 'disabled'
-    }
-  });
-});
-
 // Start
 const PORT = Number(process.env.OVERLAY_PORT || 8788);
 app.listen(PORT, () => {
   console.log(`Overlay listening on :${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
+  console.log(`Metrics endpoint: http://localhost:${PORT}/metrics`);
   if (process.env.A2A_WORKER_ENABLED === 'true') {
     console.log(`A2A APIs: http://localhost:${PORT}/agents, /rules, /jobs`);
   }

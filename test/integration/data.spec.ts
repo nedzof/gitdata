@@ -1,4 +1,4 @@
-import assert from 'assert';
+import { describe, test, expect } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -9,7 +9,8 @@ import Database from 'better-sqlite3';
 import { initSchema, upsertManifest } from '../../src/db';
 import { payRouter } from '../../src/routes/pay';
 
-(async function run() {
+describe('Data Integration Test', () => {
+  test('should handle data streaming and quotas', async () => {
   // Test config - set environment before importing dataRouter
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'data-'));
   process.env.DATA_ROOT = tmpRoot;
@@ -59,35 +60,32 @@ import { payRouter } from '../../src/routes/pay';
     .post('/pay')
     .set('content-type', 'application/json')
     .send({ versionId, quantity: 1 });
-  assert.strictEqual(payRes.status, 200);
+  expect(payRes.status).toBe(200);
   const receiptId = payRes.body.receiptId;
 
   // 1) Positive: within limit -> 200 + bytes
   const r1 = await request(app).get(`/v1/data?contentHash=${contentHash}&receiptId=${receiptId}`);
-  assert.strictEqual(r1.status, 200);
-  assert.strictEqual(Buffer.compare(r1.body as any, dataBytes), 0, 'returned bytes must match stored blob');
+  expect(r1.status).toBe(200);
+  expect(Buffer.compare(r1.body as any, dataBytes)).toBe(0);
 
   // 2) Negative: wrong contentHash -> 409
   const bad1 = await request(app).get(`/v1/data?contentHash=${'c'.repeat(64)}&receiptId=${receiptId}`);
-  assert.strictEqual(bad1.status, 409);
-  assert.strictEqual(bad1.body.error, 'content-mismatch');
+  expect(bad1.status).toBe(409);
+  expect(bad1.body.error).toBe('content-mismatch');
 
   // 3) Test quota by directly updating receipt bytes_used to near limit
   // Update bytes_used to be close to the 1024 limit
   db.prepare('UPDATE receipts SET bytes_used = ? WHERE receipt_id = ?').run(1020, receiptId); // 1020 + 11 = 1031 > 1024
   const r2 = await request(app).get(`/v1/data?contentHash=${contentHash}&receiptId=${receiptId}`);
-  assert.strictEqual(r2.status, 409);
-  assert.strictEqual(r2.body.error, 'quota-exceeded');
+  expect(r2.status).toBe(409);
+  expect(r2.body.error).toBe('quota-exceeded');
 
   // 4) Negative: expired receipt
   // Manually expire by decreasing expires_at
   db.prepare('UPDATE receipts SET expires_at = ? WHERE receipt_id = ?').run(Math.floor(Date.now()/1000) - 10, receiptId);
   const r3 = await request(app).get(`/v1/data?contentHash=${contentHash}&receiptId=${receiptId}`);
-  assert.strictEqual(r3.status, 403);
-  assert.strictEqual(r3.body.error, 'expired');
+  expect(r3.status).toBe(403);
+  expect(r3.body.error).toBe('expired');
 
-  console.log('OK: /v1/data (streaming & quotas) tests passed.');
-})().catch((e) => {
-  console.error('data tests failed:', e);
-  process.exit(1);
+  });
 });

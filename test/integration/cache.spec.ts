@@ -1,4 +1,4 @@
-import assert from 'assert';
+import { describe, test, expect } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -11,7 +11,8 @@ import { bundleRouter } from '../../src/routes/bundle';
 import { txidFromRawTx } from '../../src/spv/verify-envelope';
 import { invalidateHeadersSnapshot } from '../../src/spv/headers-cache';
 
-(async function run() {
+describe('Cache Integration Test', () => {
+  test('should handle bundle caching with TTL', async () => {
   // Configure small bundle TTL to see invalidation easily
   process.env.CACHE_TTLS_JSON = JSON.stringify({ headers: 60000, bundles: 1000 }); // 1s bundles
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-'));
@@ -89,16 +90,16 @@ import { invalidateHeadersSnapshot } from '../../src/spv/headers-cache';
 
   // 1) First bundle -> miss
   const r1 = await request(app).get(`/bundle?versionId=${vid}`);
-  assert.strictEqual(r1.status, 200);
-  assert.strictEqual(r1.headers['x-cache'], 'miss');
+  expect(r1.status).toBe(200);
+  expect(r1.headers['x-cache']).toBe('miss');
 
   // 2) Second bundle immediately -> hit (confirmations recomputed but equal)
   const r2 = await request(app).get(`/bundle?versionId=${vid}`);
-  assert.strictEqual(r2.status, 200);
-  assert.strictEqual(r2.headers['x-cache'], 'hit');
+  expect(r2.status).toBe(200);
+  expect(r2.headers['x-cache']).toBe('hit');
   const conf1 = r1.body.proofs[0].envelope.confirmations;
   const conf2 = r2.body.proofs[0].envelope.confirmations;
-  assert.strictEqual(conf1, conf2);
+  expect(conf1).toBe(conf2);
 
   // 3) Increase bestHeight -> hit still returns higher confirmations (recomputed on read)
   const updatedHeaders = {
@@ -108,18 +109,15 @@ import { invalidateHeadersSnapshot } from '../../src/spv/headers-cache';
   };
   fs.writeFileSync(headersPath, JSON.stringify(updatedHeaders, null, 2));
   const r3 = await request(app).get(`/bundle?versionId=${vid}`);
-  assert.strictEqual(r3.status, 200);
-  assert.strictEqual(r3.headers['x-cache'], 'hit');
-  assert.ok(r3.body.proofs[0].envelope.confirmations > conf2);
+  expect(r3.status).toBe(200);
+  expect(r3.headers['x-cache']).toBe('hit');
+  expect(r3.body.proofs[0].envelope.confirmations).toBeGreaterThan(conf2);
 
   // 4) After TTL expiry, cache miss rebuilds structure (we can't inspect internal cache—assert header only)
   await new Promise((r) => setTimeout(r, 1100));
   const r4 = await request(app).get(`/bundle?versionId=${vid}`);
-  assert.strictEqual(r4.status, 200);
-  assert.strictEqual(r4.headers['x-cache'], 'miss');
+  expect(r4.status).toBe(200);
+  expect(r4.headers['x-cache']).toBe('miss');
 
-  console.log('OK: /bundle cache tests passed.');
-})().catch((e) => {
-  console.error('bundle cache tests failed:', e);
-  process.exit(1);
+  });
 });

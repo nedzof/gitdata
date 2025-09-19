@@ -180,7 +180,7 @@ export function setProofEnvelope(db: Database.Database, versionId: string, envel
 }
 
 /* Manifests */
-export function upsertManifest(db: Database.Database, row: ManifestRow) {
+export function upsertManifest(db: Database.Database, row: Partial<ManifestRow>) {
   const stmt = db.prepare(`
     INSERT INTO manifests(version_id, manifest_hash, content_hash, title, license, classification, created_at, manifest_json, dataset_id, producer_id)
     VALUES (@version_id, @manifest_hash, @content_hash, @title, @license, @classification, @created_at, @manifest_json, @dataset_id, @producer_id)
@@ -195,7 +195,11 @@ export function upsertManifest(db: Database.Database, row: ManifestRow) {
       dataset_id=COALESCE(excluded.dataset_id, manifests.dataset_id),
       producer_id=COALESCE(excluded.producer_id, manifests.producer_id)
   `);
-  stmt.run(row as any);
+  stmt.run({
+    ...row,
+    dataset_id: row.dataset_id ?? null,
+    producer_id: row.producer_id ?? null
+  } as any);
 }
 
 export function getManifest(db: Database.Database, versionId: string): ManifestRow | undefined {
@@ -529,7 +533,7 @@ export function upsertAgent(db: Database.Database, agent: Partial<AgentRow>) {
   const now = Math.floor(Date.now() / 1000);
   const ins = db.prepare(`
     INSERT INTO agents(agent_id, name, capabilities_json, webhook_url, identity_key, status, last_ping_at, created_at, updated_at)
-    VALUES (@agent_id, @name, @capabilities_json, @webhook_url, @identity_key, COALESCE(@status,'active'), @last_ping_at, COALESCE(@created_at,?), ?)
+    VALUES (@agent_id, @name, @capabilities_json, @webhook_url, @identity_key, COALESCE(@status,'active'), @last_ping_at, @created_at, @updated_at)
     ON CONFLICT(agent_id) DO UPDATE SET
       name = excluded.name,
       capabilities_json = excluded.capabilities_json,
@@ -539,7 +543,7 @@ export function upsertAgent(db: Database.Database, agent: Partial<AgentRow>) {
       last_ping_at = excluded.last_ping_at,
       updated_at = excluded.updated_at
   `);
-  ins.run({ ...agent, created_at: agent.created_at ?? now, updated_at: now }, now, now);
+  ins.run({ ...agent, created_at: agent.created_at ?? now, updated_at: now, last_ping_at: agent.last_ping_at ?? null });
 }
 
 export function getAgent(db: Database.Database, agentId: string): AgentRow | null {
@@ -632,9 +636,17 @@ export function insertJob(db: Database.Database, job: Partial<JobRow>) {
   const now = Math.floor(Date.now() / 1000);
   const ins = db.prepare(`
     INSERT INTO jobs(job_id, rule_id, state, created_at, started_at, completed_at, retry_count, last_error, evidence_json)
-    VALUES (@job_id, @rule_id, COALESCE(@state,'queued'), COALESCE(@created_at,?), @started_at, @completed_at, COALESCE(@retry_count,0), @last_error, @evidence_json)
+    VALUES (@job_id, @rule_id, COALESCE(@state,'queued'), @created_at, @started_at, @completed_at, COALESCE(@retry_count,0), @last_error, @evidence_json)
   `);
-  ins.run({ ...job, created_at: job.created_at ?? now }, now);
+  ins.run({
+    ...job,
+    created_at: job.created_at ?? now,
+    started_at: job.started_at ?? null,
+    completed_at: job.completed_at ?? null,
+    retry_count: job.retry_count ?? 0,
+    last_error: job.last_error ?? null,
+    evidence_json: job.evidence_json ?? null
+  });
 }
 
 export function updateJob(db: Database.Database, jobId: string, updates: Partial<JobRow>) {

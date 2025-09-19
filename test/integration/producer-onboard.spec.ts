@@ -1,7 +1,8 @@
 import { spawn } from 'child_process';
-import assert from 'assert';
+import { describe, test, expect } from 'vitest';
 
-(async function run() {
+describe('Producer Onboard CLI Integration Test', () => {
+  test('should validate CLI parameters and handle errors', async () => {
   console.log('Testing D15 Producer Onboard CLI...');
 
   // Test 1: Missing required environment variables
@@ -15,8 +16,8 @@ import assert from 'assert';
 
   await new Promise((resolve) => {
     missingDataset.on('close', (code) => {
-      assert.strictEqual(code, 2, 'Should exit with code 2 for missing DATASET_ID');
-      assert.ok(output1.includes('set DATASET_ID'), 'Should show DATASET_ID error');
+      expect(code).toBe(2);
+      expect(output1).toContain('set DATASET_ID');
       console.log('✓ Correctly validates missing DATASET_ID');
       resolve(code);
     });
@@ -33,8 +34,8 @@ import assert from 'assert';
 
   await new Promise((resolve) => {
     missingPrice.on('close', (code) => {
-      assert.strictEqual(code, 2, 'Should exit with code 2 for missing PRICE_SATS');
-      assert.ok(output2.includes('set PRICE_SATS > 0'), 'Should show PRICE_SATS error');
+      expect(code).toBe(2);
+      expect(output2).toContain('set PRICE_SATS > 0');
       console.log('✓ Correctly validates missing PRICE_SATS');
       resolve(code);
     });
@@ -51,8 +52,8 @@ import assert from 'assert';
 
   await new Promise((resolve) => {
     invalidHash.on('close', (code) => {
-      assert.strictEqual(code, 2, 'Should exit with code 2 for invalid CONTENT_HASH');
-      assert.ok(output3.includes('CONTENT_HASH must be 64-hex'), 'Should show CONTENT_HASH error');
+      expect(code).toBe(2);
+      expect(output3).toContain('CONTENT_HASH must be 64-hex');
       console.log('✓ Correctly validates invalid CONTENT_HASH');
       resolve(code);
     });
@@ -69,8 +70,8 @@ import assert from 'assert';
 
   await new Promise((resolve) => {
     invalidKey.on('close', (code) => {
-      assert.strictEqual(code, 2, 'Should exit with code 2 for invalid IDENTITY_KEY');
-      assert.ok(output4.includes('IDENTITY_KEY must be 66-hex'), 'Should show IDENTITY_KEY error');
+      expect(code).toBe(2);
+      expect(output4).toContain('IDENTITY_KEY must be 66-hex');
       console.log('✓ Correctly validates invalid IDENTITY_KEY');
       resolve(code);
     });
@@ -94,8 +95,8 @@ import assert from 'assert';
 
   await new Promise((resolve) => {
     networkError.on('close', (code) => {
-      assert.ok(output5.includes('[onboard] manifest prepared'), 'Should show manifest preparation');
-      assert.ok(stderr5.includes('fetch failed') || code !== 0, 'Should fail due to network error');
+      expect(output5).toContain('[onboard] manifest prepared');
+      expect(stderr5.includes('fetch failed') || code !== 0).toBe(true);
       console.log('✓ Correctly handles network errors');
       resolve(code);
     });
@@ -112,7 +113,5 @@ import assert from 'assert';
   console.log('5. [onboard] SUCCESS');
   console.log('6. JSON output with producerId, links, etc.');
 
-})().catch((e) => {
-  console.error('Producer onboard CLI tests failed:', e);
-  process.exit(1);
+  });
 });

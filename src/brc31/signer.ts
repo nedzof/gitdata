@@ -4,6 +4,7 @@
  */
 
 import crypto from 'crypto';
+import { secp256k1 } from '@noble/curves/secp256k1';
 
 /**
  * Generate BRC-31 signature headers for webhook calls
@@ -78,38 +79,19 @@ export function verifyBRC31Signature(
  * Derive compressed public key from private key
  */
 function derivePublicKey(privateKey: Buffer): string {
-  // Use built-in crypto for secp256k1 key derivation
-  const keyPair = crypto.createECDH('secp256k1');
-  keyPair.setPrivateKey(privateKey);
-  const publicKey = keyPair.getPublicKey('hex', 'compressed');
-  return publicKey;
+  const publicKey = secp256k1.getPublicKey(privateKey, true);
+  return Buffer.from(publicKey).toString('hex');
 }
 
 /**
  * Sign message hash with private key
  */
 function signMessage(messageHash: Buffer, privateKey: Buffer): string {
-  const sign = crypto.createSign('SHA256');
-  sign.update(messageHash);
-
-  // Create key object for signing
-  const keyObject = crypto.createPrivateKey({
-    key: privateKey,
-    format: 'der',
-    type: 'sec1'
-  });
-
   try {
-    // Try to use secp256k1 if available, fallback to standard ECDSA
-    const signature = crypto.sign('sha256', messageHash, {
-      key: privateKey,
-      format: 'der',
-      type: 'sec1'
-    });
-    return signature.toString('hex');
-  } catch {
-    // Fallback: use simple deterministic signing
-    return signWithHMAC(messageHash, privateKey);
+    const signature = secp256k1.sign(messageHash, privateKey);
+    return signature.toDERHex();
+  } catch (error) {
+    throw new Error(`Signing failed: ${error}`);
   }
 }
 
