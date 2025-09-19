@@ -9,7 +9,8 @@
 import { execSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { A2AE2ETest } from '../test/integration/a2a-e2e.spec';
+// Note: Import would be: import { A2AE2ETest } from '../test/integration/a2a-e2e.spec';
+// But we'll run the test via vitest instead
 
 interface TestResults {
   timestamp: string;
@@ -143,19 +144,7 @@ class A2ATestRunner {
   async runUnitTests(): Promise<boolean> {
     console.log('🧪 Running unit tests...');
 
-    // Check if we have a test script in package.json
-    let testCommand = 'npx tsx test/integration/metrics.spec.ts';
-
-    try {
-      const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
-      if (packageJson.scripts && packageJson.scripts.test) {
-        testCommand = 'npm test';
-      }
-    } catch {
-      // Use default command
-    }
-
-    const result = await this.runCommand(testCommand, 'Unit tests execution');
+    const result = await this.runCommand('npm run test:unit', 'Unit tests execution');
     this.results.tests.unitTests = result;
 
     return result.success;
@@ -165,7 +154,7 @@ class A2ATestRunner {
     console.log('🔬 Running integration tests...');
 
     const result = await this.runCommand(
-      'npx tsx test/integration/metrics.spec.ts',
+      'npm run test:integration',
       'Integration tests execution'
     );
 
@@ -177,28 +166,32 @@ class A2ATestRunner {
     console.log('🎭 Running end-to-end A2A tests...');
 
     try {
-      const e2eTest = new A2AE2ETest();
-      await e2eTest.runFullE2ETest();
+      // Run A2A test via vitest
+      const result = await this.runCommand(
+        'PRICE_DEFAULT_SATS=1234 PRICE_QUOTE_TTL_SEC=120 RECEIPT_TTL_SEC=120 npx vitest run --config vitest.integration.config.ts test/integration/a2a-e2e.spec.ts',
+        'A2A E2E test execution'
+      );
 
       this.results.tests.e2eTests = {
-        passed: true,
-        output: 'E2E test completed successfully with evidence collection'
+        passed: result.success,
+        output: result.output
       };
 
-      // Check for evidence directory in temp
-      const tempDirs = fs.readdirSync('/tmp').filter(dir => dir.startsWith('a2a-demo-evidence-'));
-      if (tempDirs.length > 0) {
-        const evidenceDir = path.join('/tmp', tempDirs[tempDirs.length - 1]);
-        this.results.tests.e2eTests.evidenceDir = evidenceDir;
-        this.results.artifacts.evidenceDirectory = true;
-
-        // Copy evidence to output directory
-        const outputEvidenceDir = path.join(this.outputDir, 'a2a-demo-evidence');
-        execSync(`cp -r "${evidenceDir}" "${outputEvidenceDir}"`);
-        console.log(`📁 Evidence copied to: ${outputEvidenceDir}`);
+      if (result.success) {
+        // Check for evidence directory in test-results
+        const testResultsDir = path.join(process.cwd(), 'test-results');
+        if (fs.existsSync(testResultsDir)) {
+          const evidenceDirs = fs.readdirSync(testResultsDir).filter(dir => dir.startsWith('a2a-demo-evidence-'));
+          if (evidenceDirs.length > 0) {
+            const evidenceDir = path.join(testResultsDir, evidenceDirs[evidenceDirs.length - 1]);
+            this.results.tests.e2eTests.evidenceDir = evidenceDir;
+            this.results.artifacts.evidenceDirectory = true;
+            console.log(`📁 Evidence found at: ${evidenceDir}`);
+          }
+        }
       }
 
-      return true;
+      return result.success;
     } catch (error) {
       this.results.tests.e2eTests = {
         passed: false,

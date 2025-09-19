@@ -70,8 +70,10 @@ class A2AE2ETest {
   async setup() {
     console.log('🚀 Setting up A2A E2E test environment...');
 
-    // Setup evidence directory
-    this.evidenceDir = path.join(os.tmpdir(), `a2a-demo-evidence-${Date.now()}`);
+    // Setup evidence directory in test-results
+    const projectRoot = path.resolve(__dirname, '../..');
+    const testResultsDir = path.join(projectRoot, 'test-results');
+    this.evidenceDir = path.join(testResultsDir, `a2a-demo-evidence-${Date.now()}`);
     fs.mkdirSync(this.evidenceDir, { recursive: true });
     fs.mkdirSync(path.join(this.evidenceDir, 'evidence'), { recursive: true });
 
