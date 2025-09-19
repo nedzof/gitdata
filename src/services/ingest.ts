@@ -5,6 +5,7 @@ import {
   replaceEdges,
   setOpretVout,
   setProofEnvelope,
+  upsertProducer,
 } from '../db';
 import { deriveManifestIds, extractParents } from '../dlm1/codec';
 import { findFirstOpReturn } from '../utils/opreturn';
@@ -23,7 +24,21 @@ export async function ingestSubmission(opts: {
   const { versionId, manifestHash } = deriveManifestIds(manifest);
   const parents = extractParents(manifest);
 
-  // 2) Parse OP_RETURN and try to decode on-chain DLM1 (consistency check)
+  // 2) Producer mapping (datasetId + identityKey)
+  const datasetId: string | undefined = typeof manifest?.datasetId === 'string' ? manifest.datasetId : undefined;
+  const identityKey: string | undefined = typeof manifest?.provenance?.producer?.identityKey === 'string'
+    ? String(manifest.provenance.producer.identityKey).toLowerCase()
+    : undefined;
+
+  let producerId: string | undefined = undefined;
+  if (identityKey) {
+    // Optional producer metadata from manifest
+    const name: string | undefined = manifest?.provenance?.producer?.name || undefined;
+    const website: string | undefined = manifest?.provenance?.producer?.website || undefined;
+    producerId = upsertProducer(db, { identity_key: identityKey, name, website });
+  }
+
+  // 3) Parse OP_RETURN and try to decode on-chain DLM1 (consistency check)
   const opret = findFirstOpReturn(rawTx);
   let tag: 'DLM1' | 'TRN1' | 'UNKNOWN' = 'UNKNOWN';
   let opretVout: number | null = null;
@@ -48,7 +63,7 @@ export async function ingestSubmission(opts: {
     }
   }
 
-  // 3) Persist manifest row
+  // 4) Persist manifest row
   upsertManifest(db, {
     version_id: versionId,
     manifest_hash: manifestHash,
@@ -58,6 +73,8 @@ export async function ingestSubmission(opts: {
     classification: manifest?.policy?.classification || null,
     created_at: manifest?.provenance?.createdAt || null,
     manifest_json: JSON.stringify(manifest),
+    dataset_id: datasetId || null,
+    producer_id: producerId || null,
   });
 
   // 4) Persist declaration row

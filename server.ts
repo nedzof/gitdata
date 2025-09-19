@@ -10,6 +10,7 @@ import { submitDlm1Router } from './src/routes/submit-builder';
 import { submitReceiverRouter } from './src/routes/submit-receiver';
 import { payRouter } from './src/routes/pay';
 import { dataRouter } from './src/routes/data';
+import { producersRouter } from './src/routes/producers';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,6 +29,7 @@ app.use(priceRouter(db));
 app.use(payRouter(db));
 app.use(dataRouter(db));
 app.use(listingsRouter(db));
+app.use(producersRouter(db));
 
 // D01 Builder route
 app.use(submitDlm1Router());

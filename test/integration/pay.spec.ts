@@ -37,7 +37,9 @@ import { initReceiptValidator, validateReceipt } from '../../src/validators/rece
       content: { contentHash },
       provenance: { createdAt: '2024-05-01T00:00:00Z' },
       policy: { license: 'cc-by-4.0', classification: 'public' }
-    })
+    }),
+    dataset_id: 'ds-test',
+    producer_id: null
   });
 
   // 1) /pay happy path with default price (1000 * 2 = 2000)

@@ -72,3 +72,21 @@ CREATE INDEX IF NOT EXISTS idx_receipts_version ON receipts(version_id);
 CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
 CREATE INDEX IF NOT EXISTS idx_revenue_version ON revenue_events(version_id);
 CREATE INDEX IF NOT EXISTS idx_revenue_receipt ON revenue_events(receipt_id);
+
+-- Producers registry
+CREATE TABLE IF NOT EXISTS producers (
+  producer_id TEXT PRIMARY KEY,
+  name TEXT,
+  website TEXT,
+  identity_key TEXT UNIQUE, -- hex compressed pubkey (66 chars), optional-unique
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_producers_identity ON producers(identity_key);
+
+-- Extend manifests with dataset_id and producer_id for mapping
+ALTER TABLE manifests ADD COLUMN dataset_id TEXT;
+ALTER TABLE manifests ADD COLUMN producer_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_manifests_dataset ON manifests(dataset_id);
+CREATE INDEX IF NOT EXISTS idx_manifests_producer ON manifests(producer_id);

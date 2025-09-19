@@ -24,6 +24,16 @@ export type ManifestRow = {
   classification: string | null;
   created_at: string | null;
   manifest_json: string;
+  dataset_id?: string | null;
+  producer_id?: string | null;
+};
+
+export type ProducerRow = {
+  producer_id: string;
+  name: string | null;
+  website: string | null;
+  identity_key: string | null;
+  created_at: number;
 };
 
 export type ReceiptRow = {
@@ -117,8 +127,8 @@ export function setProofEnvelope(db: Database.Database, versionId: string, envel
 /* Manifests */
 export function upsertManifest(db: Database.Database, row: ManifestRow) {
   const stmt = db.prepare(`
-    INSERT INTO manifests(version_id, manifest_hash, content_hash, title, license, classification, created_at, manifest_json)
-    VALUES (@version_id, @manifest_hash, @content_hash, @title, @license, @classification, @created_at, @manifest_json)
+    INSERT INTO manifests(version_id, manifest_hash, content_hash, title, license, classification, created_at, manifest_json, dataset_id, producer_id)
+    VALUES (@version_id, @manifest_hash, @content_hash, @title, @license, @classification, @created_at, @manifest_json, @dataset_id, @producer_id)
     ON CONFLICT(version_id) DO UPDATE SET
       manifest_hash=excluded.manifest_hash,
       content_hash=excluded.content_hash,
@@ -126,13 +136,52 @@ export function upsertManifest(db: Database.Database, row: ManifestRow) {
       license=excluded.license,
       classification=excluded.classification,
       created_at=excluded.created_at,
-      manifest_json=excluded.manifest_json
+      manifest_json=excluded.manifest_json,
+      dataset_id=COALESCE(excluded.dataset_id, manifests.dataset_id),
+      producer_id=COALESCE(excluded.producer_id, manifests.producer_id)
   `);
   stmt.run(row as any);
 }
 
 export function getManifest(db: Database.Database, versionId: string): ManifestRow | undefined {
   return db.prepare('SELECT * FROM manifests WHERE version_id = ?').get(versionId) as any;
+}
+
+/* Producers */
+export function upsertProducer(db: Database.Database, p: { identity_key?: string | null; name?: string | null; website?: string | null }): string {
+  // If identity_key present and exists, reuse producer_id. Else create a new one.
+  let existing: ProducerRow | undefined;
+  if (p.identity_key) {
+    existing = db.prepare('SELECT * FROM producers WHERE identity_key = ?').get(String(p.identity_key).toLowerCase()) as any;
+  }
+  if (existing) {
+    // Optionally update name/website if provided
+    db.prepare('UPDATE producers SET name = COALESCE(?, name), website = COALESCE(?, website) WHERE producer_id = ?')
+      .run(p.name ?? null, p.website ?? null, existing.producer_id);
+    return existing.producer_id;
+  }
+  const producer_id = 'pr_' + Math.random().toString(16).slice(2) + Date.now().toString(16);
+  db.prepare(`
+    INSERT INTO producers(producer_id, name, website, identity_key, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(producer_id, p.name ?? null, p.website ?? null, p.identity_key ? String(p.identity_key).toLowerCase() : null, Math.floor(Date.now()/1000));
+  return producer_id;
+}
+
+export function getProducerById(db: Database.Database, producerId: string): ProducerRow | undefined {
+  return db.prepare('SELECT * FROM producers WHERE producer_id = ?').get(producerId) as any;
+}
+
+export function getProducerByDatasetId(db: Database.Database, datasetId: string): ProducerRow | undefined {
+  // Resolve latest manifest for datasetId and join to producers
+  const row = db.prepare(`
+    SELECT p.* FROM manifests m
+    JOIN producers p ON p.producer_id = m.producer_id
+    WHERE m.dataset_id = ?
+    ORDER BY m.created_at DESC NULLS LAST
+    LIMIT 1
+  `).get(datasetId) as any;
+  return row as ProducerRow | undefined;
 }
 
 /* Lineage edges */
@@ -163,10 +212,21 @@ export function getPrice(db: Database.Database, versionId: string): number | und
 /* Listing helpers */
 export function listListings(db: Database.Database, limit = 50, offset = 0) {
   const sql = `
-    SELECT m.version_id, m.title, m.license, m.classification, m.content_hash,
-           d.txid, d.status, d.created_at
+    SELECT
+      m.version_id,
+      m.title,
+      m.license,
+      m.classification,
+      m.content_hash,
+      m.dataset_id,
+      p.name AS producer_name,
+      p.website AS producer_website,
+      d.txid,
+      d.status,
+      d.created_at
     FROM manifests m
     LEFT JOIN declarations d ON d.version_id = m.version_id
+    LEFT JOIN producers p ON p.producer_id = m.producer_id
     ORDER BY d.created_at DESC
     LIMIT ? OFFSET ?`;
   return db.prepare(sql).all(limit, offset) as any[];

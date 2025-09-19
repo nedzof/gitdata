@@ -15,8 +15,11 @@ async function loadListings() {
   for (const it of filtered) {
     const card = document.createElement('div');
     card.className = 'card';
+    const publisher = it.producer_name ? `${it.producer_name}` : '(unknown publisher)';
+    const website = it.producer_website ? ` — <a href="${it.producer_website}" target="_blank" rel="noopener">site</a>` : '';
     card.innerHTML = `
       <div><strong>${it.title || '(no title)'}</strong></div>
+      <div class="muted">publisher: ${publisher}${website}</div>
       <div class="muted">versionId: <span class="mono">${it.version_id}</span></div>
       <div class="muted">contentHash: <span class="mono">${it.content_hash || '-'}</span></div>
       <div class="row">
