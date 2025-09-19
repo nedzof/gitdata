@@ -14,6 +14,7 @@
     "test:producers": "tsx test/integration/producers.spec.ts",
     "test:pricebook": "tsx test/integration/pricebook.spec.ts",
     "test:advisories": "tsx test/integration/advisories.spec.ts",
+    "test:advisories-spv": "tsx test/integration/advisories-spv.spec.ts",
     "newman": "newman run postman/collection.postman_collection.json -e postman/env.postman_environment.json --reporters cli,junit --reporter-junit-export test-results/newman.xml",
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/mock/overlay-mock-extended.ts",

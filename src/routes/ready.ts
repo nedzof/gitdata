@@ -13,11 +13,11 @@ function getPolicyMinConfs() {
   return Number(process.env.POLICY_MIN_CONFS || 1);
 }
 const BUNDLE_MAX_DEPTH = Number(process.env.BUNDLE_MAX_DEPTH || 8);
-const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
 
 let headersIdx: HeadersIndex | null = null;
 function ensureHeaders(): HeadersIndex {
   // Always reload headers for fresh data (no caching in tests)
+  const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
   headersIdx = loadHeaders(HEADERS_FILE);
   return headersIdx!;
 }
