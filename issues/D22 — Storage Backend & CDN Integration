@@ -1,0 +1,110 @@
+Here’s a new deliverable in the same style, focused on turning your local DATA_ROOT into a production-grade storage + CDN stack with tiering, large-file streaming, and redundancy.
+
+File: issues/D22-storage-cdn.md
+# D22 — Storage Backend & CDN Integration
+
+Labels: storage, cdn, perf, ops
+Assignee: TBA
+Estimate: 4–6 PT
+
+Zweck
+- Lokales Dateisystem (DATA_ROOT) durch produktionsfähiges Storage + CDN ersetzen:
+  - Hetzner Object Storage (S3‑kompatibel) als primärer Backend‑Speicher
+  - CDN vor Objekt‑Speicher für globale Auslieferung
+  - Tiering (hot/warm/cold), Kostenoptimierung, Redundanz/Backups
+  - Große Dateien (Streaming, Range‑Requests, Multipart‑Upload), Chunk‑basierte Quoten
+
+Abhängigkeiten
+- D05/D06/D07 (Price/Pay/Data)
+- D11 (Caching), D12 (Limits), D13 (SDK)
+- Kein Hard‑Coupling an Indexer (SPV bleibt maßgeblich für Trust)
+
+Aufgaben
+- [ ] Storage‑Abstraktion & Treiber
+  - STORAGE_BACKEND=fs|s3
+  - S3‑Treiber (Hetzner): putObject, headObject, getObject (Range), presignGetUrl(), multipart upload
+  - Pfadkonvention: contentHash → s3://{bucket}/{tier}/{contentHash}
+  - Tier‑Routing: hot/warm/cold → unterschiedliche Buckets/Storage Classes
+- [ ] CDN‑Integration
+  - PRESIGNED_URL_MODE: direct|cdn (direkter S3‑Link vs. CDN‑signierte URL)
+  - Signatur (z. B. Cloudflare/Hetzner CDN Token) + Cache‑Header (Cache‑Control, ETag, Content‑Length)
+  - Purge/Invalidation Prozess (optional Skript)
+- [ ] /v1/data Modernisierung
+  - Standard: presigned URLs (302 oder JSON mit url) statt Overlay‑Streaming
+  - Optional: Overlay‑Streaming fallback (Range‑Support, X-Bytes-* Header)
+  - Quoten: Chunk‑basiert (rangeStart..rangeEnd), atomare Zählung je Abruf
+  - Fehlerfälle: 404 (not found), 409 (quota exceeded), 403 (receipt/content mismatch)
+- [ ] Tiering & Kosten
+  - DATA_TIER_DEFAULT=hot; Richtlinie: Auto‑Downgrade nach N Tagen → warm/cold (Lifecycle Regeln)
+  - Lifecycle‑Doku: Hot (CDN + S3 Standard), Warm (S3 Standard‑IA), Cold (Archiv/Deep)
+- [ ] Redundanz & Backups
+  - Replikation (Kopie in 2. Bucket/Region optional)
+  - Backups: tägliche Manifest‑Snapshots (Manifeste, Edges, Declarations), ggf. DB Dump + S3 Upload
+- [ ] Large Files & Upload
+  - Multipart Upload (clientseitig oder Producer‑CLI unterstützt), Integrität: sha256(content) == manifest.content.contentHash
+  - Range‑Requests Tests (SDK/CLI)
+- [ ] Monitoring & Health
+  - /health: Storage‑Ping (HeadObject auf Probe‑Objekt)
+  - /metrics: storageLatencyMs P95, presign/sec, cdnMisses (optional Log‑Analyse)
+- [ ] Migrationstools
+  - scripts/storage-migrate-fs-to-s3.ts: scan DATA_ROOT → upload → verify hash → optional delete local
+  - scripts/storage-verify.ts: sample‑Prüfung (Head+Get+Hash)
+- [ ] Doku & SDK
+  - README: Betriebsprofile (direct vs. CDN), Tiering, Policies
+  - SDK: streamData() lernt presigned‑URL Pfad (falls /v1/data JSON { url } liefert)
+
+Definition of Done (DoD)
+- [ ] /v1/data liefert standardmäßig Presigned URL (direct oder CDN). Overlay‑Streaming bleibt als Fallback verfügbar.
+- [ ] Große Dateien (>1 GB) funktionieren mit Range‑Requests; Hash‑Check gegen manifest.content.contentHash ok.
+- [ ] Tiering konfigurierbar; Lifecycle‑Regeln dokumentiert; Backups/Redundanz beschrieben.
+- [ ] Health/metrics: Storage erreichbar; Metrics zeigen Presign/Storage Latenzen.
+- [ ] Kosten‑/Performance‑Profil für hot/warm/cold dokumentiert.
+
+Abnahmekriterien (Tests)
+- [ ] Happy Path: pay → /v1/data → Presigned URL → Download → Hash‑Match
+- [ ] Range‑Request: 3 Teilabrufe (Range) summieren sich korrekt in bytes_used; Quoten‑Cutoff greift
+- [ ] Direkt vs. CDN‑Modus verifiziert (Header/URL unterscheiden sich; CDN liefert 200)
+- [ ] Lifecycle/Tiering: Objekt in „warm/cold“ erreichbar; Doku zeigt Umschaltkriterien
+- [ ] Migration: 100+ Dateien von fs → s3 → probeweise gelöscht → weiterhin downloadbar
+
+Artefakte
+- [ ] Beispiel‑ENV (S3/Hetzner + CDN), Policy‑Snippets (Bucket Policy, CORS)
+- [ ] Migrations‑Protokoll, Verify‑Report (hash ok)
+- [ ] Beispiel‑Presigned‑URL JSON, CDN‑Konfig/Anleitung
+
+Risiken/Rollback
+- CDN‑Cache‑Inkonsistenzen → harte TTLs + Purge‑Werkzeug
+- Egress‑Kosten → warm/cold‑Tier, CDN‑Hit‑Rate optimieren
+- Konsistenz (Eventually Consistent Reads) → kleine Verzögerung nach Upload; Grace‑Policy in UI/SDK
+- Multi‑Gigabyte Transfer Last → vorrangig Presigned URLs statt Overlay‑Proxying
+
+ENV (Vorschlag)
+- STORAGE_BACKEND=fs|s3
+- S3_ENDPOINT=https://<hetzner-endpoint>
+- S3_REGION=eu-central
+- S3_BUCKET_HOT=bucket-hot
+- S3_BUCKET_WARM=bucket-warm
+- S3_BUCKET_COLD=bucket-cold
+- S3_ACCESS_KEY=...
+- S3_SECRET_KEY=...
+- CDN_MODE=off|direct|signed
+- CDN_BASE_URL=https://cdn.example
+- CDN_SIGNING_KEY=base64:key
+- PRESIGN_TTL_SEC=900
+- DATA_TIER_DEFAULT=hot
+- MAX_RANGE_BYTES=16777216
+- BACKUP_BUCKET=bucket-backup
+- BACKUP_CRON=0 3 * * *
+- LIFECYCLE_JSON={"hotToWarmDays":30,"warmToColdDays":180}
+
+Implementierungsnotizen (Scoping)
+- Start mit direct S3 Presign (ohne CDN), dann CDN‑Signaturen ergänzen
+- Fallback: Overlay‑Streaming nur für kleine Dateien oder Debug
+- Quoten: pro Range‑Abruf akkumulieren, Single‑Use optional beibehalten (D07)
+- Hash‑Integrität: Hash‑Vergleich beim ersten erfolgreichen Download loggen (Evidence)
+
+Wenn du möchtest, liefere ich dir danach die konkreten Cursor‑Tasks (Dateien + Code‑Stubs) für:
+- StorageDriver (fs|s3) Schnittstelle
+- Presign‑Service (direct|cdn)
+- /v1/data Anpassung (JSON { url } → Presigned, plus Fallback Streaming)
+- Migrationsskripte (fs → s3, Verify)
