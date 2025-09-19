@@ -14,8 +14,10 @@ const BYTES_MAX_PER_RECEIPT = Number(process.env.BYTES_MAX_PER_RECEIPT || 104857
 const SINGLE_USE_RECEIPTS = /^true$/i.test(process.env.SINGLE_USE_RECEIPTS || 'false');
 // Storage tier for data delivery (default: hot for fast access)
 const DATA_DELIVERY_TIER = (process.env.DATA_DELIVERY_TIER || 'hot') as 'hot' | 'warm' | 'cold';
-// Presigned URL mode: direct|presigned|stream
-const DATA_DELIVERY_MODE = process.env.DATA_DELIVERY_MODE || 'presigned';
+// Presigned URL mode: direct|presigned|stream (read dynamically for testing)
+function getDataDeliveryMode(): string {
+  return process.env.DATA_DELIVERY_MODE || 'presigned';
+}
 
 function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
@@ -58,7 +60,7 @@ export function dataRouter(db: Database.Database): Router {
       const rc = getReceipt(db, receiptId);
       if (!rc) return json(res, 404, { error: 'not-found', hint: 'receipt missing' });
 
-      const now = Math.floor(Date.now() / 1000);
+      const now = Date.now();
       if (now > rc.expires_at) {
         setReceiptStatus(db, receiptId, 'expired');
         return json(res, 403, { error: 'expired', hint: 'receipt expired' });
@@ -101,7 +103,8 @@ export function dataRouter(db: Database.Database): Router {
       }
 
       // Handle different delivery modes
-      if (DATA_DELIVERY_MODE === 'presigned' || DATA_DELIVERY_MODE === 'direct') {
+      const deliveryMode = getDataDeliveryMode();
+      if (deliveryMode === 'presigned' || deliveryMode === 'direct') {
         try {
           const presignedUrl = await storage.getPresignedUrl(contentHash, DATA_DELIVERY_TIER);
 

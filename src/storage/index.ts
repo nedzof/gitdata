@@ -292,25 +292,41 @@ export class FilesystemStorageDriver extends StorageDriver {
   async listObjects(tier: StorageTier, prefix?: string, maxKeys?: number): Promise<StorageObject[]> {
     const tierPath = path.join(this.config.dataRoot || './data/content', tier);
     try {
-      const entries = await fs.readdir(tierPath, { withFileTypes: true });
       const objects: StorageObject[] = [];
-
       let count = 0;
-      for (const entry of entries) {
+
+      // List all subdirectories (first 2 chars of hash)
+      const subdirs = await fs.readdir(tierPath, { withFileTypes: true });
+
+      for (const subdir of subdirs) {
         if (maxKeys && count >= maxKeys) break;
-        if (!entry.isFile()) continue;
+        if (!subdir.isDirectory()) continue;
 
-        const contentHash = entry.name;
-        if (prefix && !contentHash.startsWith(prefix)) continue;
+        const subdirPath = path.join(tierPath, subdir.name);
+        try {
+          const files = await fs.readdir(subdirPath, { withFileTypes: true });
 
-        const stats = await fs.stat(path.join(tierPath, entry.name));
-        objects.push({
-          contentHash,
-          tier,
-          size: stats.size,
-          lastModified: stats.mtime
-        });
-        count++;
+          for (const file of files) {
+            if (maxKeys && count >= maxKeys) break;
+            if (!file.isFile()) continue;
+
+            const contentHash = file.name;
+            if (prefix && !contentHash.startsWith(prefix)) continue;
+
+            const filePath = path.join(subdirPath, file.name);
+            const stats = await fs.stat(filePath);
+            objects.push({
+              contentHash,
+              tier,
+              size: stats.size,
+              lastModified: stats.mtime
+            });
+            count++;
+          }
+        } catch {
+          // Skip subdirectories that can't be read
+          continue;
+        }
       }
 
       return objects;

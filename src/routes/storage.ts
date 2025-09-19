@@ -166,9 +166,6 @@ export function storageRouter(db: Database.Database): Router {
       // Calculate performance metrics from recent events
       const perfQuery = db.prepare(`
         SELECT
-          AVG(CASE WHEN event_type = 'access' AND status = 'success' THEN
-            json_extract(metadata, '$.latencyMs')
-          END) as avg_latency,
           COUNT(CASE WHEN created_at > ? AND event_type = 'access' THEN 1 END) as recent_requests,
           COUNT(CASE WHEN created_at > ? AND status = 'error' THEN 1 END) as recent_errors
         FROM storage_events
@@ -205,7 +202,7 @@ export function storageRouter(db: Database.Database): Router {
           tierBreakdown
         },
         performance: {
-          avgLatencyMs: perfData?.avg_latency || 0,
+          avgLatencyMs: 0, // Latency tracking not implemented yet
           requestsPerSecond: (perfData?.recent_requests || 0) / 3600,
           errorRate: perfData?.recent_errors ? perfData.recent_errors / (perfData.recent_requests || 1) : 0
         },
