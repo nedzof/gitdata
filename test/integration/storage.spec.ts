@@ -63,7 +63,7 @@ describe('D22 Storage Backend Integration Tests', () => {
 
     db.prepare(`INSERT INTO receipts (receipt_id, version_id, quantity, amount_sat, status, created_at, expires_at, bytes_used, last_seen, content_hash)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      'receipt-1', 'ver-1', 1, 5000, 'paid', Date.now(), Date.now() + 3600000, 0, null,
+      'receipt-1', 'ver-1', 1, 5000, 'paid', Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000) + 3600, 0, null,
       '6d9a0cc619fdcb1b616a06a7ed5b6ea6102427aceb2f95598d0d69b4bbefe37d'
     );
 
@@ -513,7 +513,7 @@ describe('D22 Storage Backend Integration Tests', () => {
       const testContent = Buffer.from('Hello, D22 Storage World!');
       await storage.putObject(contentHash, testContent, 'hot');
 
-      const expiredTime = Date.now() - 1000;
+      const expiredTime = Math.floor(Date.now() / 1000) - 1;
       db.prepare(`UPDATE receipts SET expires_at = ? WHERE receipt_id = ?`)
         .run(expiredTime, 'receipt-1'); // Expired 1 second ago
 

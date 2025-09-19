@@ -1,0 +1,149 @@
+[
+  {
+    "ruleId": "rl_be50d1d8ec3881ff387f137b1fc4d70d",
+    "name": "R_A",
+    "enabled": true,
+    "when": {
+      "trigger": "manual"
+    },
+    "find": {
+      "source": "search",
+      "query": {
+        "q": "contract",
+        "datasetId": "test-dataset"
+      },
+      "limit": 5
+    },
+    "actions": [
+      {
+        "action": "notify",
+        "agentId": "ag_900d031d6b39f6e46a01fd65af2d00e8"
+      },
+      {
+        "action": "contract.generate"
+      }
+    ],
+    "originalBody": {
+      "name": "R_A",
+      "enabled": true,
+      "when": {
+        "trigger": "manual"
+      },
+      "find": {
+        "source": "search",
+        "query": {
+          "q": "contract",
+          "datasetId": "test-dataset"
+        },
+        "limit": 5
+      },
+      "actions": [
+        {
+          "action": "notify",
+          "agentId": "ag_900d031d6b39f6e46a01fd65af2d00e8"
+        },
+        {
+          "action": "contract.generate"
+        }
+      ]
+    }
+  },
+  {
+    "ruleId": "rl_098fd89b609fa3eb7ebe315a5410f7b7",
+    "name": "R_B",
+    "enabled": true,
+    "when": {
+      "trigger": "manual"
+    },
+    "find": {
+      "source": "search",
+      "query": {
+        "q": "intermediate",
+        "datasetId": "test-dataset"
+      },
+      "limit": 5
+    },
+    "actions": [
+      {
+        "action": "notify",
+        "agentId": "ag_ff3416085081ab327a1e5d25e07e22b5"
+      },
+      {
+        "action": "contract.generate"
+      }
+    ],
+    "originalBody": {
+      "name": "R_B",
+      "enabled": true,
+      "when": {
+        "trigger": "manual"
+      },
+      "find": {
+        "source": "search",
+        "query": {
+          "q": "intermediate",
+          "datasetId": "test-dataset"
+        },
+        "limit": 5
+      },
+      "actions": [
+        {
+          "action": "notify",
+          "agentId": "ag_ff3416085081ab327a1e5d25e07e22b5"
+        },
+        {
+          "action": "contract.generate"
+        }
+      ]
+    }
+  },
+  {
+    "ruleId": "rl_fcf54d42de12a647e614beb95cad0a79",
+    "name": "R_C",
+    "enabled": true,
+    "when": {
+      "trigger": "manual"
+    },
+    "find": {
+      "source": "search",
+      "query": {
+        "q": "final",
+        "datasetId": "test-dataset"
+      },
+      "limit": 5
+    },
+    "actions": [
+      {
+        "action": "notify",
+        "agentId": "ag_90256c52ae2ea97f75e1e635aa0079b2"
+      },
+      {
+        "action": "contract.generate"
+      }
+    ],
+    "originalBody": {
+      "name": "R_C",
+      "enabled": true,
+      "when": {
+        "trigger": "manual"
+      },
+      "find": {
+        "source": "search",
+        "query": {
+          "q": "final",
+          "datasetId": "test-dataset"
+        },
+        "limit": 5
+      },
+      "actions": [
+        {
+          "action": "notify",
+          "agentId": "ag_90256c52ae2ea97f75e1e635aa0079b2"
+        },
+        {
+          "action": "contract.generate"
+        }
+      ]
+    }
+  }
+]

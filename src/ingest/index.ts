@@ -495,7 +495,16 @@ function coerce(val: any, type: string) {
     case 'number': return Number(val);
     case 'boolean': return Boolean(val);
     case 'iso8601': return new Date(val).toISOString();
-    case 'timestamp': return Math.floor(new Date(val).getTime() / 1000);
+    case 'timestamp': {
+      // Handle both Unix timestamps (numbers/strings) and ISO dates
+      const num = Number(val);
+      if (!isNaN(num)) {
+        // If it's a valid number, treat as Unix timestamp
+        return num;
+      }
+      // Otherwise try to parse as date
+      return Math.floor(new Date(val).getTime() / 1000);
+    }
     default: return val;
   }
 }
@@ -859,14 +868,20 @@ export function ingestRouter(db: Database.Database): Router {
 
 // ---------------- Worker ----------------
 
-export function startIngestWorker(db: Database.Database) {
+export function startIngestWorker(db: Database.Database): (() => void) {
   let isProcessing = false;
+  let stopped = false;
 
   async function processOne() {
-    if (isProcessing) return;
+    if (isProcessing || stopped) return;
     isProcessing = true;
 
     try {
+      // Check if database is still open
+      if (!db.open) {
+        return;
+      }
+
       const job = claimNextIngestJob(db);
       if (!job) return;
 
@@ -879,18 +894,28 @@ export function startIngestWorker(db: Database.Database) {
       await processEvent(db, ev, job);
 
     } catch (e: any) {
-      console.error('Ingest worker error:', e);
+      if (!stopped && db.open) {
+        console.error('Ingest worker error:', e);
+      }
     } finally {
       isProcessing = false;
     }
   }
 
   // Process jobs every 400ms
-  setInterval(() => {
-    processOne().catch(() => {});
+  const intervalId = setInterval(() => {
+    if (!stopped) {
+      processOne().catch(() => {});
+    }
   }, 400);
 
   console.log('✓ Ingest worker started');
+
+  // Return cleanup function
+  return () => {
+    stopped = true;
+    clearInterval(intervalId);
+  };
 }
 
 async function processEvent(db: Database.Database, ev: IngestEvent, job: IngestJob) {

@@ -60,7 +60,7 @@ export function dataRouter(db: Database.Database): Router {
       const rc = getReceipt(db, receiptId);
       if (!rc) return json(res, 404, { error: 'not-found', hint: 'receipt missing' });
 
-      const now = Date.now();
+      const now = Math.floor(Date.now() / 1000);
       if (now > rc.expires_at) {
         setReceiptStatus(db, receiptId, 'expired');
         return json(res, 403, { error: 'expired', hint: 'receipt expired' });

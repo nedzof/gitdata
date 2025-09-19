@@ -1,0 +1,32 @@
+[
+  {
+    "agentId": "ag_99ec876777e8e30e693f6d85553ca937",
+    "name": "Agent-A",
+    "capabilities": [
+      "notify"
+    ],
+    "webhookUrl": "http://localhost:9998/webhook",
+    "identityKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "status": "active"
+  },
+  {
+    "agentId": "ag_095bd7df58dcf55f5634ee02df888e67",
+    "name": "Agent-B",
+    "capabilities": [
+      "contract.review"
+    ],
+    "webhookUrl": "http://localhost:9998/webhook",
+    "identityKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "status": "active"
+  },
+  {
+    "agentId": "ag_982e5f0d908044282035f882b275a14a",
+    "name": "Agent-C",
+    "capabilities": [
+      "data.analysis"
+    ],
+    "webhookUrl": "http://localhost:9998/webhook",
+    "identityKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "status": "active"
+  }
+]

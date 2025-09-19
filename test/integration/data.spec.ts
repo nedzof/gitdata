@@ -19,6 +19,11 @@ describe('Data Integration Test', () => {
   process.env.PRICE_DEFAULT_SATS = '100';
   process.env.RECEIPT_TTL_SEC = '300';
 
+  // Set storage backend configuration for D22 compatibility
+  process.env.STORAGE_BACKEND = 'fs';
+  process.env.CDN_MODE = 'off';
+  process.env.DATA_DELIVERY_MODE = 'stream'; // Force streaming for binary content test
+
   // Import dataRouter after setting env vars
   const { dataRouter } = await import('../../src/routes/data');
 
@@ -29,10 +34,14 @@ describe('Data Integration Test', () => {
   app.use(payRouter(db));
   app.use(dataRouter(db));
 
-  // Prepare a fake blob file
+  // Import storage driver and create test content
+  const { getStorageDriver } = await import('../../src/storage');
+  const storage = getStorageDriver();
+
+  // Prepare a fake blob file using storage driver
   const contentHash = 'a'.repeat(64);
   const dataBytes = Buffer.from('hello world'); // 11 bytes
-  fs.writeFileSync(path.join(tmpRoot, contentHash.toLowerCase()), dataBytes);
+  await storage.putObject(contentHash, dataBytes, 'hot');
 
   // Insert manifest with contentHash so /pay will accept
   const versionId = 'b'.repeat(64);
@@ -66,7 +75,7 @@ describe('Data Integration Test', () => {
   // 1) Positive: within limit -> 200 + bytes
   const r1 = await request(app).get(`/v1/data?contentHash=${contentHash}&receiptId=${receiptId}`);
   expect(r1.status).toBe(200);
-  expect(Buffer.compare(r1.body as any, dataBytes)).toBe(0);
+  expect(Buffer.compare(r1.body, dataBytes)).toBe(0);
 
   // 2) Negative: wrong contentHash -> 409
   const bad1 = await request(app).get(`/v1/data?contentHash=${'c'.repeat(64)}&receiptId=${receiptId}`);

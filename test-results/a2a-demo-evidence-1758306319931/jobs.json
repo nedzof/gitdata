@@ -1,0 +1,173 @@
+[
+  {
+    "jobId": "job_096e9f6bbd001c14f3a10d348e31651f",
+    "ruleId": "rl_c2a03ac4a61cbf8afee9d7865cb8059d",
+    "state": "done",
+    "createdAt": 1758306320,
+    "startedAt": 1758306320,
+    "completedAt": 1758306320,
+    "retryCount": 0,
+    "lastError": null,
+    "evidence": {
+      "trigger": "manual",
+      "manifest": {
+        "versionId": "v1_final_output",
+        "datasetId": "test-dataset",
+        "contentHash": null
+      },
+      "actions": [
+        {
+          "action": "notify",
+          "agentId": "ag_8ca59db5c68a36a49be3984b655dd8b3",
+          "status": 200,
+          "headers": {
+            "connection": "keep-alive",
+            "content-length": "74",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 19 Sep 2025 18:25:20 GMT",
+            "etag": "W/\"4a-tD00qRbotZXgYNWXaXItORPNbTk\"",
+            "keep-alive": "timeout=5",
+            "x-powered-by": "Express"
+          },
+          "body": {
+            "ok": true,
+            "processed": true,
+            "signatureValid": false,
+            "timestamp": 1758306320
+          },
+          "timestamp": 1758306320
+        },
+        {
+          "action": "contract.generate",
+          "status": 200,
+          "contractId": "contract_har2p7n6c6o",
+          "terms": {
+            "manifest": {
+              "versionId": "v1_final_output",
+              "datasetId": "test-dataset",
+              "contentHash": null
+            },
+            "generated_at": 1758306320,
+            "type": "simulated"
+          },
+          "timestamp": 1758306320
+        }
+      ],
+      "completedAt": 1758306320
+    }
+  },
+  {
+    "jobId": "job_232ac729fd287c2e25677fada9d844e4",
+    "ruleId": "rl_c182fccb3fc8b8ca79010d8ebac7bb77",
+    "state": "done",
+    "createdAt": 1758306320,
+    "startedAt": 1758306320,
+    "completedAt": 1758306320,
+    "retryCount": 0,
+    "lastError": null,
+    "evidence": {
+      "trigger": "manual",
+      "manifest": {
+        "versionId": "v1_intermediate_results",
+        "datasetId": "test-dataset",
+        "contentHash": null
+      },
+      "actions": [
+        {
+          "action": "notify",
+          "agentId": "ag_85285f9b27fc6fe6614b7575cdad0f25",
+          "status": 200,
+          "headers": {
+            "connection": "keep-alive",
+            "content-length": "74",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 19 Sep 2025 18:25:20 GMT",
+            "etag": "W/\"4a-tD00qRbotZXgYNWXaXItORPNbTk\"",
+            "keep-alive": "timeout=5",
+            "x-powered-by": "Express"
+          },
+          "body": {
+            "ok": true,
+            "processed": true,
+            "signatureValid": false,
+            "timestamp": 1758306320
+          },
+          "timestamp": 1758306320
+        },
+        {
+          "action": "contract.generate",
+          "status": 200,
+          "contractId": "contract_0s0vatk90n8",
+          "terms": {
+            "manifest": {
+              "versionId": "v1_intermediate_results",
+              "datasetId": "test-dataset",
+              "contentHash": null
+            },
+            "generated_at": 1758306320,
+            "type": "simulated"
+          },
+          "timestamp": 1758306320
+        }
+      ],
+      "completedAt": 1758306320
+    }
+  },
+  {
+    "jobId": "job_a1e0d0cf157b019c0911f9ee93d241b2",
+    "ruleId": "rl_e12f4ff353f271a70c4c7260f78a4c14",
+    "state": "done",
+    "createdAt": 1758306320,
+    "startedAt": 1758306320,
+    "completedAt": 1758306320,
+    "retryCount": 0,
+    "lastError": null,
+    "evidence": {
+      "trigger": "manual",
+      "manifest": {
+        "versionId": "v1_contract_data",
+        "datasetId": "test-dataset",
+        "contentHash": null
+      },
+      "actions": [
+        {
+          "action": "notify",
+          "agentId": "ag_c32c4a1dc2e0dd2992936c75e05511ae",
+          "status": 200,
+          "headers": {
+            "connection": "keep-alive",
+            "content-length": "74",
+            "content-type": "application/json; charset=utf-8",
+            "date": "Fri, 19 Sep 2025 18:25:20 GMT",
+            "etag": "W/\"4a-tD00qRbotZXgYNWXaXItORPNbTk\"",
+            "keep-alive": "timeout=5",
+            "x-powered-by": "Express"
+          },
+          "body": {
+            "ok": true,
+            "processed": true,
+            "signatureValid": false,
+            "timestamp": 1758306320
+          },
+          "timestamp": 1758306320
+        },
+        {
+          "action": "contract.generate",
+          "status": 200,
+          "contractId": "contract_h0vx5tpbd59",
+          "terms": {
+            "manifest": {
+              "versionId": "v1_contract_data",
+              "datasetId": "test-dataset",
+              "contentHash": null
+            },
+            "generated_at": 1758306320,
+            "type": "simulated"
+          },
+          "timestamp": 1758306320
+        }
+      ],
+      "completedAt": 1758306320
+    }
+  }
+]

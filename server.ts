@@ -125,7 +125,7 @@ if (process.env.A2A_WORKER_ENABLED === 'true') {
 }
 
 // D23: Start ingest worker for real-time event processing
-startIngestWorker(db);
+const stopIngestWorker = startIngestWorker(db);
 
 // D21: Initialize payments reconciliation job
 if (process.env.PAYMENTS_RECONCILE_ENABLED !== 'false') {
@@ -143,6 +143,7 @@ process.on('SIGINT', () => {
   if (jobProcessor) {
     jobProcessor.stop();
   }
+  stopIngestWorker();
   process.exit(0);
 });
 
@@ -151,6 +152,7 @@ process.on('SIGTERM', () => {
   if (jobProcessor) {
     jobProcessor.stop();
   }
+  stopIngestWorker();
   process.exit(0);
 });
 
