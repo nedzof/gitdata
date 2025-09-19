@@ -12,7 +12,7 @@
 </script>
 
 <main class="landing">
-  <h1>Genius System</h1>
+  <h1>Gitdata</h1>
   <p class="subtitle">A trust layer for the AI economy</p>
 
   <form class="search-main" on:submit={handleSearch}>

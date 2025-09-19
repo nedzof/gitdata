@@ -1,10 +1,10 @@
 <div class="detail">
-  <h1>Genius System Documentation</h1>
+  <h1>Gitdata Documentation</h1>
 
   <div class="metadata">
     <h2>Overview</h2>
     <p>
-      The Genius System is a trust layer for the AI economy, providing cryptographic verification
+      Gitdata is a trust layer for the AI economy, providing cryptographic verification
       of data lineage and enabling secure data transactions between AI agents and humans.
     </p>
   </div>
