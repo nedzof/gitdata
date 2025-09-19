@@ -1,181 +1,60 @@
-/**
- * Minimal SDK client for Gitdata System Overlay (MVP)
- * - No external deps
- * - Fetch-injected for testability
- * - Types reflect OpenAPI shapes used most often
- */
+import { SDKOptions, ReadyResult, PriceQuote, Receipt, LineageBundle } from './types';
+import { getJson, postJson } from './http';
+import { verifyBundleSPV } from './verify';
 
-import { BRC22, BRC36, BRC100 } from '../brc';
+export class GitdataSDK {
+  private baseUrl: string;
+  private headersUrl?: string;
+  private f: typeof fetch;
+  private timeoutMs: number;
 
-export type VerificationPolicy = {
-  minConfs?: number;
-  classificationAllowList?: string[];
-  allowRecalled?: boolean;
-  requiredEndorsementRoles?: string[];
-};
-
-export type ReadyResponse = {
-  ready: boolean;
-  reasons?: string[];
-  confsUsed?: number;
-  bestHeight?: number;
-  bundle?: LineageBundle; // optional
-};
-
-export type LineageBundle = {
-  bundleType: 'datasetLineageBundle';
-  target: string; // versionId
-  graph: {
-    nodes: Array<{ versionId: string; manifestHash: string; txo: string }>;
-    edges: Array<{ child: string; parent: string }>;
-  };
-  manifests: Array<{ manifestHash: string; manifest: Record<string, unknown> }>;
-  proofs: Array<{ versionId: string; envelope: BRC36.SPVEnvelope }>;
-  confsUsed?: number;
-  bestHeight?: number;
-};
-
-export type PriceQuote = {
-  resource: string;
-  producerId?: string;
-  unit: 'sat/byte' | 'sat/call';
-  price: number;
-  requiredAttrs?: string[];
-  class?: string;
-  expiresAt?: string;
-};
-
-export type Receipt = {
-  receiptId: string;
-  resource: string;
-  class: string;
-  quantity: number;
-  amountSat: number;
-  expiresAt: string;
-  signature: string; // overlay HMAC for MVP
-  attrs?: Record<string, unknown>;
-};
-
-export class GitdataClient {
-  constructor(
-    private baseUrl: string,
-    private fetchImpl: typeof fetch = fetch, // allow DI in tests
-  ) {}
-
-  // Core lineage
-
-  async submit(envelope: BRC22.SubmitEnvelope): Promise<{ admitted: any[] }> {
-    if (!BRC22.isSubmitEnvelope(envelope)) throw new Error('invalid BRC22 envelope');
-    const res = await this.fetchImpl(`${this.baseUrl}/submit`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(envelope),
-    });
-    if (!res.ok) throw await this._error(res);
-    return res.json();
+  constructor(opts: SDKOptions) {
+    this.baseUrl = opts.baseUrl.replace(/\/+$/,'');
+    this.headersUrl = opts.headersUrl;
+    this.f = opts.fetchImpl || fetch;
+    this.timeoutMs = Number(opts.timeoutMs || 8000);
   }
 
-  async bundle(versionId: string, depth = 10): Promise<LineageBundle> {
-    const url = new URL(`${this.baseUrl}/bundle`);
-    url.searchParams.set('versionId', versionId);
-    url.searchParams.set('depth', String(depth));
-    const res = await this.fetchImpl(url.toString());
-    if (!res.ok) throw await this._error(res);
-    return res.json();
+  async ready(versionId: string): Promise<ReadyResult> {
+    const path = `/ready?versionId=${encodeURIComponent(versionId)}`;
+    return await getJson(this.baseUrl, path, this.timeoutMs, this.f);
   }
 
-  async resolve(params: { versionId?: string; datasetId?: string; cursor?: string; limit?: number }) {
-    const url = new URL(`${this.baseUrl}/resolve`);
-    if (params.versionId) url.searchParams.set('versionId', params.versionId);
-    if (params.datasetId) url.searchParams.set('datasetId', params.datasetId);
-    if (params.cursor) url.searchParams.set('cursor', params.cursor);
-    if (params.limit) url.searchParams.set('limit', String(params.limit));
-    const res = await this.fetchImpl(url.toString());
-    if (!res.ok) throw await this._error(res);
-    return res.json();
+  async bundle(versionId: string): Promise<LineageBundle> {
+    const path = `/bundle?versionId=${encodeURIComponent(versionId)}`;
+    return await getJson(this.baseUrl, path, this.timeoutMs, this.f);
   }
 
-  async ready(versionId: string, policy?: VerificationPolicy, receiptId?: string): Promise<ReadyResponse> {
-    const res = await this.fetchImpl(`${this.baseUrl}/ready`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ versionId, policy, receiptId }),
-    });
-    if (!res.ok) throw await this._error(res);
-    return res.json();
+  async verifyBundle(versionIdOrBundle: string | LineageBundle, minConfs = 0): Promise<{ ok: boolean; minConfirmations?: number; results: { versionId: string; ok: boolean; reason?: string; confirmations?: number }[] }> {
+    const bundle = typeof versionIdOrBundle === 'string' ? await this.bundle(versionIdOrBundle) : versionIdOrBundle;
+    const { ok, results, minConfirmations } = await verifyBundleSPV(bundle, { headersUrl: this.headersUrl, minConfs, fetchImpl: this.f });
+    return { ok, minConfirmations, results };
   }
 
-  // Payments & access
-
-  async price(resource: string, cls = 'standard'): Promise<PriceQuote> {
-    const url = new URL(`${this.baseUrl}/price`);
-    url.searchParams.set('resource', resource);
-    url.searchParams.set('class', cls);
-    const res = await this.fetchImpl(url.toString());
-    if (!res.ok) throw await this._error(res);
-    return res.json();
+  async price(versionId: string, quantity = 1): Promise<PriceQuote> {
+    const q = `/price?versionId=${encodeURIComponent(versionId)}&quantity=${encodeURIComponent(String(quantity))}`;
+    return await getJson(this.baseUrl, q, this.timeoutMs, this.f);
   }
 
-  async pay(resource: string, quantity: number, attrs?: Record<string, unknown>, payer?: string): Promise<Receipt> {
-    const res = await this.fetchImpl(`${this.baseUrl}/pay`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ resource, quantity, attrs, payer }),
-    });
-    if (!res.ok) throw await this._error(res);
-    return res.json();
+  async pay(versionId: string, quantity = 1): Promise<Receipt> {
+    return await postJson(this.baseUrl, `/pay`, { versionId, quantity }, this.timeoutMs, this.f);
   }
 
   /**
-   * Stream data (binary). Caller should verify SHA-256(bytes) == manifest.content.contentHash.
-   * This returns a Response so the caller can pipe or read as needed.
+   * streamData: returns a Uint8Array of content bytes (MVP).
+   * In production, you may prefer to receive a presigned URL and fetch directly from CDN/storage.
    */
-  async streamData(contentHash: string, receiptId: string): Promise<Response> {
-    const url = new URL(`${this.baseUrl}/v1/data`);
-    url.searchParams.set('contentHash', contentHash);
-    url.searchParams.set('receiptId', receiptId);
-    const res = await this.fetchImpl(url.toString());
-    if (!res.ok) throw await this._error(res);
-    return res;
-  }
-
-  // Producers
-
-  async registerProducer(
-    wallet: BRC100.WalletClient,
-    profile: { payoutTarget: string; displayName?: string; contact?: string; attrs?: Record<string, unknown> },
-  ) {
-    const identityKey = (await wallet.getIdentityKeyHex?.()) || '';
-    const body = JSON.stringify({ identityKey, ...profile });
-    const headers = await BRC100.withIdentityHeaders(wallet, body);
-    const res = await this.fetchImpl(`${this.baseUrl}/producers/register`, {
-      method: 'POST',
-      headers,
-      body,
-    });
-    if (!res.ok) throw await this._error(res);
-    return res.json();
-  }
-
-  async upsertPriceRule(
-    wallet: BRC100.WalletClient,
-    rule: { producerId: string; pattern: string; unit: 'sat/byte' | 'sat/call'; basePrice: number; tiers?: Record<string, number>; requiredAttrs?: string[] },
-  ) {
-    const body = JSON.stringify(rule);
-    const headers = await BRC100.withIdentityHeaders(wallet, body);
-    const res = await this.fetchImpl(`${this.baseUrl}/producers/price`, {
-      method: 'POST',
-      headers,
-      body,
-    });
-    if (!res.ok) throw await this._error(res);
-    return res.json();
-  }
-
-  // Utilities
-
-  private async _error(res: Response): Promise<Error> {
-    const txt = await res.text().catch(() => `${res.status} ${res.statusText}`);
-    return new Error(txt || `${res.status} ${res.statusText}`);
+  async streamData(contentHash: string, receiptId: string): Promise<Uint8Array> {
+    const url = `${this.baseUrl}/v1/data?contentHash=${encodeURIComponent(contentHash)}&receiptId=${encodeURIComponent(receiptId)}`;
+    const ctl = new AbortController();
+    const tm = setTimeout(() => ctl.abort(), this.timeoutMs);
+    try {
+      const r = await this.f(url, { signal: ctl.signal as any });
+      if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+      const buf = new Uint8Array(await r.arrayBuffer());
+      return buf;
+    } finally {
+      clearTimeout(tm);
+    }
   }
 }
