@@ -117,6 +117,17 @@ We are building an open, transparent foundation for the future of AI. Contributi
 *   **Issues:** [GitHub Issues](https://github.com/your-repo/genius-system/issues)
 *   **Discussions:** [GitHub Discussions](https://github.com/your-repo/genius-system/discussions)
 
+## Docs & Postman
+
+- Developer Guide: docs/README-dev.md
+- Postman Collection: postman/collection.postman_collection.json
+- Environment: postman/env.postman_environment.json
+
+Run locally (Newman):
+```bash
+npm run postman
+```
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

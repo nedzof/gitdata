@@ -1,0 +1,9 @@
+{
+  "rawTx": "00",
+  "proof": {
+    "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "merkleRoot": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "path": [{ "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "position": "right" }]
+  },
+  "block": { "blockHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "blockHeight": 800000 }
+}

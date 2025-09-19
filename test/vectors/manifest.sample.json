@@ -1,0 +1,8 @@
+{
+  "type": "datasetVersionManifest",
+  "datasetId": "demo-dataset",
+  "description": "Sample manifest for Postman/Newman E2E",
+  "content": { "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+  "provenance": { "createdAt": "2025-01-01T00:00:00Z" },
+  "policy": { "license": "cc-by-4.0", "classification": "public" }
+}

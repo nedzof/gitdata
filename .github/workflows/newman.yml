@@ -1,0 +1,31 @@
+name: Newman E2E
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "postman/**"
+      - "src/**"
+      - ".github/workflows/newman.yml"
+
+jobs:
+  newman:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Start overlay
+        run: |
+          nohup npx tsx server.ts > overlay.log 2>&1 &
+          sleep 3
+      - name: Newman run
+        run: npm run postman:ci
+      - name: Upload overlay logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: overlay-logs
+          path: overlay.log

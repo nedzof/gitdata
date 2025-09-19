@@ -30,6 +30,8 @@
     "test:cli": "test/cli/ready-cli.spec.sh",
     "cli:onboard": "tsx scripts/producer-onboard.ts",
     "test:onboard": "tsx test/integration/producer-onboard.spec.ts",
+    "postman": "newman run postman/collection.postman_collection.json -e postman/env.postman_environment.json --verbose --reporters cli",
+    "postman:ci": "newman run postman/collection.postman_collection.json -e postman/env.postman_environment.json --reporters cli",
     "newman": "newman run postman/collection.postman_collection.json -e postman/env.postman_environment.json --reporters cli,junit --reporter-junit-export test-results/newman.xml",
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/mock/overlay-mock-extended.ts",
