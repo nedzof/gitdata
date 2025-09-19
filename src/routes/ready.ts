@@ -2,6 +2,7 @@ import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
 import { getDeclarationByVersion, getParents } from '../db';
+import { listAdvisoriesForVersionActive, listAdvisoriesForProducerActive, getProducerIdForVersion } from '../db';
 import {
   loadHeaders,
   verifyEnvelopeAgainstHeaders,
@@ -60,6 +61,16 @@ export function readyRouter(db: Database.Database): Router {
         const { v, d } = stack.pop()!;
         if (seen.has(v)) continue;
         seen.add(v);
+
+        // Advisory check (active)
+        const now = Math.floor(Date.now() / 1000);
+        const pid = getProducerIdForVersion(db, v);
+        const advV = listAdvisoriesForVersionActive(db, v, now);
+        const advP = pid ? listAdvisoriesForProducerActive(db, pid, now) : [];
+        const hasBlock = [...advV, ...advP].some((a) => a.type === 'BLOCK');
+        if (hasBlock) {
+          return json(res, 200, { ready: false, reason: 'advisory-blocked' });
+        }
 
         const decl = getDeclarationByVersion(db, v);
         if (!decl?.proof_json) {

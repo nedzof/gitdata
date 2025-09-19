@@ -102,3 +102,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_price_rules_version_tier ON price_rules(ve
 CREATE UNIQUE INDEX IF NOT EXISTS idx_price_rules_producer_tier ON price_rules(producer_id, tier_from);
 CREATE INDEX IF NOT EXISTS idx_price_rules_version ON price_rules(version_id);
 CREATE INDEX IF NOT EXISTS idx_price_rules_producer ON price_rules(producer_id);
+
+-- Advisories & Targets
+CREATE TABLE IF NOT EXISTS advisories (
+  advisory_id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,                          -- 'BLOCK'|'WARN'
+  reason TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER,                           -- nullable
+  payload_json TEXT                             -- optional, arbitrary JSON
+);
+
+CREATE TABLE IF NOT EXISTS advisory_targets (
+  advisory_id TEXT NOT NULL,
+  version_id TEXT,                              -- scope by version
+  producer_id TEXT,                             -- scope by producer
+  PRIMARY KEY (advisory_id, version_id, producer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_adv_targets_version ON advisory_targets(version_id);
+CREATE INDEX IF NOT EXISTS idx_adv_targets_producer ON advisory_targets(producer_id);

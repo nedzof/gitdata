@@ -11,6 +11,7 @@ import { submitReceiverRouter } from './src/routes/submit-receiver';
 import { payRouter } from './src/routes/pay';
 import { dataRouter } from './src/routes/data';
 import { producersRouter } from './src/routes/producers';
+import { advisoriesRouter } from './src/routes/advisories';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,6 +31,7 @@ app.use(payRouter(db));
 app.use(dataRouter(db));
 app.use(listingsRouter(db));
 app.use(producersRouter(db));
+app.use(advisoriesRouter(db));
 
 // D01 Builder route
 app.use(submitDlm1Router());

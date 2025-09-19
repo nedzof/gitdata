@@ -69,6 +69,15 @@ export type PriceRule = {
   updated_at: number;
 };
 
+export type AdvisoryRow = {
+  advisory_id: string;
+  type: 'BLOCK' | 'WARN';
+  reason: string;
+  created_at: number;
+  expires_at: number | null;
+  payload_json: string | null;
+};
+
 export function openDb(dbPath = process.env.DB_PATH || './data/overlay.db') {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
@@ -393,4 +402,57 @@ export function getBestUnitPrice(
 
   // 4) Default
   return { satoshis: defaultSats, source: 'default' };
+}
+
+/* Advisory functions (D10) */
+export function insertAdvisory(db: Database.Database, adv: AdvisoryRow) {
+  const stmt = db.prepare(`
+    INSERT INTO advisories(advisory_id, type, reason, created_at, expires_at, payload_json)
+    VALUES (@advisory_id, @type, @reason, @created_at, @expires_at, @payload_json)
+  `);
+  stmt.run(adv as any);
+}
+
+export function insertAdvisoryTargets(
+  db: Database.Database,
+  advisoryId: string,
+  targets: { version_id?: string | null; producer_id?: string | null }[],
+) {
+  const ins = db.prepare(`INSERT OR IGNORE INTO advisory_targets(advisory_id, version_id, producer_id) VALUES (?, ?, ?)`);
+  const tx = db.transaction((list: { version_id?: string | null; producer_id?: string | null }[]) => {
+    for (const t of list) ins.run(advisoryId, t.version_id ?? null, t.producer_id ?? null);
+  });
+  tx(targets);
+}
+
+export function listAdvisoriesForVersionActive(
+  db: Database.Database,
+  versionId: string,
+  nowUnix: number,
+): AdvisoryRow[] {
+  // Active = expires_at IS NULL OR expires_at >= now
+  // Matches if advisory_targets has version_id == versionId
+  const rows = db.prepare(`
+    SELECT a.*
+    FROM advisory_targets t
+    JOIN advisories a ON a.advisory_id = t.advisory_id
+    WHERE t.version_id = ?
+      AND (a.expires_at IS NULL OR a.expires_at >= ?)
+  `).all(versionId.toLowerCase(), nowUnix) as any[];
+  return rows as AdvisoryRow[];
+}
+
+export function listAdvisoriesForProducerActive(
+  db: Database.Database,
+  producerId: string,
+  nowUnix: number,
+): AdvisoryRow[] {
+  const rows = db.prepare(`
+    SELECT a.*
+    FROM advisory_targets t
+    JOIN advisories a ON a.advisory_id = t.advisory_id
+    WHERE t.producer_id = ?
+      AND (a.expires_at IS NULL OR a.expires_at >= ?)
+  `).all(producerId, nowUnix) as any[];
+  return rows as AdvisoryRow[];
 }
