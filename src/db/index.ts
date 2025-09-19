@@ -26,6 +26,27 @@ export type ManifestRow = {
   manifest_json: string;
 };
 
+export type ReceiptRow = {
+  receipt_id: string;
+  version_id: string;
+  quantity: number;
+  content_hash: string | null;
+  amount_sat: number;
+  status: 'pending' | 'paid' | 'consumed' | 'expired';
+  created_at: number;
+  expires_at: number;
+};
+
+export type RevenueEventRow = {
+  event_id?: number;
+  receipt_id: string;
+  version_id: string;
+  amount_sat: number;
+  quantity: number;
+  created_at: number;
+  type: 'pay' | 'refund' | 'adjust';
+};
+
 export function openDb(dbPath = process.env.DB_PATH || './data/overlay.db') {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
@@ -107,6 +128,7 @@ export function upsertManifest(db: Database.Database, row: ManifestRow) {
   `);
   stmt.run(row as any);
 }
+
 export function getManifest(db: Database.Database, versionId: string): ManifestRow | undefined {
   return db.prepare('SELECT * FROM manifests WHERE version_id = ?').get(versionId) as any;
 }
@@ -146,4 +168,34 @@ export function listListings(db: Database.Database, limit = 50, offset = 0) {
     ORDER BY d.created_at DESC
     LIMIT ? OFFSET ?`;
   return db.prepare(sql).all(limit, offset) as any[];
+}
+
+/* Receipts */
+export function insertReceipt(db: Database.Database, row: ReceiptRow) {
+  const stmt = db.prepare(`
+    INSERT INTO receipts(receipt_id, version_id, quantity, content_hash, amount_sat, status, created_at, expires_at)
+    VALUES (@receipt_id, @version_id, @quantity, @content_hash, @amount_sat, @status, @created_at, @expires_at)
+  `);
+  stmt.run(row as any);
+}
+
+export function getReceipt(db: Database.Database, receiptId: string): ReceiptRow | undefined {
+  return db.prepare('SELECT * FROM receipts WHERE receipt_id = ?').get(receiptId) as any;
+}
+
+export function setReceiptStatus(
+  db: Database.Database,
+  receiptId: string,
+  status: ReceiptRow['status'],
+) {
+  db.prepare('UPDATE receipts SET status = ? WHERE receipt_id = ?').run(status, receiptId);
+}
+
+/* Revenue log */
+export function logRevenue(db: Database.Database, ev: RevenueEventRow) {
+  const stmt = db.prepare(`
+    INSERT INTO revenue_events(receipt_id, version_id, amount_sat, quantity, created_at, type)
+    VALUES (@receipt_id, @version_id, @amount_sat, @quantity, @created_at, @type)
+  `);
+  stmt.run(ev as any);
 }

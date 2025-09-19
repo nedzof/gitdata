@@ -1,0 +1,929 @@
+Great—here are the exact Cursor “Create file … with content …” tasks to implement D01 (DLM1 Submit: Builder + Receiver) step-by-step. Paste them into Cursor in order.
+
+Note: These tasks assume you already have schemas/dlm1-manifest.schema.json in your repo. If not, add it first.
+
+1) Create file: src/validators/index.ts
+With content:
+```ts
+import fs from 'fs';
+import path from 'path';
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
+
+let ajv: Ajv | null = null;
+let validateManifestFn: Ajv.ValidateFunction | null = null;
+
+/** Initialize Ajv and compile the DLM1 manifest schema */
+export function initValidators(schemaPath?: string) {
+  if (!ajv) {
+    ajv = new Ajv({ allErrors: true, strict: false });
+    addFormats(ajv);
+  }
+  if (!validateManifestFn) {
+    const manifestSchemaFile = schemaPath || path.resolve(process.cwd(), 'schemas/dlm1-manifest.schema.json');
+    const raw = fs.readFileSync(manifestSchemaFile, 'utf8');
+    const schema = JSON.parse(raw);
+    validateManifestFn = ajv!.compile(schema);
+  }
+}
+
+/** Validate a DLM1 manifest against schemas/dlm1-manifest.schema.json */
+export function validateDlm1Manifest(manifest: unknown): { ok: boolean; errors?: any } {
+  if (!ajv || !validateManifestFn) initValidators();
+  const ok = validateManifestFn!(manifest);
+  if (!ok) return { ok: false, errors: validateManifestFn!.errors };
+  return { ok: true };
+}
+```
+
+2) Create file: src/dlm1/codec.ts
+With content:
+```ts
+import { createHash } from 'crypto';
+
+export type Hex = string;
+export type Dlm1Anchor = { mh: Hex; p?: Hex[] };
+
+function fromHex(hex: string): Uint8Array {
+  const h = hex.toLowerCase();
+  if (!/^[0-9a-fA-F]*$/.test(h) || h.length % 2 !== 0) throw new Error('invalid hex');
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+function toHex(b: Uint8Array): string {
+  return Array.from(b).map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((n, a) => n + a.length, 0);
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const a of chunks) {
+    out.set(a, o);
+    o += a.length;
+  }
+  return out;
+}
+
+// Canonicalization: exclude "signatures" and "versionId", sort keys, keep array order
+const EXCLUDE_KEYS = new Set(['signatures', 'versionId']);
+export function canonicalizeManifest(manifest: any): string {
+  function sanitize(v: any): any {
+    if (Array.isArray(v)) return v.map(sanitize);
+    if (v && typeof v === 'object') {
+      const out: Record<string, any> = {};
+      for (const k of Object.keys(v).sort()) {
+        if (EXCLUDE_KEYS.has(k)) continue;
+        out[k] = sanitize(v[k]);
+      }
+      return out;
+    }
+    return v;
+  }
+  return JSON.stringify(sanitize(manifest));
+}
+export function sha256Hex(s: string): string {
+  return createHash('sha256').update(Buffer.from(s, 'utf8')).digest('hex');
+}
+/** Derive versionId from canonical manifest; if explicit versionId is provided it must match or throw */
+export function deriveManifestIds(manifest: any): { versionId: string; manifestHash: string } {
+  const manifestHash = sha256Hex(canonicalizeManifest(manifest)).toLowerCase();
+  const explicit = manifest?.versionId;
+  if (typeof explicit === 'string' && /^[0-9a-fA-F]{64}$/.test(explicit)) {
+    if (explicit.toLowerCase() !== manifestHash) throw new Error('versionId-mismatch: provided versionId does not match canonical manifest hash');
+    return { versionId: explicit.toLowerCase(), manifestHash };
+  }
+  return { versionId: manifestHash, manifestHash };
+}
+export function extractParents(manifest: any): string[] {
+  const parents = manifest?.lineage?.parents;
+  if (!Array.isArray(parents)) return [];
+  return parents
+    .filter((x: any) => typeof x === 'string' && /^[0-9a-fA-F]{64}$/.test(x))
+    .map((x: string) => x.toLowerCase());
+}
+
+// Minimal CBOR for on-chain anchor: { "mh": bytes32, "p": [bytes32...]? }
+function cborHdr(major: number, n: number): Uint8Array {
+  if (n < 24) return Uint8Array.of((major << 5) | n);
+  if (n <= 0xff) return Uint8Array.of((major << 5) | 24, n);
+  if (n <= 0xffff) return Uint8Array.of((major << 5) | 25, (n >> 8) & 0xff, n & 0xff);
+  if (n <= 0xffffffff) return Uint8Array.of((major << 5) | 26, (n >> 24) & 0xff, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff);
+  throw new Error('unsupported length');
+}
+function cborText(s: string): Uint8Array {
+  const b = new TextEncoder().encode(s);
+  return concatBytes([cborHdr(3, b.length), b]);
+}
+function cborBytes(b: Uint8Array): Uint8Array {
+  return concatBytes([cborHdr(2, b.length), b]);
+}
+function cborArray(items: Uint8Array[]): Uint8Array {
+  return concatBytes([cborHdr(4, items.length), ...items]);
+}
+function cborMap(entries: [Uint8Array, Uint8Array][]): Uint8Array {
+  return concatBytes([cborHdr(5, entries.length), ...entries.flat()]);
+}
+
+export function encodeDLM1(anchor: Dlm1Anchor): Uint8Array {
+  if (!/^[0-9a-fA-F]{64}$/.test(anchor.mh)) throw new Error('mh must be 64-hex');
+  const entries: [Uint8Array, Uint8Array][] = [];
+  entries.push([cborText('mh'), cborBytes(fromHex(anchor.mh))]);
+  const parents = (anchor.p || []).map((h) => {
+    if (!/^[0-9a-fA-F]{64}$/.test(h)) throw new Error('parent must be 64-hex');
+    return cborBytes(fromHex(h));
+  });
+  if (parents.length) entries.push([cborText('p'), cborArray(parents)]);
+  return cborMap(entries);
+}
+export function decodeDLM1(buf: Uint8Array): Dlm1Anchor {
+  let i = 0;
+  function need(n: number) { if (i + n > buf.length) throw new Error('EOF'); }
+  function read(n: number) { need(n); const out = buf.subarray(i, i + n); i += n; return out; }
+  function hdr(): { major: number; len: number } {
+    need(1);
+    const a = buf[i++]; const major = a >> 5; const ai = a & 0x1f;
+    if (ai < 24) return { major, len: ai };
+    if (ai === 24) { need(1); return { major, len: buf[i++] }; }
+    if (ai === 25) { need(2); const b0 = buf[i++], b1 = buf[i++]; return { major, len: (b0 << 8) | b1 }; }
+    if (ai === 26) { need(4); const b0 = buf[i++], b1 = buf[i++], b2 = buf[i++], b3 = buf[i++]; return { major, len: (b0 << 24) | (b1 << 16) | (b2 << 8) | b3 }; }
+    throw new Error('len too large');
+  }
+  function readText(): string { const h = hdr(); if (h.major !== 3) throw new Error('expect text'); return new TextDecoder().decode(read(h.len)); }
+  function readBytesHex(): string { const h = hdr(); if (h.major !== 2) throw new Error('expect bytes'); return toHex(read(h.len)); }
+
+  const m = hdr(); if (m.major !== 5) throw new Error('expect map');
+  const out: Dlm1Anchor = { mh: '' };
+  for (let n = 0; n < m.len; n++) {
+    const k = readText();
+    if (k === 'mh') out.mh = readBytesHex();
+    else if (k === 'p') {
+      const a = hdr(); if (a.major !== 4) throw new Error('expect array');
+      const arr: string[] = [];
+      for (let j = 0; j < a.len; j++) arr.push(readBytesHex());
+      out.p = arr;
+    } else {
+      const skip = hdr();
+      read(skip.len);
+    }
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(out.mh)) throw new Error('invalid mh');
+  return out;
+}
+
+export function buildDlm1AnchorFromManifest(manifest: any): { cbor: Uint8Array; versionId: string; parents: string[] } {
+  const { versionId } = deriveManifestIds(manifest);
+  const parents = extractParents(manifest);
+  const cbor = encodeDLM1({ mh: versionId, p: parents });
+  return { cbor, versionId, parents };
+}
+```
+
+3) Create file: src/builders/opreturn.ts
+With content:
+```ts
+export function ascii(s: string): Uint8Array {
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+  return out;
+}
+
+export function toHex(b: Uint8Array): string {
+  return Array.from(b).map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+export function fromHex(hex: string): Uint8Array {
+  if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length % 2 !== 0) throw new Error('invalid hex');
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+export function pushData(data: Uint8Array): Uint8Array {
+  const len = data.length;
+  if (len < 0x4c) {
+    const out = new Uint8Array(1 + len);
+    out[0] = len; out.set(data, 1); return out;
+  }
+  if (len <= 0xff) {
+    const out = new Uint8Array(2 + len);
+    out[0] = 0x4c; out[1] = len; out.set(data, 2); return out;
+  }
+  if (len <= 0xffff) {
+    const out = new Uint8Array(3 + len);
+    out[0] = 0x4d; out[1] = len & 0xff; out[2] = (len >> 8) & 0xff; out.set(data, 3); return out;
+  }
+  const out = new Uint8Array(5 + len);
+  out[0] = 0x4e; out[1] = len & 0xff; out[2] = (len >> 8) & 0xff; out[3] = (len >> 16) & 0xff; out[4] = (len >> 24) & 0xff; out.set(data, 5);
+  return out;
+}
+
+export function buildOpReturnScript(blob: Uint8Array): string {
+  const OP_FALSE = 0x00, OP_RETURN = 0x6a;
+  const pushed = pushData(blob);
+  const script = new Uint8Array(2 + pushed.length);
+  script[0] = OP_FALSE; script[1] = OP_RETURN; script.set(pushed, 2);
+  return toHex(script);
+}
+
+export function buildOpReturnScriptMulti(blobs: Uint8Array[]): string {
+  const OP_FALSE = 0x00, OP_RETURN = 0x6a;
+  const parts = blobs.map(pushData);
+  const tot = parts.reduce((n, p) => n + p.length, 0);
+  const script = new Uint8Array(2 + tot);
+  script[0] = OP_FALSE; script[1] = OP_RETURN;
+  let o = 2;
+  for (const p of parts) { script.set(p, o); o += p.length; }
+  return toHex(script);
+}
+
+export function composeTag(tag: 'DLM1' | 'TRN1' | 'OTR1', cborBytes: Uint8Array): Uint8Array {
+  const tagBytes = ascii(tag);
+  const out = new Uint8Array(tagBytes.length + cborBytes.length);
+  out.set(tagBytes, 0); out.set(cborBytes, tagBytes.length);
+  return out;
+}
+
+// size helpers
+export function pushdataHeaderLen(len: number): number {
+  if (len < 0x4c) return 1;
+  if (len <= 0xff) return 2;
+  if (len <= 0xffff) return 3;
+  return 5;
+}
+export function varIntSize(n: number): number {
+  if (n < 0xfd) return 1;
+  if (n <= 0xffff) return 3;
+  if (n <= 0xffffffff) return 5;
+  return 9;
+}
+export function opReturnScriptLen(dataLen: number): number {
+  return 2 + pushdataHeaderLen(dataLen) + dataLen;
+}
+export function opReturnOutputSize(dataLen: number): number {
+  const s = opReturnScriptLen(dataLen);
+  return 8 + varIntSize(s) + s;
+}
+```
+
+4) Create file: src/utils/opreturn.ts
+With content:
+```ts
+import assert from 'assert';
+
+export type Hex = string;
+
+export type OpReturnOutput = {
+  vout: number;
+  satoshis: bigint;     // 8 bytes LE
+  scriptHex: string;
+  hasOpFalse: boolean;
+  pushesHex: string[];
+  pushesAscii: (string | null)[];
+  tagAscii?: string;    // 'DLM1' | 'TRN1' if detected by prefix
+};
+
+const TAGS = ['DLM1', 'TRN1'] as const;
+type KnownTag = (typeof TAGS)[number];
+
+function readVarInt(buf: Buffer, o: { i: number }): bigint {
+  assert(o.i < buf.length, 'varint out-of-bounds');
+  const first = buf[o.i]; o.i += 1;
+  if (first < 0xfd) return BigInt(first);
+  if (first === 0xfd) { assert(o.i + 2 <= buf.length); const v = buf.readUInt16LE(o.i); o.i += 2; return BigInt(v); }
+  if (first === 0xfe) { assert(o.i + 4 <= buf.length); const v = buf.readUInt32LE(o.i); o.i += 4; return BigInt(v); }
+  assert(o.i + 8 <= buf.length);
+  const lo = buf.readUInt32LE(o.i), hi = buf.readUInt32LE(o.i + 4); o.i += 8;
+  return (BigInt(hi) << 32n) + BigInt(lo);
+}
+function readSlice(buf: Buffer, o: { i: number }, n: number): Buffer {
+  assert(o.i + n <= buf.length, 'slice out-of-bounds');
+  const out = buf.subarray(o.i, o.i + n); o.i += n; return out;
+}
+function toHex(b: Buffer | Uint8Array): string { return Buffer.from(b).toString('hex'); }
+function isPrintableAscii(b: Buffer): boolean {
+  for (let k = 0; k < b.length; k++) { const c = b[k]; if (c < 0x20 || c > 0x7e) return false; }
+  return b.length > 0;
+}
+function asciiOrNull(b: Buffer): string | null { return isPrintableAscii(b) ? b.toString('ascii') : null; }
+
+function parseOpReturnScript(script: Buffer): { hasOpFalse: boolean; pushes: Buffer[] } | null {
+  const OP_FALSE = 0x00, OP_RETURN = 0x6a;
+  let j = 0; if (script.length === 0) return null;
+  let hasOpFalse = false;
+  if (script[j] === OP_FALSE) { hasOpFalse = true; j += 1; }
+  if (j >= script.length || script[j] !== OP_RETURN) return null;
+  j += 1;
+  const pushes: Buffer[] = [];
+  while (j < script.length) {
+    const op = script[j++]; if (op === undefined) break;
+    let len = -1;
+    if (op >= 0x01 && op <= 0x4b) len = op;
+    else if (op === 0x4c) { if (j + 1 > script.length) break; len = script[j]; j += 1; }
+    else if (op === 0x4d) { if (j + 2 > script.length) break; len = script[j] | (script[j + 1] << 8); j += 2; }
+    else if (op === 0x4e) { if (j + 4 > script.length) break; len = script[j] | (script[j + 1] << 8) | (script[j + 2] << 16) | (script[j + 3] << 24); j += 4; }
+    else break;
+    if (len < 0 || j + len > script.length) break;
+    const data = script.subarray(j, j + len); pushes.push(data); j += len;
+  }
+  return { hasOpFalse, pushes };
+}
+
+/** Parse all OP_RETURN outputs (legacy/non-segwit serialization) */
+export function findOpReturnOutputs(rawTxHex: Hex): OpReturnOutput[] {
+  if (!/^[0-9a-fA-F]{2,}$/.test(rawTxHex)) throw new Error('rawTx must be hex');
+  const tx = Buffer.from(rawTxHex, 'hex'); const o = { i: 0 };
+  // version
+  readSlice(tx, o, 4);
+  // vin
+  const vin = Number(readVarInt(tx, o));
+  for (let n = 0; n < vin; n++) {
+    readSlice(tx, o, 32); readSlice(tx, o, 4);
+    const scriptLen = Number(readVarInt(tx, o));
+    readSlice(tx, o, scriptLen);
+    readSlice(tx, o, 4);
+  }
+  // vout
+  const vout = Number(readVarInt(tx, o));
+  const results: OpReturnOutput[] = [];
+  for (let n = 0; n < vout; n++) {
+    const lo = tx.readUInt32LE(o.i), hi = tx.readUInt32LE(o.i + 4);
+    const satoshis = (BigInt(hi) << 32n) + BigInt(lo); o.i += 8;
+    const scriptLen = Number(readVarInt(tx, o));
+    const script = readSlice(tx, o, scriptLen);
+    const parsed = parseOpReturnScript(script); if (!parsed) continue;
+    const pushesHex = parsed.pushes.map(toHex);
+    const pushesAscii = parsed.pushes.map(asciiOrNull);
+
+    // Detect DLM1/TRN1 by prefix on first push
+    let tagAscii: KnownTag | undefined;
+    if (parsed.pushes.length > 0 && parsed.pushes[0].length >= 4) {
+      const first4 = parsed.pushes[0].subarray(0, 4).toString('ascii');
+      if (TAGS.includes(first4 as KnownTag)) tagAscii = first4 as KnownTag;
+    }
+
+    results.push({ vout: n, satoshis, scriptHex: toHex(script), hasOpFalse: parsed.hasOpFalse, pushesHex, pushesAscii, tagAscii });
+  }
+  return results;
+}
+
+export function findFirstOpReturn(rawTxHex: Hex): OpReturnOutput | null {
+  const outs = findOpReturnOutputs(rawTxHex);
+  return outs.length ? outs[0] : null;
+}
+```
+
+5) Create file: src/db/schema.sql
+With content:
+```sql
+CREATE TABLE IF NOT EXISTS declarations (
+  version_id TEXT PRIMARY KEY,
+  txid TEXT UNIQUE,
+  type TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  block_hash TEXT,
+  height INTEGER,
+  opret_vout INTEGER,
+  raw_tx TEXT,
+  proof_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_declarations_txid ON declarations(txid);
+CREATE INDEX IF NOT EXISTS idx_declarations_status ON declarations(status);
+
+CREATE TABLE IF NOT EXISTS manifests (
+  version_id TEXT PRIMARY KEY,
+  manifest_hash TEXT NOT NULL,
+  content_hash TEXT,
+  title TEXT,
+  license TEXT,
+  classification TEXT,
+  created_at TEXT,
+  manifest_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS edges (
+  child_version_id TEXT NOT NULL,
+  parent_version_id TEXT NOT NULL,
+  PRIMARY KEY (child_version_id, parent_version_id)
+);
+```
+
+6) Create file: src/db/index.ts
+With content:
+```ts
+import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
+
+export type DeclarationRow = {
+  version_id: string;
+  txid: string | null;
+  type: 'DLM1' | 'TRN1' | 'UNKNOWN';
+  status: 'pending' | 'confirmed';
+  created_at: number;
+  block_hash: string | null;
+  height: number | null;
+  opret_vout: number | null;
+  raw_tx: string | null;
+  proof_json: string | null;
+};
+
+export type ManifestRow = {
+  version_id: string;
+  manifest_hash: string;
+  content_hash: string | null;
+  title: string | null;
+  license: string | null;
+  classification: string | null;
+  created_at: string | null;
+  manifest_json: string;
+};
+
+export function openDb(dbPath = process.env.DB_PATH || './data/overlay.db') {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
+  db.pragma('journal_mode = WAL');
+  return db;
+}
+
+export function initSchema(db: Database.Database, schemaFile = 'src/db/schema.sql') {
+  const sql = fs.readFileSync(schemaFile, 'utf8');
+  db.exec(sql);
+}
+
+export function upsertDeclaration(db: Database.Database, row: Partial<DeclarationRow>) {
+  if (row.version_id) {
+    const ins = db.prepare(`
+      INSERT INTO declarations(version_id, txid, type, status, created_at, block_hash, height, opret_vout, raw_tx, proof_json)
+      VALUES (@version_id, @txid, @type, COALESCE(@status,'pending'), COALESCE(@created_at,CAST(strftime('%s','now') AS INTEGER)), @block_hash, @height, @opret_vout, @raw_tx, @proof_json)
+      ON CONFLICT(version_id) DO UPDATE SET
+        txid=COALESCE(excluded.txid, declarations.txid),
+        type=COALESCE(excluded.type, declarations.type),
+        status=COALESCE(excluded.status, declarations.status),
+        block_hash=COALESCE(excluded.block_hash, declarations.block_hash),
+        height=COALESCE(excluded.height, declarations.height),
+        opret_vout=COALESCE(excluded.opret_vout, declarations.opret_vout),
+        raw_tx=COALESCE(excluded.raw_tx, declarations.raw_tx),
+        proof_json=COALESCE(excluded.proof_json, declarations.proof_json)
+    `);
+    ins.run(row as any);
+  } else if (row.txid) {
+    const existing = db.prepare('SELECT version_id FROM declarations WHERE txid = ?').get(row.txid) as any;
+    const vid = existing?.version_id || null;
+    const ins = db.prepare(`
+      INSERT INTO declarations(version_id, txid, type, status, created_at, block_hash, height, opret_vout, raw_tx, proof_json)
+      VALUES (@version_id, @txid, @type, COALESCE(@status,'pending'), COALESCE(@created_at,CAST(strftime('%s','now') AS INTEGER)), @block_hash, @height, @opret_vout, @raw_tx, @proof_json)
+      ON CONFLICT(version_id) DO UPDATE SET
+        txid=COALESCE(excluded.txid, declarations.txid),
+        type=COALESCE(excluded.type, declarations.type),
+        status=COALESCE(excluded.status, declarations.status),
+        block_hash=COALESCE(excluded.block_hash, declarations.block_hash),
+        height=COALESCE(excluded.height, declarations.height),
+        opret_vout=COALESCE(excluded.opret_vout, declarations.opret_vout),
+        raw_tx=COALESCE(excluded.raw_tx, declarations.raw_tx),
+        proof_json=COALESCE(excluded.proof_json, declarations.proof_json)
+    `);
+    ins.run({ ...row, version_id: vid } as any);
+  } else {
+    throw new Error('upsertDeclaration requires version_id or txid');
+  }
+}
+
+export function upsertManifest(db: Database.Database, row: ManifestRow) {
+  const stmt = db.prepare(`
+    INSERT INTO manifests(version_id, manifest_hash, content_hash, title, license, classification, created_at, manifest_json)
+    VALUES (@version_id, @manifest_hash, @content_hash, @title, @license, @classification, @created_at, @manifest_json)
+    ON CONFLICT(version_id) DO UPDATE SET
+      manifest_hash=excluded.manifest_hash,
+      content_hash=excluded.content_hash,
+      title=excluded.title,
+      license=excluded.license,
+      classification=excluded.classification,
+      created_at=excluded.created_at,
+      manifest_json=excluded.manifest_json
+  `);
+  stmt.run(row as any);
+}
+
+export function replaceEdges(db: Database.Database, child: string, parents: string[]) {
+  db.prepare('DELETE FROM edges WHERE child_version_id = ?').run(child);
+  if (parents.length === 0) return;
+  const ins = db.prepare('INSERT OR IGNORE INTO edges(child_version_id, parent_version_id) VALUES (?, ?)');
+  const tx = db.transaction((ps: string[]) => { for (const p of ps) ins.run(child, p); });
+  tx(parents);
+}
+
+export function setOpretVout(db: Database.Database, versionId: string, vout: number) {
+  db.prepare('UPDATE declarations SET opret_vout = ? WHERE version_id = ?').run(vout, versionId);
+}
+```
+
+7) Create file: src/services/ingest.ts
+With content:
+```ts
+import Database from 'better-sqlite3';
+import { upsertDeclaration, upsertManifest, replaceEdges, setOpretVout } from '../db';
+import { deriveManifestIds, extractParents, decodeDLM1 } from '../dlm1/codec';
+import { findFirstOpReturn } from '../utils/opreturn';
+
+export async function ingestSubmission(opts: {
+  db: Database.Database;
+  manifest: any;
+  txid: string;
+  rawTx: string;
+}): Promise<{ versionId: string; opretVout: number | null; tag: 'DLM1' | 'TRN1' | 'UNKNOWN' }> {
+  const { db, manifest, txid, rawTx } = opts;
+
+  // Derive canonical IDs (throws if explicit versionId mismatches canonical)
+  const { versionId, manifestHash } = deriveManifestIds(manifest);
+  const parents = extractParents(manifest);
+
+  // OP_RETURN parse and optional DLM1 decode to enforce on-chain mh == derived versionId
+  const opret = findFirstOpReturn(rawTx);
+  let tag: 'DLM1' | 'TRN1' | 'UNKNOWN' = 'UNKNOWN';
+  let opretVout: number | null = null;
+
+  if (opret) {
+    opretVout = opret.vout;
+    tag = opret.tagAscii === 'DLM1' ? 'DLM1' : opret.tagAscii === 'TRN1' ? 'TRN1' : 'UNKNOWN';
+
+    if (tag === 'DLM1' && opret.pushesHex.length > 0) {
+      const tagHex = Buffer.from('DLM1', 'ascii').toString('hex');
+      let cborHex: string | null = null;
+      if (opret.pushesAscii[0] === 'DLM1' && opret.pushesHex[1]) cborHex = opret.pushesHex[1];
+      else if (opret.pushesHex[0].startsWith(tagHex)) cborHex = opret.pushesHex[0].slice(tagHex.length);
+
+      if (cborHex) {
+        const decoded = decodeDLM1(Buffer.from(cborHex, 'hex'));
+        if (decoded.mh.toLowerCase() !== versionId.toLowerCase()) {
+          throw new Error('onchain-mh-mismatch: DLM1.mh != derived manifest hash');
+        }
+      }
+    }
+  }
+
+  // Persist manifest
+  upsertManifest(db, {
+    version_id: versionId,
+    manifest_hash: manifestHash,
+    content_hash: manifest?.content?.contentHash || null,
+    title: manifest?.description || null,
+    license: manifest?.policy?.license || null,
+    classification: manifest?.policy?.classification || null,
+    created_at: manifest?.provenance?.createdAt || null,
+    manifest_json: JSON.stringify(manifest),
+  });
+
+  // Persist declaration
+  upsertDeclaration(db, {
+    version_id: versionId,
+    txid: txid.toLowerCase(),
+    type: tag,
+    status: 'pending',
+    created_at: Math.floor(Date.now() / 1000),
+    raw_tx: rawTx,
+  } as any);
+
+  if (opretVout !== null) setOpretVout(db, versionId, opretVout);
+  if (parents.length) replaceEdges(db, versionId, parents);
+
+  return { versionId, opretVout, tag };
+}
+```
+
+8) Create file: src/routes/submit-builder.ts
+With content:
+```ts
+import type { Request, Response, Router } from 'express';
+import { Router as makeRouter } from 'express';
+import { validateDlm1Manifest, initValidators } from '../validators';
+import { buildDlm1AnchorFromManifest, deriveManifestIds } from '../dlm1/codec';
+import { composeTag, buildOpReturnScript, opReturnOutputSize } from '../builders/opreturn';
+
+function jsonError(res: Response, code: number, error: string, hint?: string, details?: unknown) {
+  return res.status(code).json({ error, hint, details });
+}
+
+/** Builder: validates manifest, derives versionId, encodes DLM1 CBOR, returns OP_RETURN scriptHex */
+export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router {
+  if (opts?.manifestSchemaPath) initValidators(opts.manifestSchemaPath);
+  else initValidators();
+
+  const router = makeRouter();
+
+  router.post('/submit/dlm1', async (req: Request, res: Response) => {
+    try {
+      if (!req.is('application/json')) return jsonError(res, 415, 'unsupported-media-type', 'Use application/json');
+      const { manifest } = req.body || {};
+      if (!manifest || typeof manifest !== 'object') return jsonError(res, 400, 'invalid-body', 'Include { manifest }');
+
+      const v = validateDlm1Manifest(manifest);
+      if (!v.ok) return jsonError(res, 422, 'schema-validation-failed', 'Manifest does not conform to schema', v.errors);
+
+      const { versionId, manifestHash } = deriveManifestIds(manifest);
+      const { cbor, parents } = buildDlm1AnchorFromManifest(manifest);
+      const blob = composeTag('DLM1', cbor);
+      const scriptHex = buildOpReturnScript(blob);
+      const outputs = [{ scriptHex, satoshis: 0 }];
+      const estOutputSize = opReturnOutputSize(blob.length);
+
+      return res.status(200).json({
+        status: 'ok',
+        versionId,
+        manifestHash,
+        parents,
+        outputs,
+        estOutputSize,
+        opReturnScriptHex: scriptHex,
+        cborHex: Buffer.from(cbor).toString('hex'),
+        hint: 'Create & sign a tx with this OP_RETURN output, broadcast, then POST /submit with rawTx.',
+      });
+    } catch (e: any) {
+      return jsonError(res, 500, 'submit-dlm1-failed', e?.message || 'unknown-error');
+    }
+  });
+
+  return router;
+}
+```
+
+9) Create file: src/routes/submit-receiver.ts
+With content:
+```ts
+import type { Request, Response, Router } from 'express';
+import { Router as makeRouter } from 'express';
+import Database from 'better-sqlite3';
+import { ingestSubmission } from '../services/ingest';
+import { createHash } from 'crypto';
+
+function jsonError(res: Response, code: number, error: string, hint?: string) {
+  return res.status(code).json({ error, hint });
+}
+
+// txid = reverse(sha256d(rawTx))
+function sha256d(buf: Buffer): Buffer {
+  const h1 = createHash('sha256').update(buf).digest();
+  return createHash('sha256').update(h1).digest();
+}
+function txidFromRawTx(rawTxHex: string): string {
+  const bytes = Buffer.from(rawTxHex, 'hex');
+  return Buffer.from(sha256d(bytes).reverse()).toString('hex');
+}
+
+/** Receiver: accepts signed rawTx, parses OP_RETURN, decodes DLM1, persists DB entities */
+export function submitReceiverRouter(db: Database.Database, opts: { bodyMaxSize: number }): Router {
+  const router = makeRouter();
+
+  router.post('/submit', async (req: Request, res: Response) => {
+    try {
+      if (!req.is('application/json')) return jsonError(res, 415, 'unsupported-media-type', 'Use application/json');
+      const { rawTx, manifest } = req.body || {};
+      if (typeof rawTx !== 'string' || !/^[0-9a-fA-F]{2,}$/.test(rawTx)) return jsonError(res, 400, 'invalid-rawtx', 'rawTx must be hex');
+      if (rawTx.length > opts.bodyMaxSize * 2) return jsonError(res, 413, 'payload-too-large', `rawTx exceeds ${opts.bodyMaxSize} bytes`);
+      if (!manifest || typeof manifest !== 'object') return jsonError(res, 400, 'invalid-manifest', 'Body.manifest is required');
+
+      const txid = txidFromRawTx(rawTx);
+      const { versionId, opretVout, tag } = await ingestSubmission({ db, manifest, txid, rawTx });
+
+      return res.status(200).json({ status: 'success', txid, versionId, type: tag, vout: opretVout });
+    } catch (e: any) {
+      // onchain-mh-mismatch bubble up as 500 per spec; you can switch to 409 if preferred
+      return jsonError(res, 500, 'submit-failed', e?.message || 'unknown-error');
+    }
+  });
+
+  return router;
+}
+```
+
+10) Create file: test/opreturn-dlm1.spec.ts
+With content:
+```ts
+import assert from 'assert';
+import { encodeDLM1, decodeDLM1, buildDlm1AnchorFromManifest, deriveManifestIds } from '../src/dlm1/codec';
+import { composeTag, buildOpReturnScript, buildOpReturnScriptMulti, pushData, pushdataHeaderLen, opReturnScriptLen, opReturnOutputSize, ascii, toHex, fromHex } from '../src/builders/opreturn';
+import { findFirstOpReturn } from '../src/utils/opreturn';
+
+// Helpers to build a minimal legacy raw tx with our OP_RETURN script
+function varInt(n: number): Uint8Array {
+  if (n < 0xfd) return Uint8Array.of(n);
+  if (n <= 0xffff) return Uint8Array.of(0xfd, n & 0xff, (n >> 8) & 0xff);
+  return Uint8Array.of(0xfe, n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff);
+}
+function concatBytes(arrays: Uint8Array[]): Uint8Array {
+  const total = arrays.reduce((n, a) => n + a.length, 0);
+  const out = new Uint8Array(total); let o = 0;
+  for (const a of arrays) { out.set(a, o); o += a.length; } return out;
+}
+function buildTxWithScript(scriptHex: string): string {
+  const version = Uint8Array.of(1,0,0,0);
+  const vinCount = varInt(1);
+  const prevTxid = new Uint8Array(32);
+  const prevVout = Uint8Array.of(0,0,0,0);
+  const scriptSigLen = varInt(0);
+  const sequence = Uint8Array.of(0xff,0xff,0xff,0xff);
+  const voutCount = varInt(1);
+  const value0 = new Uint8Array(8);
+  const script = fromHex(scriptHex);
+  const scriptLen = varInt(script.length);
+  const locktime = new Uint8Array(4);
+
+  const tx = concatBytes([version, vinCount, prevTxid, prevVout, scriptSigLen, sequence, voutCount, value0, scriptLen, script, locktime]);
+  return toHex(tx);
+}
+
+(function run() {
+  // Manifest for tests
+  const manifest = {
+    type: 'datasetVersionManifest',
+    datasetId: 'open-images-50k',
+    description: 'Test dataset',
+    content: { contentHash: 'c'.repeat(64), sizeBytes: 123, mimeType: 'application/parquet' },
+    lineage: { parents: ['b'.repeat(64)] },
+    provenance: { createdAt: '2024-05-01T00:00:00Z' },
+    policy: { license: 'cc-by-4.0', classification: 'public' },
+    signatures: { producer: { publicKey: '02'.padEnd(66,'a'), signature: 'dead' } }
+  };
+
+  const ids = deriveManifestIds(manifest);
+  assert.ok(/^[0-9a-fA-F]{64}$/.test(ids.versionId), 'derived versionId must be 64-hex');
+
+  const built = buildDlm1AnchorFromManifest(manifest);
+  assert.strictEqual(built.versionId, ids.versionId);
+
+  const cbor = encodeDLM1({ mh: built.versionId, p: built.parents });
+  const dec = decodeDLM1(cbor);
+  assert.strictEqual(dec.mh, built.versionId);
+  assert.deepStrictEqual(dec.p, built.parents);
+
+  // Single-push [ "DLM1" || cbor ]
+  const blob = composeTag('DLM1', cbor);
+  const scriptHex = buildOpReturnScript(blob);
+  assert.ok(scriptHex.startsWith('006a'), 'OP_FALSE OP_RETURN expected');
+
+  const rawTx = buildTxWithScript(scriptHex);
+  const out = findFirstOpReturn(rawTx);
+  assert.ok(out, 'OP_RETURN must be present');
+  assert.strictEqual(out!.tagAscii, 'DLM1');
+
+  // Extract CBOR and decode
+  const pushedHex = out!.pushesHex[0]!;
+  const cborHex = pushedHex.slice('DLM1'.length * 2);
+  const dec2 = decodeDLM1(fromHex(cborHex));
+  assert.strictEqual(dec2.mh, built.versionId);
+
+  // Multi-push [ "DLM1", cbor ]
+  const scriptHexMulti = buildOpReturnScriptMulti([ascii('DLM1'), cbor]);
+  const rawTx2 = buildTxWithScript(scriptHexMulti);
+  const out2 = findFirstOpReturn(rawTx2);
+  assert.ok(out2);
+  assert.strictEqual(out2!.tagAscii, 'DLM1');
+
+  // PUSHDATA thresholds
+  const pd1 = pushData(new Uint8Array(0x4c));
+  assert.strictEqual(pd1[0], 0x4c);
+  const pd2 = pushData(new Uint8Array(0x100));
+  assert.strictEqual(pd2[0], 0x4d);
+  const pd4 = pushData(new Uint8Array(0x10000));
+  assert.strictEqual(pd4[0], 0x4e);
+
+  // Size helpers
+  const sLen = opReturnScriptLen(blob.length);
+  assert.strictEqual(opReturnOutputSize(blob.length), 8 + (sLen < 0xfd ? 1 : sLen <= 0xffff ? 3 : 5) + sLen);
+
+  console.log('OK: DLM1 encode/decode and OP_RETURN builder/parser tests passed.');
+})();
+```
+
+11) Create file: test/integration/submit-flow.spec.ts
+With content:
+```ts
+import assert from 'assert';
+import express from 'express';
+import request from 'supertest';
+import Database from 'better-sqlite3';
+
+import { initSchema } from '../../src/db';
+import { submitDlm1Router } from '../../src/routes/submit-builder';
+import { submitReceiverRouter } from '../../src/routes/submit-receiver';
+import { fromHex, toHex } from '../../src/builders/opreturn';
+
+// Helpers
+function varInt(n: number): Uint8Array {
+  if (n < 0xfd) return Uint8Array.of(n);
+  if (n <= 0xffff) return Uint8Array.of(0xfd, n & 0xff, (n >> 8) & 0xff);
+  return Uint8Array.of(0xfe, n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff);
+}
+function concatBytes(arrays: Uint8Array[]): Uint8Array {
+  const total = arrays.reduce((n, a) => n + a.length, 0);
+  const out = new Uint8Array(total); let o = 0;
+  for (const a of arrays) { out.set(a, o); o += a.length; } return out;
+}
+function buildTxWithScript(scriptHex: string): string {
+  const version = Uint8Array.of(1,0,0,0);
+  const vinCount = varInt(1);
+  const prevTxid = new Uint8Array(32);
+  const prevVout = Uint8Array.of(0,0,0,0);
+  const scriptSigLen = varInt(0);
+  const sequence = Uint8Array.of(0xff,0xff,0xff,0xff);
+  const voutCount = varInt(1);
+  const value0 = new Uint8Array(8);
+  const script = fromHex(scriptHex);
+  const scriptLen = varInt(script.length);
+  const locktime = new Uint8Array(4);
+  const tx = concatBytes([version, vinCount, prevTxid, prevVout, scriptSigLen, sequence, voutCount, value0, scriptLen, script, locktime]);
+  return toHex(tx);
+}
+
+(async function run() {
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+
+  // In-memory DB and schema
+  const db = new Database(':memory:');
+  initSchema(db);
+
+  // Mount routes (no prefix to match D01)
+  app.use(submitDlm1Router());
+  app.use(submitReceiverRouter(db, { bodyMaxSize: 1_000_000 }));
+
+  const manifest = {
+    type: 'datasetVersionManifest',
+    datasetId: 'open-images-50k',
+    description: 'Integration test dataset',
+    content: { contentHash: 'c'.repeat(64), sizeBytes: 123, mimeType: 'application/parquet' },
+    lineage: { parents: ['b'.repeat(64)] },
+    provenance: { createdAt: '2024-05-01T00:00:00Z' },
+    policy: { license: 'cc-by-4.0', classification: 'public' }
+  };
+
+  // 1) Builder: get outputs + versionId
+  const buildResp = await request(app).post('/submit/dlm1').send({ manifest }).set('content-type','application/json');
+  assert.strictEqual(buildResp.status, 200, `builder status ${buildResp.status}`);
+  const versionId = buildResp.body.versionId as string;
+  const scriptHex = buildResp.body.outputs[0].scriptHex as string;
+  assert.ok(scriptHex.startsWith('006a'), 'OP_FALSE OP_RETURN expected');
+  assert.ok(/^[0-9a-fA-F]{64}$/.test(versionId), 'versionId must be 64-hex');
+
+  // 2) Craft a synthetic rawTx and submit to receiver
+  const rawTx = buildTxWithScript(scriptHex);
+  const recv = await request(app).post('/submit').send({ rawTx, manifest }).set('content-type','application/json');
+  assert.strictEqual(recv.status, 200, `receiver status ${recv.status}`);
+  assert.strictEqual(recv.body.status, 'success');
+  assert.strictEqual(recv.body.type, 'DLM1');
+  assert.strictEqual((recv.body.versionId || '').toLowerCase(), versionId.toLowerCase());
+
+  console.log('OK: /submit/dlm1 → craft rawTx → /submit flow passed.');
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
+```
+
+12) (Optional) Create file: server.ts
+With content:
+```ts
+import express from 'express';
+import { openDb, initSchema } from './src/db';
+import { submitDlm1Router } from './src/routes/submit-builder';
+import { submitReceiverRouter } from './src/routes/submit-receiver';
+
+const PORT = Number(process.env.OVERLAY_PORT || 8788);
+const BODY_MAX_SIZE = Number(process.env.BODY_MAX_SIZE || 1048576);
+
+async function main() {
+  const app = express();
+  app.use(express.json({ limit: '2mb' }));
+
+  const db = openDb();
+  initSchema(db);
+
+  app.use(submitDlm1Router());
+  app.use(submitReceiverRouter(db, { bodyMaxSize: BODY_MAX_SIZE }));
+
+  app.get('/health', (_req, res) => res.json({ ok: true }));
+
+  app.listen(PORT, () => console.log(`DLM1 Builder+Receiver listening on :${PORT}`));
+}
+main().catch((e) => { console.error(e); process.exit(1); });
+```
+
+How to run D01 now
+- Install deps (if not yet):
+  npm i express better-sqlite3 ajv ajv-formats
+  npm i -D ts-node @types/express @types/node supertest @types/supertest
+- Run unit test:
+  npx ts-node test/opreturn-dlm1.spec.ts
+- Run integration test:
+  npx ts-node test/integration/submit-flow.spec.ts
+- Start the server:
+  npx ts-node server.ts
+
+What you’ve completed (matches D01 DoD)
+- POST /submit/dlm1 returns deterministic versionId and a valid OP_FALSE OP_RETURN scriptHex (wallet-ready).
+- POST /submit accepts a signed rawTx, detects DLM1 (single & multi-push), decodes mh → versionId, and persists declarations, manifests, and edges (via ingest).
+- Idempotency supported by DB uniques (version_id PK, txid UNIQUE).
+- Clear JSON errors on invalid inputs.
+
+You can proceed to D02 (SPV subsystem) next and wire SPV validation optionally into /submit when clients provide envelopes

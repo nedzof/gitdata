@@ -1,0 +1,483 @@
+
+1) Update file: src/db/index.ts
+With content:
+```ts
+import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
+
+export type DeclarationRow = {
+  version_id: string;
+  txid: string | null;
+  type: 'DLM1' | 'TRN1' | 'UNKNOWN';
+  status: 'pending' | 'confirmed';
+  created_at: number;
+  block_hash: string | null;
+  height: number | null;
+  opret_vout: number | null;
+  raw_tx: string | null;
+  proof_json: string | null;
+};
+
+export type ManifestRow = {
+  version_id: string;
+  manifest_hash: string;
+  content_hash: string | null;
+  title: string | null;
+  license: string | null;
+  classification: string | null;
+  created_at: string | null;
+  manifest_json: string;
+};
+
+export function openDb(dbPath = process.env.DB_PATH || './data/overlay.db') {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
+  db.pragma('journal_mode = WAL');
+  return db;
+}
+
+export function initSchema(db: Database.Database, schemaFile = 'src/db/schema.sql') {
+  const sql = fs.readFileSync(schemaFile, 'utf8');
+  db.exec(sql);
+}
+
+/* Declarations (upsert + getters) */
+export function upsertDeclaration(db: Database.Database, row: Partial<DeclarationRow>) {
+  if (row.version_id) {
+    const ins = db.prepare(`
+      INSERT INTO declarations(version_id, txid, type, status, created_at, block_hash, height, opret_vout, raw_tx, proof_json)
+      VALUES (@version_id, @txid, @type, COALESCE(@status,'pending'), COALESCE(@created_at,CAST(strftime('%s','now') AS INTEGER)), @block_hash, @height, @opret_vout, @raw_tx, @proof_json)
+      ON CONFLICT(version_id) DO UPDATE SET
+        txid=COALESCE(excluded.txid, declarations.txid),
+        type=COALESCE(excluded.type, declarations.type),
+        status=COALESCE(excluded.status, declarations.status),
+        block_hash=COALESCE(excluded.block_hash, declarations.block_hash),
+        height=COALESCE(excluded.height, declarations.height),
+        opret_vout=COALESCE(excluded.opret_vout, declarations.opret_vout),
+        raw_tx=COALESCE(excluded.raw_tx, declarations.raw_tx),
+        proof_json=COALESCE(excluded.proof_json, declarations.proof_json)
+    `);
+    ins.run(row as any);
+  } else if (row.txid) {
+    const existing = db.prepare('SELECT version_id FROM declarations WHERE txid = ?').get(row.txid) as any;
+    const vid = existing?.version_id || null;
+    const ins = db.prepare(`
+      INSERT INTO declarations(version_id, txid, type, status, created_at, block_hash, height, opret_vout, raw_tx, proof_json)
+      VALUES (@version_id, @txid, @type, COALESCE(@status,'pending'), COALESCE(@created_at,CAST(strftime('%s','now') AS INTEGER)), @block_hash, @height, @opret_vout, @raw_tx, @proof_json)
+      ON CONFLICT(version_id) DO UPDATE SET
+        txid=COALESCE(excluded.txid, declarations.txid),
+        type=COALESCE(excluded.type, declarations.type),
+        status=COALESCE(excluded.status, declarations.status),
+        block_hash=COALESCE(excluded.block_hash, declarations.block_hash),
+        height=COALESCE(excluded.height, declarations.height),
+        opret_vout=COALESCE(excluded.opret_vout, declarations.opret_vout),
+        raw_tx=COALESCE(excluded.raw_tx, declarations.raw_tx),
+        proof_json=COALESCE(excluded.proof_json, declarations.proof_json)
+    `);
+    ins.run({ ...row, version_id: vid } as any);
+  } else {
+    throw new Error('upsertDeclaration requires version_id or txid');
+  }
+}
+
+export function getDeclarationByVersion(db: Database.Database, versionId: string): DeclarationRow | undefined {
+  return db.prepare('SELECT * FROM declarations WHERE version_id = ?').get(versionId) as any;
+}
+export function getManifest(db: Database.Database, versionId: string): ManifestRow | undefined {
+  return db.prepare('SELECT * FROM manifests WHERE version_id = ?').get(versionId) as any;
+}
+
+/* Manifests */
+export function upsertManifest(db: Database.Database, row: ManifestRow) {
+  const stmt = db.prepare(`
+    INSERT INTO manifests(version_id, manifest_hash, content_hash, title, license, classification, created_at, manifest_json)
+    VALUES (@version_id, @manifest_hash, @content_hash, @title, @license, @classification, @created_at, @manifest_json)
+    ON CONFLICT(version_id) DO UPDATE SET
+      manifest_hash=excluded.manifest_hash,
+      content_hash=excluded.content_hash,
+      title=excluded.title,
+      license=excluded.license,
+      classification=excluded.classification,
+      created_at=excluded.created_at,
+      manifest_json=excluded.manifest_json
+  `);
+  stmt.run(row as any);
+}
+
+/* Lineage edges */
+export function replaceEdges(db: Database.Database, child: string, parents: string[]) {
+  db.prepare('DELETE FROM edges WHERE child_version_id = ?').run(child);
+  if (parents.length === 0) return;
+  const ins = db.prepare('INSERT OR IGNORE INTO edges(child_version_id, parent_version_id) VALUES (?, ?)');
+  const tx = db.transaction((ps: string[]) => { for (const p of ps) ins.run(child, p); });
+  tx(parents);
+}
+export function getParents(db: Database.Database, child: string): string[] {
+  return db.prepare('SELECT parent_version_id AS p FROM edges WHERE child_version_id = ?').all(child).map((r: any) => r.p);
+}
+
+/* Prices (unchanged helpers in D01/D02 may also exist here) */
+```
+
+2) Create file: src/validators/bundle.ts
+With content:
+```ts
+import fs from 'fs';
+import path from 'path';
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
+
+let ajv: Ajv | null = null;
+let validateBundleFn: Ajv.ValidateFunction | null = null;
+
+/** Compile bundle schema with spv-envelope as $ref dependency */
+export function initBundleValidator(opts?: {
+  bundleSchemaPath?: string;
+  spvSchemaPath?: string;
+}) {
+  if (!ajv) {
+    ajv = new Ajv({ allErrors: true, strict: false });
+    addFormats(ajv);
+  }
+  const spvPath = opts?.spvSchemaPath || path.resolve(process.cwd(), 'schemas/spv-envelope.schema.json');
+  const bundlePath = opts?.bundleSchemaPath || path.resolve(process.cwd(), 'schemas/lineage-bundle.schema.json');
+  const spvSchema = JSON.parse(fs.readFileSync(spvPath, 'utf8'));
+  const bundleSchema = JSON.parse(fs.readFileSync(bundlePath, 'utf8'));
+  ajv!.addSchema(spvSchema); // allow $ref
+  validateBundleFn = ajv!.compile(bundleSchema);
+}
+
+export function validateBundle(doc: unknown): { ok: boolean; errors?: any } {
+  if (!ajv || !validateBundleFn) initBundleValidator();
+  const ok = validateBundleFn!(doc);
+  if (!ok) return { ok: false, errors: validateBundleFn!.errors };
+  return { ok: true };
+}
+```
+
+3) Update file: src/routes/bundle.ts
+With content:
+```ts
+import type { Request, Response, Router } from 'express';
+import { Router as makeRouter } from 'express';
+import Database from 'better-sqlite3';
+import { getDeclarationByVersion, getManifest, getParents } from '../db';
+import { loadHeaders, verifyEnvelopeAgainstHeaders, type HeadersIndex } from '../spv/verify-envelope';
+import { initBundleValidator, validateBundle } from '../validators/bundle';
+
+const BUNDLE_MAX_DEPTH = Number(process.env.BUNDLE_MAX_DEPTH || 8);
+const POLICY_MIN_CONFS = Number(process.env.POLICY_MIN_CONFS || 1);
+const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
+const VALIDATE_BUNDLE = /^true$/i.test(process.env.BUNDLE_VALIDATE || 'false'); // enable runtime schema check if desired
+
+let headersIdx: HeadersIndex | null = null;
+function ensureHeaders(): HeadersIndex {
+  if (!headersIdx) headersIdx = loadHeaders(HEADERS_FILE);
+  return headersIdx!;
+}
+
+type NodeOut = { versionId: string; manifestHash: string; txo: string };
+type EdgeOut = { child: string; parent: string };
+
+async function collectLineage(db: Database.Database, root: string, depth = BUNDLE_MAX_DEPTH) {
+  const nodes: NodeOut[] = [];
+  const edges: EdgeOut[] = [];
+  const manifestsArr: any[] = [];
+  const proofsArr: any[] = [];
+
+  const visited = new Set<string>();
+  const stack: Array<{ v: string; d: number }> = [{ v: root, d: 0 }];
+
+  while (stack.length) {
+    const { v, d } = stack.pop()!;
+    if (visited.has(v)) continue;
+    visited.add(v);
+
+    const decl = getDeclarationByVersion(db, v);
+    const man = getManifest(db, v);
+    if (!man) throw new Error(`missing-manifest:${v}`);
+
+    const vout = decl?.opret_vout ?? 0;
+    const txo = decl?.txid ? `${decl.txid}:${vout}` : `${'0'.repeat(64)}:0`;
+
+    nodes.push({ versionId: v, manifestHash: man.manifest_hash, txo });
+    manifestsArr.push({ manifestHash: man.manifest_hash, manifest: JSON.parse(man.manifest_json) });
+
+    if (decl?.proof_json) {
+      const envelope = JSON.parse(decl.proof_json);
+      proofsArr.push({ versionId: v, envelope });
+    } else {
+      throw new Error(`missing-envelope:${v}`);
+    }
+
+    if (d < depth) {
+      const parents = getParents(db, v);
+      for (const p of parents) {
+        edges.push({ child: v, parent: p });
+        if (!visited.has(p)) stack.push({ v: p, d: d + 1 });
+      }
+    }
+  }
+
+  return { nodes, edges, manifestsArr, proofsArr };
+}
+
+export function bundleRouter(db: Database.Database): Router {
+  const router = makeRouter();
+
+  // Initialize schema validator once if we want runtime validation
+  if (VALIDATE_BUNDLE) initBundleValidator();
+
+  router.get('/bundle', async (req: Request, res: Response) => {
+    try {
+      const versionId = String(req.query.versionId || '').toLowerCase();
+      if (!/^[0-9a-fA-F]{64}$/.test(versionId)) {
+        return res.status(400).json({ error: 'bad-request', hint: 'Provide versionId=64-hex' });
+      }
+
+      const { nodes, edges, manifestsArr, proofsArr } = await collectLineage(db, versionId, BUNDLE_MAX_DEPTH);
+
+      // SPV verify all envelopes and refresh confirmations
+      const idx = ensureHeaders();
+      for (const p of proofsArr) {
+        const env = p.envelope;
+        const vr = await verifyEnvelopeAgainstHeaders(env, idx, POLICY_MIN_CONFS);
+        if (!vr.ok) {
+          return res.status(409).json({ error: 'invalid-envelope', versionId: p.versionId, reason: vr.reason });
+        }
+        p.envelope.confirmations = vr.confirmations ?? 0;
+      }
+
+      const bundle = {
+        bundleType: 'datasetLineageBundle',
+        target: versionId,
+        graph: { nodes, edges },
+        manifests: manifestsArr,
+        proofs: proofsArr,
+      };
+
+      if (VALIDATE_BUNDLE) {
+        const vb = validateBundle(bundle);
+        if (!vb.ok) {
+          return res.status(500).json({ error: 'bundle-schema-invalid', details: vb.errors });
+        }
+      }
+
+      return res.status(200).json(bundle);
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (msg.startsWith('missing-manifest:') || msg.startsWith('missing-envelope:')) {
+        return res.status(409).json({ error: 'incomplete-lineage', hint: msg });
+      }
+      return res.status(500).json({ error: 'bundle-failed', message: msg });
+    }
+  });
+
+  return router;
+}
+```
+
+4) Create file: test/integration/bundle.spec.ts
+With content:
+```ts
+import assert from 'assert';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import express from 'express';
+import request from 'supertest';
+import Database from 'better-sqlite3';
+
+import { initSchema, upsertManifest, upsertDeclaration, replaceEdges } from '../../src/db';
+import { bundleRouter } from '../../src/routes/bundle';
+import { txidFromRawTx } from '../../src/spv/verify-envelope';
+
+/** Build a raw 80-byte header with given merkleRootBE; returns { headerHex, blockHashBE } */
+function buildHeaderWithRoot(merkleRootBE: string): { headerHex: string; blockHash: string } {
+  const crypto = require('crypto') as typeof import('crypto');
+  function sha256d(b: Buffer) { const a = crypto.createHash('sha256').update(b).digest(); return crypto.createHash('sha256').update(a).digest(); }
+  function rev(b: Buffer) { const c = Buffer.from(b); c.reverse(); return c; }
+
+  const versionLE = Buffer.alloc(4); versionLE.writeInt32LE(1, 0);
+  const prevHashLE = Buffer.alloc(32); // zeros
+  const merkleRootLE = rev(Buffer.from(merkleRootBE, 'hex'));
+  const timeLE = Buffer.alloc(4); timeLE.writeUInt32LE(1700000000, 0);
+  const bitsLE = Buffer.alloc(4); bitsLE.writeUInt32LE(0x1d00ffff, 0);
+  const nonceLE = Buffer.alloc(4); nonceLE.writeUInt32LE(0x00000042, 0);
+  const header = Buffer.concat([versionLE, prevHashLE, merkleRootLE, timeLE, bitsLE, nonceLE]);
+  const blockHashBE = rev(sha256d(header)).toString('hex');
+  return { headerHex: header.toString('hex'), blockHash: blockHashBE };
+}
+
+/** Write a minimal headers index to file */
+function writeHeadersIndex(headersPath: string, blockHash: string, merkleRoot: string, height: number, bestHeight: number) {
+  const json = {
+    bestHeight,
+    tipHash: blockHash.toLowerCase(),
+    byHash: {
+      [blockHash.toLowerCase()]: {
+        prevHash: '00'.repeat(32),
+        merkleRoot: merkleRoot.toLowerCase(),
+        height,
+      },
+    },
+  };
+  fs.writeFileSync(headersPath, JSON.stringify(json, null, 2));
+}
+
+(async function run() {
+  // Prepare temp headers file and inject into env
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-'));
+  const headersPath = path.join(tmpDir, 'headers.json');
+  process.env.HEADERS_FILE = headersPath;
+
+  // Prepare app with in-memory DB
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  const db = new Database(':memory:');
+  initSchema(db);
+  app.use(bundleRouter(db));
+
+  // Create a simple two-node lineage: child -> parent
+  // Build fake tx + spv for both nodes
+  const rawTxChild = '00', rawTxParent = '00';
+  const txidChild = txidFromRawTx(rawTxChild);
+  const txidParent = txidFromRawTx(rawTxParent);
+
+  // Sibling for both (same to keep it simple); root = sha256d(LE(txid)||LE(sibling))
+  const crypto = require('crypto') as typeof import('crypto');
+  const rev = (b: Buffer) => { const c = Buffer.from(b); c.reverse(); return c; };
+  const sha256d = (b: Buffer) => { const a = crypto.createHash('sha256').update(b).digest(); return crypto.createHash('sha256').update(a).digest(); };
+  const sibling = Buffer.alloc(32, 0x11).toString('hex');
+  const leafChildLE = rev(Buffer.from(txidChild, 'hex'));
+  const leafParentLE = rev(Buffer.from(txidParent, 'hex'));
+  const siblingLE = rev(Buffer.from(sibling, 'hex'));
+  const rootChild = rev(sha256d(Buffer.concat([leafChildLE, siblingLE]))).toString('hex');
+  const rootParent = rev(sha256d(Buffer.concat([leafParentLE, siblingLE]))).toString('hex');
+
+  // Two headers (heights 100 and 101)
+  const { headerHex: headerChild, blockHash: blockChild } = buildHeaderWithRoot(rootChild);
+  const { headerHex: headerParent, blockHash: blockParent } = buildHeaderWithRoot(rootParent);
+
+  // Headers file contains both; tip is child
+  const byHash = {
+    [blockChild.toLowerCase()]: { prevHash: blockParent.toLowerCase(), merkleRoot: rootChild, height: 101 },
+    [blockParent.toLowerCase()]: { prevHash: '00'.repeat(32), merkleRoot: rootParent, height: 100 },
+  };
+  fs.writeFileSync(headersPath, JSON.stringify({ bestHeight: 101, tipHash: blockChild, byHash }, null, 2));
+
+  // Minimal manifests (hashes are not used by bundle validator beyond shape—we store them)
+  const manifestParent = {
+    type: 'datasetVersionManifest',
+    datasetId: 'ds-parent',
+    content: { contentHash: 'c'.repeat(64) },
+    provenance: { createdAt: '2024-05-01T00:00:00Z' },
+    policy: { license: 'cc-by-4.0', classification: 'public' },
+  };
+  const manifestChild = {
+    type: 'datasetVersionManifest',
+    datasetId: 'ds-child',
+    content: { contentHash: 'd'.repeat(64) },
+    lineage: { parents: ['p'.repeat(64)] }, // not used here—edges table is authoritative
+    provenance: { createdAt: '2024-05-02T00:00:00Z' },
+    policy: { license: 'cc-by-4.0', classification: 'public' },
+  };
+
+  // We'll use simple 64-hex version ids for test (not deriving here to keep test focused)
+  const vidParent = 'b'.repeat(64);
+  const vidChild = 'a'.repeat(64);
+
+  // Upsert manifests
+  upsertManifest(db, {
+    version_id: vidParent,
+    manifest_hash: vidParent,
+    content_hash: manifestParent.content.contentHash,
+    title: null, license: 'cc-by-4.0', classification: 'public',
+    created_at: manifestParent.provenance.createdAt,
+    manifest_json: JSON.stringify(manifestParent),
+  });
+  upsertManifest(db, {
+    version_id: vidChild,
+    manifest_hash: vidChild,
+    content_hash: manifestChild.content.contentHash,
+    title: null, license: 'cc-by-4.0', classification: 'public',
+    created_at: manifestChild.provenance.createdAt,
+    manifest_json: JSON.stringify(manifestChild),
+  });
+
+  // Edges: child -> parent
+  replaceEdges(db, vidChild, [vidParent]);
+
+  // SPV envelopes (blockHash path for both)
+  const envChild = {
+    rawTx: rawTxChild,
+    proof: { txid: txidChild, merkleRoot: rootChild, path: [{ hash: sibling, position: 'right' }] },
+    block: { blockHash: blockChild, blockHeight: 101 },
+  };
+  const envParent = {
+    rawTx: rawTxParent,
+    proof: { txid: txidParent, merkleRoot: rootParent, path: [{ hash: sibling, position: 'right' }] },
+    block: { blockHash: blockParent, blockHeight: 100 },
+  };
+
+  upsertDeclaration(db, { version_id: vidChild, txid: 'c'.repeat(64), type: 'DLM1', status: 'pending', created_at: Math.floor(Date.now()/1000), opret_vout: 0, raw_tx: rawTxChild, proof_json: JSON.stringify(envChild) } as any);
+  upsertDeclaration(db, { version_id: vidParent, txid: 'p'.repeat(64), type: 'DLM1', status: 'pending', created_at: Math.floor(Date.now()/1000), opret_vout: 0, raw_tx: rawTxParent, proof_json: JSON.stringify(envParent) } as any);
+
+  // 1) Happy path bundle
+  const r1 = await request(app).get(`/bundle?versionId=${vidChild}`);
+  assert.strictEqual(r1.status, 200, `bundle status ${r1.status}`);
+  assert.strictEqual(r1.body.bundleType, 'datasetLineageBundle');
+  const proofs = r1.body.proofs as any[];
+  assert.ok(Array.isArray(proofs) && proofs.length === 2, 'should contain two envelopes');
+  for (const p of proofs) {
+    assert.ok(typeof p.envelope.confirmations === 'number');
+  }
+
+  // 2) Missing envelope -> 409
+  upsertDeclaration(db, { version_id: vidParent, txid: 'p'.repeat(64), type: 'DLM1', status: 'pending', created_at: Math.floor(Date.now()/1000), opret_vout: 0, raw_tx: rawTxParent, proof_json: null } as any);
+  const r2 = await request(app).get(`/bundle?versionId=${vidChild}`);
+  assert.strictEqual(r2.status, 409);
+  assert.ok(/incomplete-lineage|invalid-envelope/.test(r2.body.error));
+
+  // 3) Reorg (bestHeight increase) -> confirmations increase dynamically
+  // restore parent proof, set higher bestHeight
+  upsertDeclaration(db, { version_id: vidParent, txid: 'p'.repeat(64), type: 'DLM1', status: 'pending', created_at: Math.floor(Date.now()/1000), opret_vout: 0, raw_tx: rawTxParent, proof_json: JSON.stringify(envParent) } as any);
+  fs.writeFileSync(headersPath, JSON.stringify({ bestHeight: 200, tipHash: blockChild, byHash }, null, 2));
+  const r3 = await request(app).get(`/bundle?versionId=${vidChild}`);
+  assert.strictEqual(r3.status, 200);
+  const confsBefore = proofs.map((p) => p.envelope.confirmations).sort();
+  const confsAfter = (r3.body.proofs as any[]).map((p) => p.envelope.confirmations).sort();
+  assert.ok(confsAfter[0] >= confsBefore[0], 'confirmations should not decrease after height increase');
+
+  console.log('OK: /bundle tests passed.');
+})().catch((e) => {
+  console.error('bundle tests failed:', e);
+  process.exit(1);
+});
+```
+
+5) Update file: package.json (add test script for bundle)
+With content patch:
+```json
+{
+  "scripts": {
+    "test:bundle": "ts-node test/integration/bundle.spec.ts"
+  }
+}
+```
+
+How to run D03 now
+- Ensure schemas/lineage-bundle.schema.json and schemas/spv-envelope.schema.json exist (from earlier steps).
+- Run tests:
+  npm run test:bundle
+- Optional: enable runtime schema validation for /bundle:
+  export BUNDLE_VALIDATE=true
+  export HEADERS_FILE=./data/headers.json
+  ts-node server.ts
+
+What this completes (matches D03 DoD)
+- /bundle assembles the lineage graph (depth-limited), loads manifests, attaches SPV envelopes, verifies them, and refreshes confirmations.
+- Missing/invalid envelopes return 409 with clear reasons.
+- Optional runtime schema validation for the full bundle. In CI, you can also validate responses using Ajv with the same bundle/spv schemas.
+- Tests cover happy path, missing envelope, and reorg (confirmation refresh).

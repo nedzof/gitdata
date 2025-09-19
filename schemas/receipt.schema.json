@@ -1,47 +1,19 @@
 {
-   "$id":"schemas/receipt.schema.json",
-   "$schema":"http://json-schema.org/draft-07/schema#",
-   "title":"Overlay Receipt",
-   "type":"object",
-   "required":[
-      "receiptId",
-      "resource",
-      "class",
-      "quantity",
-      "amountSat",
-      "expiresAt",
-      "signature"
-   ],
-   "properties":{
-      "receiptId":{
-         "type":"string"
-      },
-      "resource":{
-         "type":"string"
-      },
-      "class":{
-         "type":"string"
-      },
-      "quantity":{
-         "type":"integer",
-         "minimum":1
-      },
-      "amountSat":{
-         "type":"integer",
-         "minimum":0
-      },
-      "expiresAt":{
-         "type":"string",
-         "format":"date-time"
-      },
-      "signature":{
-         "type":"string",
-         "minLength":10
-      },
-      "attrs":{
-         "type":"object",
-         "additionalProperties":true
-      }
-   },
-   "additionalProperties":false
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/receipt.schema.json",
+  "title": "Overlay Receipt (MVP)",
+  "type": "object",
+  "required": ["receiptId", "versionId", "contentHash", "quantity", "amountSat", "status", "expiresAt", "createdAt"],
+  "properties": {
+    "receiptId": { "type": "string", "minLength": 8 },
+    "versionId": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+    "contentHash": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+    "quantity": { "type": "integer", "minimum": 1 },
+    "amountSat": { "type": "integer", "minimum": 1 },
+    "status": { "type": "string", "enum": ["pending", "paid", "consumed", "expired"] },
+    "createdAt": { "type": "integer", "minimum": 0 },
+    "expiresAt": { "type": "integer", "minimum": 0 },
+    "signature": { "type": "string", "minLength": 16 }
+  },
+  "additionalProperties": false
 }

@@ -42,6 +42,30 @@ CREATE TABLE IF NOT EXISTS receipts (
   version_id TEXT NOT NULL,
   quantity INTEGER NOT NULL,
   content_hash TEXT,
-  status TEXT NOT NULL DEFAULT 'pending',
-  created_at INTEGER NOT NULL
+  amount_sat INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending', -- 'pending'|'paid'|'consumed'|'expired'
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS prices (
+  version_id TEXT PRIMARY KEY,
+  satoshis INTEGER NOT NULL
+);
+
+-- Revenue events (simple append-only log)
+CREATE TABLE IF NOT EXISTS revenue_events (
+  event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  receipt_id TEXT NOT NULL,
+  version_id TEXT NOT NULL,
+  amount_sat INTEGER NOT NULL,
+  quantity INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  type TEXT NOT NULL DEFAULT 'pay' -- 'pay' | 'refund' | 'adjust'
+);
+
+-- Helpful indexes (optional)
+CREATE INDEX IF NOT EXISTS idx_receipts_version ON receipts(version_id);
+CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
+CREATE INDEX IF NOT EXISTS idx_revenue_version ON revenue_events(version_id);
+CREATE INDEX IF NOT EXISTS idx_revenue_receipt ON revenue_events(receipt_id);

@@ -1,0 +1,412 @@
+
+1) Create file: src/cache/ttls.ts
+With content:
+```ts
+export type CacheTTLs = {
+  headers: number; // ms
+  bundles: number; // ms
+};
+
+export function getCacheTTLs(): CacheTTLs {
+  try {
+    const raw = process.env.CACHE_TTLS_JSON;
+    if (raw) {
+      const js = JSON.parse(raw);
+      return {
+        headers: Number(js.headers ?? 60000),
+        bundles: Number(js.bundles ?? 60000),
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { headers: 60000, bundles: 60000 };
+}
+```
+
+2) Create file: src/spv/headers-cache.ts
+With content:
+```ts
+import fs from 'fs';
+import path from 'path';
+import { loadHeaders, type HeadersIndex } from './verify-envelope';
+import { getCacheTTLs } from '../cache/ttls';
+
+let memo: {
+  file: string;
+  idx: HeadersIndex;
+  loadedAtMs: number;
+  mtimeMs: number;
+} | null = null;
+
+/**
+ * Get a headers snapshot with simple TTL + mtime invalidation.
+ * If the file's mtime changes or TTL expires, reload via loadHeaders().
+ */
+export function getHeadersSnapshot(headersFile: string): HeadersIndex {
+  const abs = path.resolve(headersFile);
+  const ttl = getCacheTTLs().headers;
+
+  const now = Date.now();
+  const stat = fs.statSync(abs);
+  const mtimeMs = stat.mtimeMs;
+
+  if (!memo || memo.file !== abs || now - memo.loadedAtMs > ttl || memo.mtimeMs !== mtimeMs) {
+    const idx = loadHeaders(abs);
+    memo = { file: abs, idx, loadedAtMs: now, mtimeMs };
+  }
+  return memo.idx;
+}
+
+/** Force invalidate the memoized headers snapshot (used in tests if needed) */
+export function invalidateHeadersSnapshot() {
+  memo = null;
+}
+```
+
+3) Create file: src/cache/bundles.ts
+With content:
+```ts
+import { getCacheTTLs } from './ttls';
+
+type CacheKey = string; // `${versionId}:${depth}`
+
+export type BundleCacheEntry = {
+  assembledAt: number; // ms since epoch
+  body: any;           // the bundle JSON (structure only; confirmations will be recomputed on read)
+  meetsPolicyAtWrite: boolean; // whether at write time all envelopes met minConfs
+};
+
+const store = new Map<CacheKey, BundleCacheEntry>();
+
+export function bundlesKey(versionId: string, depth: number): CacheKey {
+  return `${versionId.toLowerCase()}:${depth}`;
+}
+
+export function bundlesGet(key: CacheKey): BundleCacheEntry | undefined {
+  const ttl = getCacheTTLs().bundles;
+  const ent = store.get(key);
+  if (!ent) return undefined;
+  if (Date.now() - ent.assembledAt > ttl) {
+    store.delete(key);
+    return undefined;
+  }
+  return ent;
+}
+
+export function bundlesSet(key: CacheKey, body: any, meetsPolicyAtWrite: boolean) {
+  store.set(key, { assembledAt: Date.now(), body, meetsPolicyAtWrite });
+}
+
+export function bundlesInvalidate(key?: CacheKey) {
+  if (key) store.delete(key);
+  else store.clear();
+}
+```
+
+4) Update file: src/routes/bundle.ts
+Replace its content with:
+```ts
+import type { Request, Response, Router } from 'express';
+import { Router as makeRouter } from 'express';
+import Database from 'better-sqlite3';
+import { getDeclarationByVersion, getManifest, getParents } from '../db';
+import { verifyEnvelopeAgainstHeaders } from '../spv/verify-envelope';
+import { getHeadersSnapshot } from '../spv/headers-cache';
+import { bundlesGet, bundlesSet, bundlesInvalidate, bundlesKey } from '../cache/bundles';
+
+const BUNDLE_MAX_DEPTH = Number(process.env.BUNDLE_MAX_DEPTH || 8);
+const POLICY_MIN_CONFS = Number(process.env.POLICY_MIN_CONFS || 1);
+const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
+const VALIDATE_BUNDLE = /^true$/i.test(process.env.BUNDLE_VALIDATE || 'false');
+// Note: runtime schema validation optional (init validator only if enabled)
+let validatorReady = false;
+let validateBundleFn: ((doc: unknown) => { ok: boolean; errors?: any }) | null = null;
+function ensureValidator() {
+  if (!VALIDATE_BUNDLE || validatorReady) return;
+  const { initBundleValidator, validateBundle } = require('../validators/bundle');
+  initBundleValidator();
+  validateBundleFn = validateBundle;
+  validatorReady = true;
+}
+
+type NodeOut = { versionId: string; manifestHash: string; txo: string };
+type EdgeOut = { child: string; parent: string };
+
+async function collectLineage(db: Database.Database, root: string, depth = BUNDLE_MAX_DEPTH) {
+  const nodes: NodeOut[] = [];
+  const edges: EdgeOut[] = [];
+  const manifestsArr: any[] = [];
+  const proofsArr: any[] = [];
+
+  const visited = new Set<string>();
+  const stack: Array<{ v: string; d: number }> = [{ v: root, d: 0 }];
+
+  while (stack.length) {
+    const { v, d } = stack.pop()!;
+    if (visited.has(v)) continue;
+    visited.add(v);
+
+    const decl = getDeclarationByVersion(db, v);
+    const man = getManifest(db, v);
+    if (!man) throw new Error(`missing-manifest:${v}`);
+
+    const vout = decl?.opret_vout ?? 0;
+    const txo = decl?.txid ? `${decl.txid}:${vout}` : `${'0'.repeat(64)}:0`;
+
+    nodes.push({ versionId: v, manifestHash: man.manifest_hash, txo });
+    manifestsArr.push({ manifestHash: man.manifest_hash, manifest: JSON.parse(man.manifest_json) });
+
+    if (decl?.proof_json) {
+      const envelope = JSON.parse(decl.proof_json);
+      proofsArr.push({ versionId: v, envelope });
+    } else {
+      throw new Error(`missing-envelope:${v}`);
+    }
+
+    if (d < depth) {
+      const parents = getParents(db, v);
+      for (const p of parents) {
+        edges.push({ child: v, parent: p });
+        if (!visited.has(p)) stack.push({ v: p, d: d + 1 });
+      }
+    }
+  }
+
+  return { nodes, edges, manifestsArr, proofsArr };
+}
+
+/**
+ * Recompute confirmations for a cached bundle using current headers snapshot.
+ * Also enforce POLICY_MIN_CONFS; if violated, return { ok:false, reason }.
+ */
+async function recomputeConfsAndEnforce(
+  bundle: any,
+): Promise<{ ok: boolean; reason?: string }> {
+  const idx = getHeadersSnapshot(HEADERS_FILE);
+  for (const p of bundle.proofs as any[]) {
+    const env = p.envelope;
+    const vr = await verifyEnvelopeAgainstHeaders(env, idx, POLICY_MIN_CONFS);
+    if (!vr.ok) {
+      return { ok: false, reason: vr.reason };
+    }
+    p.envelope.confirmations = vr.confirmations ?? 0; // dynamic
+  }
+  return { ok: true };
+}
+
+export function bundleRouter(db: Database.Database): Router {
+  const router = makeRouter();
+
+  ensureValidator();
+
+  router.get('/bundle', async (req: Request, res: Response) => {
+    try {
+      const versionId = String(req.query.versionId || '').toLowerCase();
+      if (!/^[0-9a-fA-F]{64}$/.test(versionId)) {
+        return res.status(400).json({ error: 'bad-request', hint: 'Provide versionId=64-hex' });
+      }
+      const depth = Number(req.query.depth || BUNDLE_MAX_DEPTH);
+      const key = bundlesKey(versionId, depth);
+
+      // 1) Try cache
+      const cached = bundlesGet(key);
+      if (cached) {
+        // Use a shallow copy so we don't mutate the cache body
+        const body = JSON.parse(JSON.stringify(cached.body));
+        const re = await recomputeConfsAndEnforce(body);
+        if (!re.ok) {
+          // If policy now fails (e.g., reorg or threshold), invalidate cache and fall through to rebuild
+          bundlesInvalidate(key);
+        } else {
+          if (VALIDATE_BUNDLE && validateBundleFn) {
+            const vb = validateBundleFn(body);
+            if (!vb.ok) return res.status(500).json({ error: 'bundle-schema-invalid', details: vb.errors });
+          }
+          res.setHeader('x-cache', 'hit');
+          return res.status(200).json(body);
+        }
+      }
+
+      // 2) Build fresh
+      const { nodes, edges, manifestsArr, proofsArr } = await collectLineage(db, versionId, depth);
+
+      // Verify & compute confirmations with current headers
+      const idx = getHeadersSnapshot(HEADERS_FILE);
+      for (const p of proofsArr) {
+        const env = p.envelope;
+        const vr = await verifyEnvelopeAgainstHeaders(env, idx, POLICY_MIN_CONFS);
+        if (!vr.ok) {
+          return res.status(409).json({ error: 'invalid-envelope', versionId: p.versionId, reason: vr.reason });
+        }
+        p.envelope.confirmations = vr.confirmations ?? 0;
+      }
+
+      const bundle = {
+        bundleType: 'datasetLineageBundle',
+        target: versionId,
+        graph: { nodes, edges },
+        manifests: manifestsArr,
+        proofs: proofsArr,
+      };
+
+      if (VALIDATE_BUNDLE && validateBundleFn) {
+        const vb = validateBundleFn(bundle);
+        if (!vb.ok) return res.status(500).json({ error: 'bundle-schema-invalid', details: vb.errors });
+      }
+
+      // 3) Cache (structure only). confirmations dynamic on future reads.
+      bundlesSet(key, bundle, true);
+      res.setHeader('x-cache', 'miss');
+      return res.status(200).json(bundle);
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (msg.startsWith('missing-manifest:') || msg.startsWith('missing-envelope:')) {
+        return res.status(409).json({ error: 'incomplete-lineage', hint: msg });
+      }
+      return res.status(500).json({ error: 'bundle-failed', message: msg });
+    }
+  });
+
+  return router;
+}
+```
+
+5) Create file: test/integration/cache.spec.ts
+With content:
+```ts
+import assert from 'assert';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import express from 'express';
+import request from 'supertest';
+import Database from 'better-sqlite3';
+
+import { initSchema, upsertManifest, upsertDeclaration, replaceEdges } from '../../src/db';
+import { bundleRouter } from '../../src/routes/bundle';
+import { txidFromRawTx } from '../../src/spv/verify-envelope';
+
+(async function run() {
+  // Configure small bundle TTL to see invalidation easily
+  process.env.CACHE_TTLS_JSON = JSON.stringify({ headers: 60000, bundles: 1000 }); // 1s bundles
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-'));
+  const headersPath = path.join(tmpDir, 'headers.json');
+  process.env.HEADERS_FILE = headersPath;
+
+  // Build a simple headers snapshot
+  // Merkle root & tx setup
+  const rawTx = '00';
+  const txid = txidFromRawTx(rawTx);
+  const sibling = '11'.repeat(32);
+
+  // Build a root = sha256d(LE(txid) || LE(sibling)) via helper inline
+  const crypto = require('crypto') as typeof import('crypto');
+  const rev = (b: Buffer) => { const c = Buffer.from(b); c.reverse(); return c; };
+  const sha256d = (b: Buffer) => { const a = crypto.createHash('sha256').update(b).digest(); return crypto.createHash('sha256').update(a).digest(); };
+  const root = rev(sha256d(Buffer.concat([rev(Buffer.from(txid,'hex')), rev(Buffer.from(sibling,'hex'))]))).toString('hex');
+
+  const blockHash = 'f'.repeat(64);
+  fs.writeFileSync(headersPath, JSON.stringify({
+    bestHeight: 100,
+    tipHash: blockHash,
+    byHash: {
+      [blockHash]: { prevHash: '0'.repeat(64), merkleRoot: root, height: 100 }
+    }
+  }, null, 2));
+
+  // App + DB
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  const db = new Database(':memory:');
+  initSchema(db);
+  app.use(bundleRouter(db));
+
+  const vid = 'a'.repeat(64);
+  const man = {
+    type: 'datasetVersionManifest',
+    datasetId: 'ds-x',
+    content: { contentHash: 'c'.repeat(64) },
+    provenance: { createdAt: '2024-05-01T00:00:00Z' },
+    policy: { license: 'cc-by-4.0', classification: 'public' }
+  };
+
+  upsertManifest(db, {
+    version_id: vid,
+    manifest_hash: vid,
+    content_hash: man.content.contentHash,
+    title: null, license: 'cc-by-4.0', classification: 'public',
+    created_at: man.provenance.createdAt, manifest_json: JSON.stringify(man)
+  });
+  replaceEdges(db, vid, []);
+
+  const env = {
+    rawTx,
+    proof: { txid, merkleRoot: root, path: [{ hash: sibling, position: 'right' }] },
+    block: { blockHash, blockHeight: 100 }
+  };
+  upsertDeclaration(db, {
+    version_id: vid, txid: 'd'.repeat(64), type: 'DLM1', status: 'pending',
+    created_at: Math.floor(Date.now()/1000), opret_vout: 0, raw_tx: rawTx, proof_json: JSON.stringify(env)
+  } as any);
+
+  // 1) First bundle -> miss
+  const r1 = await request(app).get(`/bundle?versionId=${vid}`);
+  assert.strictEqual(r1.status, 200);
+  assert.strictEqual(r1.headers['x-cache'], 'miss');
+
+  // 2) Second bundle immediately -> hit (confirmations recomputed but equal)
+  const r2 = await request(app).get(`/bundle?versionId=${vid}`);
+  assert.strictEqual(r2.status, 200);
+  assert.strictEqual(r2.headers['x-cache'], 'hit');
+  const conf1 = r1.body.proofs[0].envelope.confirmations;
+  const conf2 = r2.body.proofs[0].envelope.confirmations;
+  assert.strictEqual(conf1, conf2);
+
+  // 3) Increase bestHeight -> hit still returns higher confirmations (recomputed on read)
+  fs.writeFileSync(headersPath, JSON.stringify({
+    bestHeight: 105, tipHash: blockHash,
+    byHash: { [blockHash]: { prevHash: '0'.repeat(64), merkleRoot: root, height: 100 } }
+  }, null, 2));
+  const r3 = await request(app).get(`/bundle?versionId=${vid}`);
+  assert.strictEqual(r3.status, 200);
+  assert.strictEqual(r3.headers['x-cache'], 'hit');
+  assert.ok(r3.body.proofs[0].envelope.confirmations > conf2);
+
+  // 4) After TTL expiry, cache miss rebuilds structure (we can't inspect internal cache—assert header only)
+  await new Promise((r) => setTimeout(r, 1100));
+  const r4 = await request(app).get(`/bundle?versionId=${vid}`);
+  assert.strictEqual(r4.status, 200);
+  assert.strictEqual(r4.headers['x-cache'], 'miss');
+
+  console.log('OK: /bundle cache tests passed.');
+})().catch((e) => {
+  console.error('bundle cache tests failed:', e);
+  process.exit(1);
+});
+```
+
+6) Update file: package.json (add test script)
+With content patch:
+```json
+{
+  "scripts": {
+    "test:cache": "ts-node test/integration/cache.spec.ts"
+  }
+}
+```
+
+How to run D11
+- Configure TTLs (optional):
+  export CACHE_TTLS_JSON='{"headers":60000,"bundles":60000}'
+- Run tests:
+  npm run test:cache
+
+What you completed (matches D11 DoD)
+- Bundles cache with TTL keyed by versionId+depth; structure cached while confirmations are recomputed on each read using the current headers snapshot.
+- Headers snapshot cache with TTL + mtime detection to avoid re-reading on every call, while still picking up new headers promptly.
+- On cache hits, confirmations increase/decrease correctly (reorgs/height changes); if policy minConfs is not met or proofs turn invalid, the cache is invalidated and a rebuild is attempted (or 409 returned if invalid).
+
+Notes
+- We do not cache “ready:true”—/ready performs fresh SPV checks per request. For larger deployments, consider a tiny readiness cache with very short TTL if needed, but never pin confirmations across TTLs.
+- You can add metrics (hits/misses, recompute duration) to /metrics in D17.

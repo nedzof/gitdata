@@ -1,0 +1,195 @@
+
+
+
+
+Awesome—here are the exact Cursor “Create/Update file … with content …” tasks to implement D05 (/price: Default & Override). Paste them in order. This builds on your existing DB helpers (prices, manifests) and adds focused integration tests.
+
+1) Update file: src/routes/price.ts
+With content:
+```ts
+import type { Request, Response, Router } from 'express';
+import { Router as makeRouter } from 'express';
+import Database from 'better-sqlite3';
+import { getManifest, getPrice, setPrice } from '../db';
+
+const PRICE_DEFAULT_SATS = Number(process.env.PRICE_DEFAULT_SATS || 5000);
+// Optional quote TTL (seconds)
+const PRICE_QUOTE_TTL_SEC = Number(process.env.PRICE_QUOTE_TTL_SEC || 1800);
+
+function isHex64(s: string): boolean {
+  return /^[0-9a-fA-F]{64}$/.test(s);
+}
+
+function json(res: Response, code: number, body: any) {
+  return res.status(code).json(body);
+}
+
+export function priceRouter(db: Database.Database): Router {
+  const router = makeRouter();
+
+  // GET /price?versionId=...
+  router.get('/price', (req: Request, res: Response) => {
+    const versionId = String(req.query.versionId || '').toLowerCase();
+    if (!isHex64(versionId)) {
+      return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
+    }
+
+    const man = getManifest(db, versionId);
+    if (!man) {
+      return json(res, 404, { error: 'not-found', hint: 'manifest missing' });
+    }
+
+    const satoshis = getPrice(db, versionId) ?? PRICE_DEFAULT_SATS;
+    const expiresAt = Math.floor(Date.now() / 1000) + PRICE_QUOTE_TTL_SEC;
+
+    return json(res, 200, {
+      versionId,
+      contentHash: man.content_hash,
+      satoshis,
+      expiresAt,
+    });
+  });
+
+  // POST /price { versionId, satoshis }
+  router.post('/price', (req: Request, res: Response) => {
+    const { versionId, satoshis } = req.body || {};
+    if (!isHex64(String(versionId || ''))) {
+      return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
+    }
+    if (!Number.isInteger(satoshis) || satoshis <= 0) {
+      return json(res, 400, { error: 'bad-request', hint: 'satoshis > 0 (integer)' });
+    }
+
+    // Optional: ensure manifest exists before setting price
+    const man = getManifest(db, String(versionId).toLowerCase());
+    if (!man) {
+      return json(res, 404, { error: 'not-found', hint: 'manifest missing' });
+    }
+
+    setPrice(db, String(versionId).toLowerCase(), Number(satoshis));
+    return json(res, 200, { status: 'ok' });
+  });
+
+  return router;
+}
+```
+
+2) Create file: test/integration/price.spec.ts
+With content:
+```ts
+import assert from 'assert';
+import express from 'express';
+import request from 'supertest';
+import Database from 'better-sqlite3';
+import { initSchema, upsertManifest, setPrice } from '../../src/db';
+import { priceRouter } from '../../src/routes/price';
+
+(async function run() {
+  // Force deterministic defaults in test
+  process.env.PRICE_DEFAULT_SATS = '1234';
+  process.env.PRICE_QUOTE_TTL_SEC = '120'; // 2 minutes
+
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  const db = new Database(':memory:');
+  initSchema(db);
+  app.use(priceRouter(db));
+
+  const versionId = 'a'.repeat(64);
+  const contentHash = 'c'.repeat(64);
+
+  // Insert a manifest row for the version
+  upsertManifest(db, {
+    version_id: versionId,
+    manifest_hash: versionId,
+    content_hash: contentHash,
+    title: 'Test Dataset',
+    license: 'cc-by-4.0',
+    classification: 'public',
+    created_at: '2024-05-01T00:00:00Z',
+    manifest_json: JSON.stringify({
+      type: 'datasetVersionManifest',
+      datasetId: 'ds-test',
+      content: { contentHash },
+      provenance: { createdAt: '2024-05-01T00:00:00Z' },
+      policy: { license: 'cc-by-4.0', classification: 'public' }
+    })
+  });
+
+  // 1) GET with no override -> default price
+  const t0 = Math.floor(Date.now() / 1000);
+  const r1 = await request(app).get(`/price?versionId=${versionId}`);
+  assert.strictEqual(r1.status, 200);
+  assert.strictEqual(r1.body.versionId, versionId);
+  assert.strictEqual(r1.body.contentHash, contentHash);
+  assert.strictEqual(r1.body.satoshis, 1234);
+  assert.ok(r1.body.expiresAt >= t0 && r1.body.expiresAt <= t0 + 120 + 2, 'expiresAt within TTL window');
+
+  // 2) POST override -> GET returns override
+  const r2 = await request(app)
+    .post('/price')
+    .set('content-type', 'application/json')
+    .send({ versionId, satoshis: 7777 });
+  assert.strictEqual(r2.status, 200);
+  assert.strictEqual(r2.body.status, 'ok');
+
+  const r3 = await request(app).get(`/price?versionId=${versionId}`);
+  assert.strictEqual(r3.status, 200);
+  assert.strictEqual(r3.body.satoshis, 7777);
+
+  // 3) Invalid versionId (GET) -> 400
+  const r4 = await request(app).get('/price?versionId=xyz');
+  assert.strictEqual(r4.status, 400);
+
+  // 4) Invalid POST body: bad satoshis
+  const r5 = await request(app)
+    .post('/price')
+    .set('content-type', 'application/json')
+    .send({ versionId, satoshis: 0 });
+  assert.strictEqual(r5.status, 400);
+
+  // 5) 404 when manifest missing
+  const anotherVid = 'b'.repeat(64);
+  const r6 = await request(app).get(`/price?versionId=${anotherVid}`);
+  assert.strictEqual(r6.status, 404);
+
+  console.log('OK: /price tests passed.');
+})().catch((e) => {
+  console.error('price tests failed:', e);
+  process.exit(1);
+});
+```
+
+3) Update file: package.json (add test script for price)
+With content patch:
+```json
+{
+  "scripts": {
+    "test:price": "ts-node test/integration/price.spec.ts"
+  }
+}
+```
+
+How to run D05 now
+- Run tests:
+  npm run test:price
+
+What you’ve completed (matches D05 DoD)
+- GET /price returns the price for a version (override if set, otherwise default), and includes contentHash from the manifest plus an expiresAt TTL.
+- POST /price validates inputs and upserts per-version price (idempotent).
+- Tests cover:
+  - GET default price,
+  - POST override then GET returns override,
+  - Validation errors (bad versionId, satoshis <= 0),
+  - 404 when manifest is missing.
+
+Notes
+- You can tune TTL with PRICE_QUOTE_TTL_SEC. Default remains 30 minutes (1800) outside tests.
+- For admin/publisher auth on POST /price, add BRC‑31 identity middleware in D19.
+
+
+
+
+
+
+

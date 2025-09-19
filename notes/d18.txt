@@ -1,0 +1,348 @@
+1) Update file: src/db/index.ts
+With content additions (keep your existing exports; add these helpers):
+```ts
+import Database from 'better-sqlite3';
+
+// ... existing types and helpers ...
+
+export type SearchItem = {
+  version_id: string;
+  dataset_id: string | null;
+  title: string | null;
+  license: string | null;
+  classification: string | null;
+  content_hash: string | null;
+  created_at: string | null;
+  manifest_json: string;
+};
+
+export function getParents(db: Database.Database, child: string): string[] {
+  return db
+    .prepare('SELECT parent_version_id AS p FROM edges WHERE child_version_id = ?')
+    .all(child.toLowerCase())
+    .map((r: any) => r.p);
+}
+
+/**
+ * searchManifests:
+ * - q: full-text-ish LIKE over title, license, classification, dataset_id, content_hash, manifest_json
+ * - datasetId: exact match on dataset_id
+ * Returns items plus total? (MVP returns items only with nextCursor)
+ */
+export function searchManifests(
+  db: Database.Database,
+  opts: { q?: string; datasetId?: string; limit: number; offset: number },
+): SearchItem[] {
+  const { q, datasetId, limit, offset } = opts;
+  const params: any[] = [];
+  const where: string[] = [];
+
+  if (datasetId) {
+    where.push('m.dataset_id = ?');
+    params.push(datasetId);
+  }
+
+  if (q) {
+    const like = `%${q}%`;
+    where.push(
+      '(m.title LIKE ? OR m.license LIKE ? OR m.classification LIKE ? OR m.dataset_id LIKE ? OR m.content_hash LIKE ? OR m.manifest_json LIKE ?)',
+    );
+    params.push(like, like, like, like, like, like);
+  }
+
+  const sql = `
+    SELECT m.version_id, m.dataset_id, m.title, m.license, m.classification, m.content_hash, m.created_at, m.manifest_json
+    FROM manifests m
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY COALESCE(m.created_at, '') DESC
+    LIMIT ? OFFSET ?`;
+  params.push(limit, offset);
+
+  return db.prepare(sql).all(...params) as any[];
+}
+
+/**
+ * listVersionsByDataset:
+ * - returns versions for a datasetId, sorted newest-first
+ */
+export function listVersionsByDataset(
+  db: Database.Database,
+  datasetId: string,
+  limit: number,
+  offset: number,
+): { version_id: string; created_at: string | null; content_hash: string | null }[] {
+  const sql = `
+    SELECT version_id, created_at, content_hash
+    FROM manifests
+    WHERE dataset_id = ?
+    ORDER BY COALESCE(created_at, '') DESC
+    LIMIT ? OFFSET ?`;
+  return db.prepare(sql).all(datasetId, limit, offset) as any[];
+}
+```
+
+2) Create file: src/routes/catalog.ts
+With content:
+```ts
+import type { Request, Response, Router } from 'express';
+import { Router as makeRouter } from 'express';
+import Database from 'better-sqlite3';
+import { searchManifests, listVersionsByDataset, getParents } from '../db';
+
+function json(res: Response, code: number, body: any) {
+  return res.status(code).json(body);
+}
+
+function parseCursor(s: any): number {
+  const n = Number(s);
+  if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  // support base64 "offset:<n>"
+  if (typeof s === 'string' && s.startsWith('offset:')) {
+    const k = Number(s.split(':')[1]);
+    if (Number.isFinite(k) && k >= 0) return Math.floor(k);
+  }
+  return 0;
+}
+
+function nextCursor(offset: number, count: number): string | null {
+  return count > 0 ? `offset:${offset + count}` : null;
+}
+
+export function catalogRouter(db: Database.Database): Router {
+  const router = makeRouter();
+
+  /**
+   * GET /search?q=...&datasetId=...&tag=...&limit=&cursor=
+   * - q: free-text-ish
+   * - datasetId: exact
+   * - tag: parsed from manifest_json.metadata.tags or manifest.tags (array of strings)
+   * Paging: limit (default 20, max 100), cursor "offset:<n>"
+   */
+  router.get('/search', (req: Request, res: Response) => {
+    try {
+      const q = req.query.q ? String(req.query.q) : undefined;
+      const datasetId = req.query.datasetId ? String(req.query.datasetId) : undefined;
+      const tag = req.query.tag ? String(req.query.tag).toLowerCase() : undefined;
+      const limit = Math.min(Math.max(Number(req.query.limit || 20), 1), 100);
+      const offset = parseCursor(req.query.cursor);
+
+      const rows = searchManifests(db, { q, datasetId, limit, offset });
+
+      // Post-filter by tag if requested (parse manifest_json)
+      const filtered = rows.filter((r) => {
+        if (!tag) return true;
+        try {
+          const m = JSON.parse(r.manifest_json || '{}');
+          const tags: string[] =
+            Array.isArray(m?.metadata?.tags) ? m.metadata.tags :
+            Array.isArray(m?.tags) ? m.tags :
+            [];
+          return tags.map((t) => String(t).toLowerCase()).includes(tag);
+        } catch {
+          return false;
+        }
+      });
+
+      const items = filtered.map((r) => ({
+        versionId: r.version_id,
+        datasetId: r.dataset_id,
+        title: r.title,
+        license: r.license,
+        classification: r.classification,
+        contentHash: r.content_hash,
+        createdAt: r.created_at,
+        // tags not extracted here; client can parse manifest if needed
+      }));
+
+      return json(res, 200, {
+        items,
+        limit,
+        nextCursor: nextCursor(offset, rows.length),
+      });
+    } catch (e: any) {
+      return json(res, 500, { error: 'search-failed', message: String(e?.message || e) });
+    }
+  });
+
+  /**
+   * GET /resolve?versionId=... | /resolve?datasetId=...&limit=&cursor=
+   * - If versionId: return that node + its parents
+   * - If datasetId: return paged versions of that dataset with parents per item
+   */
+  router.get('/resolve', (req: Request, res: Response) => {
+    try {
+      const versionId = req.query.versionId ? String(req.query.versionId).toLowerCase() : undefined;
+      const datasetId = req.query.datasetId ? String(req.query.datasetId) : undefined;
+
+      if (!versionId && !datasetId) {
+        return json(res, 400, { error: 'bad-request', hint: 'provide versionId or datasetId' });
+      }
+
+      if (versionId) {
+        if (!/^[0-9a-fA-F]{64}$/.test(versionId)) {
+          return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
+        }
+        const parents = getParents(db, versionId);
+        return json(res, 200, {
+          items: [{ versionId, parents }],
+          nextCursor: null,
+        });
+      }
+
+      // datasetId path
+      const limit = Math.min(Math.max(Number(req.query.limit || 20), 1), 100);
+      const offset = parseCursor(req.query.cursor);
+      const versions = listVersionsByDataset(db, datasetId!, limit, offset);
+      const items = versions.map((v) => ({
+        versionId: v.version_id,
+        parents: getParents(db, v.version_id),
+        createdAt: v.created_at,
+        contentHash: v.content_hash,
+      }));
+      return json(res, 200, {
+        items,
+        limit,
+        nextCursor: nextCursor(offset, versions.length),
+      });
+    } catch (e: any) {
+      return json(res, 500, { error: 'resolve-failed', message: String(e?.message || e) });
+    }
+  });
+
+  return router;
+}
+```
+
+3) Update file: server.ts (mount the catalog router)
+With content patch:
+```ts
+import { catalogRouter } from './src/routes/catalog';
+
+// ... inside main after other routers:
+app.use(catalogRouter(db));
+```
+
+4) Create file: test/integration/catalog.spec.ts
+With content:
+```ts
+import assert from 'assert';
+import express from 'express';
+import request from 'supertest';
+import Database from 'better-sqlite3';
+import { initSchema, upsertManifest, replaceEdges } from '../../src/db';
+import { catalogRouter } from '../../src/routes/catalog';
+
+(async function run() {
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  const db = new Database(':memory:');
+  initSchema(db);
+  app.use(catalogRouter(db));
+
+  // Insert two versions for dataset "ds-x" with a parent relation
+  const datasetId = 'ds-x';
+  const vParent = 'b'.repeat(64);
+  const vChild = 'a'.repeat(64);
+
+  const mParent = {
+    type: 'datasetVersionManifest',
+    datasetId,
+    content: { contentHash: 'c'.repeat(64) },
+    metadata: { tags: ['geno', 'omics'] },
+    provenance: { createdAt: '2024-05-01T00:00:00Z' },
+    policy: { license: 'cc-by-4.0', classification: 'public' },
+  };
+  const mChild = {
+    type: 'datasetVersionManifest',
+    datasetId,
+    content: { contentHash: 'd'.repeat(64) },
+    metadata: { tags: ['tox', 'sim'] },
+    provenance: { createdAt: '2024-05-02T00:00:00Z' },
+    policy: { license: 'cc-by-4.0', classification: 'public' },
+  };
+
+  // Upsert manifests (mimic fields stored in DB)
+  upsertManifest(db, {
+    version_id: vParent,
+    manifest_hash: vParent,
+    content_hash: mParent.content.contentHash,
+    title: 'Geno Screener',
+    license: 'cc-by-4.0',
+    classification: 'public',
+    created_at: mParent.provenance.createdAt,
+    manifest_json: JSON.stringify(mParent),
+    dataset_id: datasetId,
+    producer_id: null,
+  });
+  upsertManifest(db, {
+    version_id: vChild,
+    manifest_hash: vChild,
+    content_hash: mChild.content.contentHash,
+    title: 'Tox Sim',
+    license: 'cc-by-4.0',
+    classification: 'public',
+    created_at: mChild.provenance.createdAt,
+    manifest_json: JSON.stringify(mChild),
+    dataset_id: datasetId,
+    producer_id: null,
+  });
+  replaceEdges(db, vChild, [vParent]);
+
+  // 1) /search by datasetId
+  const s1 = await request(app).get(`/search?datasetId=${datasetId}`);
+  assert.strictEqual(s1.status, 200);
+  assert.ok(s1.body.items.length >= 2);
+
+  // 2) /search by tag=geno
+  const s2 = await request(app).get(`/search?tag=geno`);
+  assert.strictEqual(s2.status, 200);
+  const tagsHit = s2.body.items.some((it: any) => it.versionId === vParent);
+  assert.strictEqual(tagsHit, true);
+
+  // 3) /search by q free text ("Tox")
+  const s3 = await request(app).get(`/search?q=Tox`);
+  assert.strictEqual(s3.status, 200);
+  const toxHit = s3.body.items.some((it: any) => it.versionId === vChild);
+  assert.strictEqual(toxHit, true);
+
+  // 4) /resolve by versionId returns parents
+  const r1 = await request(app).get(`/resolve?versionId=${vChild}`);
+  assert.strictEqual(r1.status, 200);
+  assert.deepStrictEqual(r1.body.items[0].parents, [vParent]);
+
+  // 5) /resolve by datasetId returns both with parents
+  const r2 = await request(app).get(`/resolve?datasetId=${datasetId}&limit=10`);
+  assert.strictEqual(r2.status, 200);
+  const ids = r2.body.items.map((x: any) => x.versionId).sort();
+  assert.deepStrictEqual(ids, [vChild, vParent].sort());
+
+  console.log('OK: /search & /resolve tests passed.');
+})().catch((e) => {
+  console.error('catalog tests failed:', e);
+  process.exit(1);
+});
+```
+
+5) Update file: package.json (add test script)
+With content patch:
+```json
+{
+  "scripts": {
+    "test:catalog": "ts-node test/integration/catalog.spec.ts"
+  }
+}
+```
+
+Optional notes
+- For more advanced tag/ontology search, normalize tags into a separate table (manifest_tags) and index it; for MVP, parsing manifest_json works.
+- The paging uses a simple offset cursor scheme. If you need stable pagination under inserts, consider keyset pagination by created_at+version_id.
+- These endpoints are read-only and fast; consider adding rate limits (D12) under keys 'listings' for /search and maybe 'listings' or 'other' for /resolve.
+
+How to run D18
+- Run tests:
+  npm run test:catalog
+
+What you completed (matches D18 DoD)
+- /search supports free-text and datasetId filters and optional tag parsing from manifests.
+- /resolve returns parent relationships and supports paging when resolving by datasetId.
+- JSON responses are simple and aligned with the MVP catalog.

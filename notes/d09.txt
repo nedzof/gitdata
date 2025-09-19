@@ -1,0 +1,373 @@
+
+1) Update file: src/db/schema.sql
+With content (append to your existing schema; keep prior tables):
+```sql
+-- Price rules with optional version or producer scope and tiering
+CREATE TABLE IF NOT EXISTS price_rules (
+  rule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version_id TEXT,            -- 64-hex, nullable
+  producer_id TEXT,           -- from producers.producer_id, nullable
+  tier_from INTEGER NOT NULL DEFAULT 1,   -- quantity threshold (inclusive)
+  satoshis INTEGER NOT NULL,             -- unit price at/above tier_from
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+-- Uniqueness per scope+tier (SQLite allows multiple NULLs for nullable columns)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_price_rules_version_tier ON price_rules(version_id, tier_from);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_price_rules_producer_tier ON price_rules(producer_id, tier_from);
+CREATE INDEX IF NOT EXISTS idx_price_rules_version ON price_rules(version_id);
+CREATE INDEX IF NOT EXISTS idx_price_rules_producer ON price_rules(producer_id);
+```
+
+2) Update file: src/db/index.ts
+With content (only new/changed helpers shown; keep existing code):
+```ts
+import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
+
+export type PriceRule = {
+  rule_id?: number;
+  version_id?: string | null;
+  producer_id?: string | null;
+  tier_from: number;
+  satoshis: number;
+  created_at: number;
+  updated_at: number;
+};
+
+export function openDb(dbPath = process.env.DB_PATH || './data/overlay.db') {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
+  db.pragma('journal_mode = WAL');
+  return db;
+}
+
+export function initSchema(db: Database.Database, schemaFile = 'src/db/schema.sql') {
+  const sql = fs.readFileSync(schemaFile, 'utf8');
+  db.exec(sql);
+}
+
+/* Producers + Manifests (from D08) */
+export function getProducerIdForVersion(db: Database.Database, versionId: string): string | null {
+  const r = db.prepare('SELECT producer_id FROM manifests WHERE version_id = ?').get(versionId) as any;
+  return r?.producer_id || null;
+}
+
+/* D05 base overrides */
+export function setPrice(db: Database.Database, versionId: string, satoshis: number) {
+  db.prepare(`
+    INSERT INTO prices(version_id, satoshis) VALUES (?, ?)
+    ON CONFLICT(version_id) DO UPDATE SET satoshis = excluded.satoshis
+  `).run(versionId, satoshis);
+}
+export function getPrice(db: Database.Database, versionId: string): number | undefined {
+  const row = db.prepare('SELECT satoshis FROM prices WHERE version_id = ?').get(versionId) as any;
+  return row?.satoshis;
+}
+
+/* Price rules (D09) */
+export function upsertPriceRule(db: Database.Database, rule: { version_id?: string | null; producer_id?: string | null; tier_from: number; satoshis: number }) {
+  const now = Math.floor(Date.now() / 1000);
+  const { version_id = null, producer_id = null, tier_from, satoshis } = rule;
+  if (!version_id && !producer_id) throw new Error('scope-required');
+  if (tier_from < 1 || !Number.isInteger(tier_from)) throw new Error('invalid-tier');
+  if (!Number.isInteger(satoshis) || satoshis <= 0) throw new Error('invalid-satoshis');
+
+  if (version_id) {
+    db.prepare(`
+      INSERT INTO price_rules(version_id, producer_id, tier_from, satoshis, created_at, updated_at)
+      VALUES (?, NULL, ?, ?, ?, ?)
+      ON CONFLICT(version_id, tier_from) DO UPDATE SET
+        satoshis = excluded.satoshis,
+        updated_at = excluded.updated_at
+    `).run(version_id.toLowerCase(), tier_from, satoshis, now, now);
+    return;
+  }
+  if (producer_id) {
+    db.prepare(`
+      INSERT INTO price_rules(version_id, producer_id, tier_from, satoshis, created_at, updated_at)
+      VALUES (NULL, ?, ?, ?, ?, ?)
+      ON CONFLICT(producer_id, tier_from) DO UPDATE SET
+        satoshis = excluded.satoshis,
+        updated_at = excluded.updated_at
+    `).run(producer_id, tier_from, satoshis, now, now);
+  }
+}
+
+export function deletePriceRule(db: Database.Database, where: { version_id?: string | null; producer_id?: string | null; tier_from?: number | null }) {
+  const { version_id = null, producer_id = null, tier_from = null } = where;
+  if (!version_id && !producer_id) throw new Error('scope-required');
+  if (version_id) {
+    if (tier_from) {
+      db.prepare('DELETE FROM price_rules WHERE version_id = ? AND tier_from = ?').run(version_id.toLowerCase(), tier_from);
+    } else {
+      db.prepare('DELETE FROM price_rules WHERE version_id = ?').run(version_id.toLowerCase());
+    }
+    return;
+  }
+  if (producer_id) {
+    if (tier_from) {
+      db.prepare('DELETE FROM price_rules WHERE producer_id = ? AND tier_from = ?').run(producer_id, tier_from);
+    } else {
+      db.prepare('DELETE FROM price_rules WHERE producer_id = ?').run(producer_id);
+    }
+  }
+}
+
+/**
+ * Resolve best-matching unit price for (versionId, quantity)
+ * Priority:
+ *   1) Version-scoped rules: highest tier_from <= quantity
+ *   2) Version override (prices table)
+ *   3) Producer-scoped rules: highest tier_from <= quantity (via manifests.producer_id)
+ *   4) Default PRICE_DEFAULT_SATS
+ */
+export function getBestUnitPrice(
+  db: Database.Database,
+  versionId: string,
+  quantity: number,
+  defaultSats: number,
+): { satoshis: number; source: 'version-rule' | 'version-override' | 'producer-rule' | 'default'; tier_from?: number; producer_id?: string | null } {
+  const qty = Math.max(1, Math.floor(quantity || 1));
+  const vid = versionId.toLowerCase();
+
+  // 1) Version-scoped rules
+  const vRule = db.prepare(`
+    SELECT tier_from, satoshis FROM price_rules
+    WHERE version_id = ? AND tier_from <= ?
+    ORDER BY tier_from DESC
+    LIMIT 1
+  `).get(vid, qty) as any;
+  if (vRule?.satoshis) {
+    return { satoshis: Number(vRule.satoshis), source: 'version-rule', tier_from: Number(vRule.tier_from) };
+  }
+
+  // 2) Version override (D05)
+  const vOverride = getPrice(db, vid);
+  if (typeof vOverride === 'number') {
+    return { satoshis: vOverride, source: 'version-override' };
+  }
+
+  // 3) Producer-scoped rules
+  const pid = getProducerIdForVersion(db, vid);
+  if (pid) {
+    const pRule = db.prepare(`
+      SELECT tier_from, satoshis FROM price_rules
+      WHERE producer_id = ? AND tier_from <= ?
+      ORDER BY tier_from DESC
+      LIMIT 1
+    `).get(pid, qty) as any;
+    if (pRule?.satoshis) {
+      return { satoshis: Number(pRule.satoshis), source: 'producer-rule', tier_from: Number(pRule.tier_from), producer_id: pid };
+    }
+  }
+
+  // 4) Default
+  return { satoshis: defaultSats, source: 'default' };
+}
+```
+
+3) Update file: src/routes/price.ts
+With content (replace file to support quantity + rules admin):
+```ts
+import type { Request, Response, Router } from 'express';
+import { Router as makeRouter } from 'express';
+import Database from 'better-sqlite3';
+import { getManifest } from '../db';
+import { upsertPriceRule, deletePriceRule, getBestUnitPrice } from '../db';
+
+const PRICE_DEFAULT_SATS = Number(process.env.PRICE_DEFAULT_SATS || 5000);
+const PRICE_QUOTE_TTL_SEC = Number(process.env.PRICE_QUOTE_TTL_SEC || 1800);
+
+function isHex64(s: string): boolean { return /^[0-9a-fA-F]{64}$/.test(s); }
+function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
+
+export function priceRouter(db: Database.Database): Router {
+  const router = makeRouter();
+
+  // GET /price?versionId=&quantity=...
+  router.get('/price', (req: Request, res: Response) => {
+    const versionId = String(req.query.versionId || '').toLowerCase();
+    const qtyParam = req.query.quantity;
+    const quantity = Math.max(1, Number(qtyParam || 1));
+    if (!isHex64(versionId)) return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
+
+    const man = getManifest(db, versionId);
+    if (!man) return json(res, 404, { error: 'not-found', hint: 'manifest missing' });
+
+    const best = getBestUnitPrice(db, versionId, quantity, PRICE_DEFAULT_SATS);
+    const unit = best.satoshis;
+    const total = unit * quantity;
+    const expiresAt = Math.floor(Date.now() / 1000) + PRICE_QUOTE_TTL_SEC;
+
+    return json(res, 200, {
+      versionId,
+      contentHash: man.content_hash,
+      unitSatoshis: unit,
+      quantity,
+      totalSatoshis: total,
+      ruleSource: best.source,
+      tierFrom: best.tier_from ?? 1,
+      expiresAt,
+    });
+  });
+
+  // Admin: POST /price/rules (set/add rule)
+  // Body: { versionId?, producerId?, tierFrom, satoshis }
+  router.post('/price/rules', (req: Request, res: Response) => {
+    const { versionId, producerId, tierFrom, satoshis } = req.body || {};
+    if (!versionId && !producerId) return json(res, 400, { error: 'bad-request', hint: 'versionId or producerId required' });
+    if (versionId && !isHex64(String(versionId || ''))) return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
+    if (!Number.isInteger(tierFrom) || tierFrom < 1) return json(res, 400, { error: 'bad-request', hint: 'tierFrom >= 1' });
+    if (!Number.isInteger(satoshis) || satoshis <= 0) return json(res, 400, { error: 'bad-request', hint: 'satoshis > 0 integer' });
+
+    try {
+      upsertPriceRule(db, {
+        version_id: versionId ? String(versionId).toLowerCase() : null,
+        producer_id: producerId || null,
+        tier_from: Number(tierFrom),
+        satoshis: Number(satoshis),
+      });
+      return json(res, 200, { status: 'ok' });
+    } catch (e: any) {
+      return json(res, 500, { error: 'set-rule-failed', message: String(e?.message || e) });
+    }
+  });
+
+  // Admin: DELETE /price/rules?versionId=&producerId=&tierFrom=
+  router.delete('/price/rules', (req: Request, res: Response) => {
+    const versionId = req.query.versionId ? String(req.query.versionId).toLowerCase() : undefined;
+    const producerId = req.query.producerId ? String(req.query.producerId) : undefined;
+    const tierFrom = req.query.tierFrom ? Number(req.query.tierFrom) : undefined;
+    if (!versionId && !producerId) return json(res, 400, { error: 'bad-request', hint: 'versionId or producerId required' });
+    try {
+      deletePriceRule(db, { version_id: versionId, producer_id: producerId, tier_from: tierFrom || null });
+      return json(res, 200, { status: 'ok' });
+    } catch (e: any) {
+      return json(res, 500, { error: 'delete-rule-failed', message: String(e?.message || e) });
+    }
+  });
+
+  return router;
+}
+```
+
+4) Create file: test/integration/pricebook.spec.ts
+With content:
+```ts
+import assert from 'assert';
+import express from 'express';
+import request from 'supertest';
+import Database from 'better-sqlite3';
+import { initSchema, upsertManifest, upsertProducer } from '../../src/db';
+import { priceRouter } from '../../src/routes/price';
+import { upsertPriceRule, setPrice } from '../../src/db';
+
+(async function run() {
+  process.env.PRICE_DEFAULT_SATS = '5000';
+  process.env.PRICE_QUOTE_TTL_SEC = '60';
+
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  const db = new Database(':memory:');
+  initSchema(db);
+  app.use(priceRouter(db));
+
+  // Prepare producer and manifests mapping
+  const producerId = upsertProducer(db, { identity_key: '02abc'.padEnd(66,'a'), name: 'Acme', website: 'https://acme.example' });
+  const vid = 'a'.repeat(64);
+  const contentHash = 'c'.repeat(64);
+  upsertManifest(db, {
+    version_id: vid, manifest_hash: vid, content_hash: contentHash,
+    title: 'Test', license: 'cc-by-4.0', classification: 'public',
+    created_at: '2024-05-01T00:00:00Z',
+    manifest_json: JSON.stringify({}),
+    dataset_id: 'ds-1', producer_id: producerId
+  });
+
+  // Baseline: default price (5000)
+  let r = await request(app).get(`/price?versionId=${vid}&quantity=1`);
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.unitSatoshis, 5000);
+  assert.strictEqual(r.body.ruleSource, 'default');
+
+  // Producer rule: tier_from=1 => 3000
+  upsertPriceRule(db, { producer_id: producerId, tier_from: 1, satoshis: 3000 });
+  r = await request(app).get(`/price?versionId=${vid}&quantity=1`);
+  assert.strictEqual(r.body.unitSatoshis, 3000);
+  assert.strictEqual(r.body.ruleSource, 'producer-rule');
+
+  // Producer tier: tier_from=10 => 2500; for quantity=12 pick 2500
+  upsertPriceRule(db, { producer_id: producerId, tier_from: 10, satoshis: 2500 });
+  r = await request(app).get(`/price?versionId=${vid}&quantity=12`);
+  assert.strictEqual(r.body.unitSatoshis, 2500);
+  assert.strictEqual(r.body.tierFrom, 10);
+
+  // Version override (prices table): 2800 beats producer rule
+  setPrice(db, vid, 2800);
+  r = await request(app).get(`/price?versionId=${vid}&quantity=5`);
+  assert.strictEqual(r.body.unitSatoshis, 2800);
+  assert.strictEqual(r.body.ruleSource, 'version-override');
+
+  // Version rule: tier_from=1 => 2000 beats version override
+  upsertPriceRule(db, { version_id: vid, tier_from: 1, satoshis: 2000 });
+  r = await request(app).get(`/price?versionId=${vid}&quantity=3`);
+  assert.strictEqual(r.body.unitSatoshis, 2000);
+  assert.strictEqual(r.body.ruleSource, 'version-rule');
+
+  // Version tier: tier_from=20 => 1500 picked for quantity=25
+  upsertPriceRule(db, { version_id: vid, tier_from: 20, satoshis: 1500 });
+  r = await request(app).get(`/price?versionId=${vid}&quantity=25`);
+  assert.strictEqual(r.body.unitSatoshis, 1500);
+  assert.strictEqual(r.body.tierFrom, 20);
+
+  // Admin APIs: POST/DELETE rules
+  let a = await request(app).post('/price/rules').send({ producerId, tierFrom: 50, satoshis: 2200 }).set('content-type','application/json');
+  assert.strictEqual(a.status, 200);
+  a = await request(app).delete('/price/rules').query({ producerId, tierFrom: 50 });
+  assert.strictEqual(a.status, 200);
+
+  console.log('OK: Pricebook per producer (tiers & cascade) tests passed.');
+})().catch((e) => {
+  console.error('pricebook tests failed:', e);
+  process.exit(1);
+});
+```
+
+5) Update file: package.json (add test script)
+With content patch:
+```json
+{
+  "scripts": {
+    "test:pricebook": "ts-node test/integration/pricebook.spec.ts"
+  }
+}
+```
+
+6) Optional: update server.ts (no route changes needed; /price already mounted)
+
+How to run D09
+- Apply DB schema changes (new price_rules table). For dev, recreate DB:
+  rm -f ./data/overlay.db
+- Run tests:
+  npm run test:pricebook
+
+What you completed (matches D09 DoD)
+- price_rules table supports:
+  - Version-scoped and producer-scoped rules
+  - Tiering via tier_from (quantity thresholds)
+- /price chooses the best unit price using a clear cascade:
+  version rule > version override (D05 prices table) > producer rule > default.
+- Admin APIs to set/delete rules:
+  - POST /price/rules (versionId or producerId scope)
+  - DELETE /price/rules
+- Tests cover:
+  - Cascade precedence
+  - Tier selection for quantity
+  - Admin CRUD for rules
+
+Next steps (optional)
+- Add identity-signed protection (D19) to POST/DELETE /price/rules.
+- Add a UI panel to show effective pricing and tiers per producer/version.

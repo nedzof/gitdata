@@ -8,6 +8,7 @@ import { priceRouter } from './src/routes/price';
 import { listingsRouter } from './src/routes/listings';
 import { submitDlm1Router } from './src/routes/submit-builder';
 import { submitReceiverRouter } from './src/routes/submit-receiver';
+import { payRouter } from './src/routes/pay';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +24,7 @@ initSchema(db);
 app.use(bundleRouter(db));
 app.use(readyRouter(db));
 app.use(priceRouter(db));
+app.use(payRouter(db));
 app.use(listingsRouter(db));
 
 // D01 Builder route

@@ -1,0 +1,509 @@
+
+- A dev-focused README with clear producer/consumer runbooks.
+- A Postman collection + environment for end-to-end validation.
+- Golden vectors (sample manifest, headers, proof).
+- A Newman CI job (GitHub Actions) and npm scripts to run locally.
+
+1) Create file: docs/README-dev.md
+With content:
+```md
+# Gitdata Overlay — Developer Guide (MVP)
+
+Purpose
+- End-to-end producer/consumer flows over an SPV-first, indexer-free BSV overlay.
+
+Key ENV
+- DB_PATH=./data/overlay.db
+- OVERLAY_PORT=8788
+- HEADERS_FILE=./data/headers.json
+- POLICY_MIN_CONFS=1
+- BUNDLE_MAX_DEPTH=8
+- BODY_MAX_SIZE=1048576
+- PRICE_DEFAULT_SATS=5000
+- CACHE_TTLS_JSON={"headers":60000,"bundles":60000}
+- RATE_LIMITS_JSON={"submit":5,"bundle":10,"ready":20,"price":50,"data":10}
+
+Runbooks
+
+Producer (Builder → Wallet → Receiver → Price)
+1) Prepare manifest.json (dlm1-manifest.schema.json)
+2) POST /submit/dlm1 with { manifest } → { versionId, outputs:[{scriptHex,0}] }
+3) Broadcast tx with a wallet embedding scriptHex (dev: synthetic tx via producer-onboard CLI)
+4) POST /submit with { rawTx, manifest } → index versionId ↔ txid
+5) POST /price { versionId, satoshis } → set per-version price
+
+Consumer (Discover → Verify → Pay → Data)
+1) GET /search?datasetId=… or /resolve?datasetId=… → find versionId
+2) GET /bundle?versionId=… → verify SPV offline (SDK verifyBundleLocal)
+3) GET /ready?versionId=… → gate on minConfs/advisories
+4) GET /price?versionId=… → POST /pay → receiptId
+5) GET /v1/data?contentHash&receiptId → stream bytes; sha256(bytes) == manifest.content.contentHash
+
+Security & Identity (opt-in, D19)
+- Protected producer endpoints accept BRC-31 style headers:
+  X-Identity-Key, X-Nonce, X-Signature (sha256(JSON.stringify(body)+nonce))
+- Toggle with IDENTITY_REQUIRED=true
+
+SPV (indexer-free)
+- Headers mirror at HEADERS_FILE; /ready and /bundle recompute confirmations live
+- scripts/headers-mirror.ts can mirror multiple sources atomically
+
+Golden vectors (test/vectors/)
+- manifest.sample.json: DLM1 off-chain manifest
+- headers.sample.json: headers mirror shape
+- proof.sample.json: example envelope for unit tests
+
+Quick commands
+- npm run dev          # start overlay
+- npm run test:bundle  # bundle tests
+- npm run test:ready   # ready tests
+- npm run test:price   # price tests
+- npm run test:pay     # pay/receipt tests
+- npm run test:data    # streaming/quotas tests
+- npm run cli:onboard  # producer-onboard flow (dev)
+- npm run cli:a2a      # A2A demo (evidence pack)
+- npm run postman      # run Postman collection locally (Newman)
+
+Notes
+- Keep /bundle cached but always recompute confirmations on read (D11).
+- /ready must never pin “ready:true” beyond TTL without re-check.
+```
+
+2) Create file: postman/collection.postman_collection.json
+With content:
+```json
+{
+  "info": {
+    "name": "Gitdata Overlay — E2E",
+    "_postman_id": "cfe2f7aa-1111-4d00-aaaa-000000000001",
+    "description": "E2E collection: submit → bundle → ready → price → pay → data",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8788" },
+    { "key": "datasetId", "value": "demo-dataset" },
+    { "key": "versionId", "value": "" },
+    { "key": "contentHash", "value": "" },
+    { "key": "receiptId", "value": "" },
+    { "key": "priceSats", "value": "5000" }
+  ],
+  "item": [
+    {
+      "name": "Submit (Builder) — /submit/dlm1",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "content-type", "value": "application/json" }],
+        "url": "{{baseUrl}}/submit/dlm1",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"manifest\": {{manifest}}\n}"
+        },
+        "description": "Validate manifest and return OP_RETURN scriptHex"
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Build a sample manifest inline if not provided via env",
+              "const manifest = pm.environment.get('manifest') || JSON.stringify({",
+              "  type: 'datasetVersionManifest',",
+              "  datasetId: pm.environment.get('datasetId') || '{{datasetId}}',",
+              "  description: 'Postman demo dataset',",
+              "  content: { contentHash: '{{contentHash}}' },",
+              "  provenance: { createdAt: new Date().toISOString() },",
+              "  policy: { license: 'cc-by-4.0', classification: 'public' }",
+              "});",
+              "pm.variables.set('manifest', manifest);",
+              "pm.request.body.raw = JSON.stringify({ manifest: JSON.parse(manifest) });"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('status 200', () => pm.response.code === 200);",
+              "const js = pm.response.json();",
+              "pm.expect(js.versionId).to.match(/^[0-9a-fA-F]{64}$/);",
+              "pm.environment.set('versionId', js.versionId);",
+              "pm.test('has scriptHex', () => (js.opReturnScriptHex || (js.outputs && js.outputs[0].scriptHex)));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Submit (Receiver) — /submit",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "content-type", "value": "application/json" }],
+        "url": "{{baseUrl}}/submit",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"rawTx\": \"00\", \"manifest\": {{manifest}} }"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('status 200', () => pm.response.code === 200);",
+              "const js = pm.response.json();",
+              "pm.expect(js.versionId).to.eql(pm.environment.get('versionId'));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bundle — /bundle",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/bundle?versionId={{versionId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('status 200 or 409', () => [200,409].includes(pm.response.code));",
+              "if (pm.response.code === 200) {",
+              "  const js = pm.response.json();",
+              "  pm.test('has proofs', () => Array.isArray(js.proofs));",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ready — /ready",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/ready?versionId={{versionId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('status 200', () => pm.response.code === 200);",
+              "const js = pm.response.json();",
+              "pm.test('has ready field', () => js.hasOwnProperty('ready'));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Price (GET) — /price",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/price?versionId={{versionId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('status 200 or 404', () => [200,404].includes(pm.response.code));",
+              "if (pm.response.code === 200) {",
+              "  const js = pm.response.json();",
+              "  pm.environment.set('contentHash', js.contentHash || pm.environment.get('contentHash'));",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Price (POST) — /price",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "content-type", "value": "application/json" }],
+        "url": "{{baseUrl}}/price",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"versionId\": \"{{versionId}}\", \"satoshis\": {{priceSats}} }"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": { "exec": ["pm.test('status 200', () => pm.response.code === 200);"], "type": "text/javascript" }
+        }
+      ]
+    },
+    {
+      "name": "Pay — /pay",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "content-type", "value": "application/json" }],
+        "url": "{{baseUrl}}/pay",
+        "body": { "mode": "raw", "raw": "{ \"versionId\": \"{{versionId}}\", \"quantity\": 1 }" }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('status 200 or 404', () => [200,404].includes(pm.response.code));",
+              "if (pm.response.code === 200) {",
+              "  const js = pm.response.json();",
+              "  pm.environment.set('receiptId', js.receiptId);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Data — /v1/data",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/v1/data?contentHash={{contentHash}}&receiptId={{receiptId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('200/403/409 acceptable in dev', () => [200,403,409,404].includes(pm.response.code));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+3) Create file: postman/env.postman_environment.json
+With content:
+```json
+{
+  "id": "cfe2f7aa-1111-4d00-aaaa-000000000002",
+  "name": "Gitdata Overlay Local",
+  "values": [
+    { "key": "baseUrl", "value": "http://localhost:8788", "enabled": true },
+    { "key": "datasetId", "value": "demo-dataset", "enabled": true },
+    { "key": "versionId", "value": "", "enabled": true },
+    { "key": "contentHash", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "enabled": true },
+    { "key": "receiptId", "value": "", "enabled": true },
+    { "key": "priceSats", "value": "5000", "enabled": true }
+  ],
+  "_postman_variable_scope": "environment",
+  "_postman_exported_at": "2025-01-01T00:00:00.000Z",
+  "_postman_exported_using": "Postman/10.x"
+}
+```
+
+4) Create file: test/vectors/manifest.sample.json
+With content:
+```json
+{
+  "type": "datasetVersionManifest",
+  "datasetId": "demo-dataset",
+  "description": "Sample manifest for Postman/Newman E2E",
+  "content": { "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+  "provenance": { "createdAt": "2025-01-01T00:00:00Z" },
+  "policy": { "license": "cc-by-4.0", "classification": "public" }
+}
+```
+
+5) Create file: test/vectors/headers.sample.json
+With content:
+```json
+{
+  "bestHeight": 800000,
+  "tipHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "byHash": {
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff": {
+      "prevHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "merkleRoot": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "height": 800000
+    }
+  }
+}
+```
+
+6) Create file: test/vectors/proof.sample.json
+With content:
+```json
+{
+  "rawTx": "00",
+  "proof": {
+    "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "merkleRoot": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "path": [{ "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "position": "right" }]
+  },
+  "block": { "blockHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "blockHeight": 800000 }
+}
+```
+
+7) Update file: README.md (append a short section linking dev docs and Postman)
+With content patch:
+```md
+## Docs & Postman
+
+- Developer Guide: docs/README-dev.md
+- Postman Collection: postman/collection.postman_collection.json
+- Environment: postman/env.postman_environment.json
+
+Run locally (Newman):
+```bash
+npm run postman
+```
+```
+
+8) Update file: package.json (add newman and scripts)
+With content patch:
+```json
+{
+  "devDependencies": {
+    "newman": "^6.1.2"
+  },
+  "scripts": {
+    "postman": "newman run postman/collection.postman_collection.json -e postman/env.postman_environment.json --verbose --reporters cli",
+    "postman:ci": "newman run postman/collection.postman_collection.json -e postman/env.postman_environment.json --reporters cli"
+  }
+}
+```
+
+9) Create file: .github/workflows/newman.yml
+With content:
+```yaml
+name: Newman E2E
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "postman/**"
+      - "src/**"
+      - ".github/workflows/newman.yml"
+
+jobs:
+  newman:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Start overlay
+        run: |
+          nohup npx ts-node server.ts > overlay.log 2>&1 &
+          sleep 3
+      - name: Newman run
+        run: npm run postman:ci
+      - name: Upload overlay logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: overlay-logs
+          path: overlay.log
+```
+
+10) Optional: Create file: docs/OPENAPI.yaml (skeleton)
+With content:
+```yaml
+openapi: 3.0.3
+info:
+  title: Gitdata Overlay API (MVP)
+  version: "0.1.0"
+servers:
+  - url: http://localhost:8788
+paths:
+  /submit/dlm1:
+    post:
+      summary: Builder — build OP_RETURN for DLM1 manifest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                manifest:
+                  $ref: "../schemas/dlm1-manifest.schema.json"
+      responses:
+        "200":
+          description: OK
+  /submit:
+    post:
+      summary: Receiver — index broadcast transaction with DLM1/TRN1
+      responses:
+        "200": { description: OK }
+  /bundle:
+    get:
+      summary: Lineage bundle
+      parameters:
+        - name: versionId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+  /ready:
+    get:
+      summary: Ready check
+      parameters:
+        - name: versionId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: OK }
+  /price:
+    get:
+      summary: Price quote
+      parameters:
+        - name: versionId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: OK }
+  /pay:
+    post:
+      summary: Create receipt
+      responses:
+        "200": { description: OK }
+  /v1/data:
+    get:
+      summary: Stream data by contentHash authorized by receiptId
+      responses:
+        "200": { description: OK }
+```
+
+How to use
+- Open Postman, import both JSON files from postman/.
+- Click Submit (Builder) → Submit (Receiver) → Bundle → Ready → Price → Pay → Data.
+- In CI, the newman workflow runs the same sequence and uploads server logs.
+
+Definition of Done (D20)
+- Postman collection covers main paths (submit → bundle → ready → price).
+- Docs show clear steps from Builder → Wallet → Receiver → UI.
+- newman workflow passes green and devs can run npm run postman locally.
+
+Artifacts
+- docs/README-dev.md
+- postman/collection.postman_collection.json
+- postman/env.postman_environment.json
+- test/vectors/* (goldens)
+- .github/workflows/newman.yml
+
+This completes D20 and makes your overlay developer-friendly with reproducible E2E checks.

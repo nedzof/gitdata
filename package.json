@@ -8,6 +8,8 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:spv": "tsx test/spv.spec.ts",
     "test:ready": "tsx test/integration/ready.spec.ts",
+    "test:price": "PRICE_DEFAULT_SATS=1234 PRICE_QUOTE_TTL_SEC=120 tsx test/integration/price.spec.ts",
+    "test:pay": "PRICE_DEFAULT_SATS=1000 RECEIPT_TTL_SEC=120 tsx test/integration/pay.spec.ts",
     "newman": "newman run postman/collection.postman_collection.json -e postman/env.postman_environment.json --reporters cli,junit --reporter-junit-export test-results/newman.xml",
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/mock/overlay-mock-extended.ts",

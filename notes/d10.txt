@@ -1,0 +1,540 @@
+
+1) Create file: schemas/advisory.schema.json
+With content:
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/advisory.schema.json",
+  "title": "Advisory/Recall",
+  "type": "object",
+  "required": ["advisoryId", "type", "reason", "createdAt"],
+  "properties": {
+    "advisoryId": { "type": "string", "minLength": 6 },
+    "type": { "type": "string", "enum": ["BLOCK", "WARN"] },
+    "reason": { "type": "string", "minLength": 3 },
+    "createdAt": { "type": "integer", "minimum": 0 },
+    "expiresAt": { "type": "integer", "minimum": 0 },
+    "payload": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": false
+}
+```
+
+2) Update file: src/db/schema.sql
+Append (keep existing content):
+```sql
+-- Advisories & Targets
+CREATE TABLE IF NOT EXISTS advisories (
+  advisory_id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,                          -- 'BLOCK'|'WARN'
+  reason TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER,                           -- nullable
+  payload_json TEXT                             -- optional, arbitrary JSON
+);
+
+CREATE TABLE IF NOT EXISTS advisory_targets (
+  advisory_id TEXT NOT NULL,
+  version_id TEXT,                              -- scope by version
+  producer_id TEXT,                             -- scope by producer
+  PRIMARY KEY (advisory_id, version_id, producer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_adv_targets_version ON advisory_targets(version_id);
+CREATE INDEX IF NOT EXISTS idx_adv_targets_producer ON advisory_targets(producer_id);
+```
+
+3) Update file: src/db/index.ts
+With content additions (keep existing exports; add these helpers):
+```ts
+import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
+
+export type AdvisoryRow = {
+  advisory_id: string;
+  type: 'BLOCK' | 'WARN';
+  reason: string;
+  created_at: number;
+  expires_at: number | null;
+  payload_json: string | null;
+};
+
+export function insertAdvisory(db: Database.Database, adv: AdvisoryRow) {
+  const stmt = db.prepare(`
+    INSERT INTO advisories(advisory_id, type, reason, created_at, expires_at, payload_json)
+    VALUES (@advisory_id, @type, @reason, @created_at, @expires_at, @payload_json)
+  `);
+  stmt.run(adv as any);
+}
+
+export function insertAdvisoryTargets(
+  db: Database.Database,
+  advisoryId: string,
+  targets: { version_id?: string | null; producer_id?: string | null }[],
+) {
+  const ins = db.prepare(`INSERT OR IGNORE INTO advisory_targets(advisory_id, version_id, producer_id) VALUES (?, ?, ?)`);
+  const tx = db.transaction((list: { version_id?: string | null; producer_id?: string | null }[]) => {
+    for (const t of list) ins.run(advisoryId, t.version_id ?? null, t.producer_id ?? null);
+  });
+  tx(targets);
+}
+
+export function listAdvisoriesForVersionActive(
+  db: Database.Database,
+  versionId: string,
+  nowUnix: number,
+): AdvisoryRow[] {
+  // Active = expires_at IS NULL OR expires_at >= now
+  // Matches if advisory_targets has version_id == versionId
+  const rows = db.prepare(`
+    SELECT a.*
+    FROM advisory_targets t
+    JOIN advisories a ON a.advisory_id = t.advisory_id
+    WHERE t.version_id = ?
+      AND (a.expires_at IS NULL OR a.expires_at >= ?)
+  `).all(versionId.toLowerCase(), nowUnix) as any[];
+  return rows as AdvisoryRow[];
+}
+
+export function listAdvisoriesForProducerActive(
+  db: Database.Database,
+  producerId: string,
+  nowUnix: number,
+): AdvisoryRow[] {
+  const rows = db.prepare(`
+    SELECT a.*
+    FROM advisory_targets t
+    JOIN advisories a ON a.advisory_id = t.advisory_id
+    WHERE t.producer_id = ?
+      AND (a.expires_at IS NULL OR a.expires_at >= ?)
+  `).all(producerId, nowUnix) as any[];
+  return rows as AdvisoryRow[];
+}
+
+export function getProducerIdForVersion(db: Database.Database, versionId: string): string | null {
+  const r = db.prepare('SELECT producer_id FROM manifests WHERE version_id = ?').get(versionId.toLowerCase()) as any;
+  return r?.producer_id || null;
+}
+```
+
+4) Create file: src/validators/advisory.ts
+With content:
+```ts
+import fs from 'fs';
+import path from 'path';
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
+
+let ajv: Ajv | null = null;
+let validateAdvFn: Ajv.ValidateFunction | null = null;
+
+export function initAdvisoryValidator(schemaPath?: string) {
+  if (!ajv) { ajv = new Ajv({ allErrors: true, strict: false }); addFormats(ajv); }
+  if (!validateAdvFn) {
+    const p = schemaPath || path.resolve(process.cwd(), 'schemas/advisory.schema.json');
+    const schema = JSON.parse(fs.readFileSync(p, 'utf8'));
+    validateAdvFn = ajv!.compile(schema);
+  }
+}
+export function validateAdvisory(doc: unknown): { ok: boolean; errors?: any } {
+  if (!ajv || !validateAdvFn) initAdvisoryValidator();
+  const ok = validateAdvFn!(doc);
+  if (!ok) return { ok: false, errors: validateAdvFn!.errors };
+  return { ok: true };
+}
+```
+
+5) Create file: src/routes/advisories.ts
+With content:
+```ts
+import type { Request, Response, Router } from 'express';
+import { Router as makeRouter } from 'express';
+import Database from 'better-sqlite3';
+import {
+  insertAdvisory,
+  insertAdvisoryTargets,
+  listAdvisoriesForVersionActive,
+  listAdvisoriesForProducerActive,
+  getProducerIdForVersion,
+  type AdvisoryRow,
+} from '../db';
+import { initAdvisoryValidator, validateAdvisory } from '../validators/advisory';
+
+function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
+
+export function advisoriesRouter(db: Database.Database): Router {
+  const router = makeRouter();
+  initAdvisoryValidator();
+
+  // POST /advisories
+  // Body: { type:'BLOCK'|'WARN', reason:string, expiresAt?:number, payload?:object, targets:{ versionIds?:string[], producerIds?:string[] } }
+  router.post('/advisories', (req: Request, res: Response) => {
+    try {
+      const { type, reason, expiresAt, payload, targets } = req.body || {};
+      if (type !== 'BLOCK' && type !== 'WARN') return json(res, 400, { error: 'bad-request', hint: 'type must be BLOCK or WARN' });
+      if (typeof reason !== 'string' || reason.length < 3) return json(res, 400, { error: 'bad-request', hint: 'reason required' });
+      const advisoryId = 'adv_' + Math.random().toString(16).slice(2) + Date.now().toString(16);
+      const now = Math.floor(Date.now() / 1000);
+
+      const doc = {
+        advisoryId,
+        type,
+        reason,
+        createdAt: now,
+        ...(typeof expiresAt === 'number' ? { expiresAt } : {}),
+        ...(payload && typeof payload === 'object' ? { payload } : {}),
+      };
+      const v = validateAdvisory(doc);
+      if (!v.ok) return json(res, 422, { error: 'schema-validation-failed', details: v.errors });
+
+      const advRow: AdvisoryRow = {
+        advisory_id: advisoryId,
+        type,
+        reason,
+        created_at: now,
+        expires_at: typeof expiresAt === 'number' ? Number(expiresAt) : null,
+        payload_json: payload ? JSON.stringify(payload) : null,
+      };
+      insertAdvisory(db, advRow);
+
+      const tgtList: { version_id?: string | null; producer_id?: string | null }[] = [];
+      if (targets && typeof targets === 'object') {
+        const vIds: string[] = Array.isArray(targets.versionIds) ? targets.versionIds : [];
+        for (const vId of vIds) {
+          if (/^[0-9a-fA-F]{64}$/.test(String(vId || ''))) tgtList.push({ version_id: String(vId).toLowerCase(), producer_id: null });
+        }
+        const pIds: string[] = Array.isArray(targets.producerIds) ? targets.producerIds : [];
+        for (const pId of pIds) {
+          if (typeof pId === 'string' && pId.length > 2) tgtList.push({ version_id: null, producer_id: pId });
+        }
+      }
+      if (tgtList.length === 0) return json(res, 400, { error: 'bad-request', hint: 'at least one target (versionIds or producerIds) required' });
+
+      insertAdvisoryTargets(db, advisoryId, tgtList);
+      return json(res, 200, { status: 'ok', advisoryId });
+    } catch (e: any) {
+      return json(res, 500, { error: 'advisory-create-failed', message: String(e?.message || e) });
+    }
+  });
+
+  // GET /advisories?versionId=... | /advisories?producerId=...
+  router.get('/advisories', (req: Request, res: Response) => {
+    const versionId = req.query.versionId ? String(req.query.versionId).toLowerCase() : undefined;
+    const producerId = req.query.producerId ? String(req.query.producerId) : undefined;
+    const now = Math.floor(Date.now() / 1000);
+    if (!versionId && !producerId) return json(res, 400, { error: 'bad-request', hint: 'versionId or producerId required' });
+
+    try {
+      let list: AdvisoryRow[] = [];
+      if (versionId) list = listAdvisoriesForVersionActive(db, versionId, now);
+      if (producerId) list = list.concat(listAdvisoriesForProducerActive(db, producerId, now));
+      // De-dupe by advisory_id
+      const map = new Map<string, AdvisoryRow>();
+      for (const a of list) map.set(a.advisory_id, a);
+      const out = Array.from(map.values()).map((a) => ({
+        advisoryId: a.advisory_id,
+        type: a.type,
+        reason: a.reason,
+        createdAt: a.created_at,
+        expiresAt: a.expires_at ?? undefined,
+        payload: a.payload_json ? JSON.parse(a.payload_json) : undefined,
+      }));
+      return json(res, 200, { items: out });
+    } catch (e: any) {
+      return json(res, 500, { error: 'advisories-fetch-failed', message: String(e?.message || e) });
+    }
+  });
+
+  return router;
+}
+```
+
+6) Update file: src/routes/ready.ts
+With content (advisory check added; keep SPV logic as-is):
+```ts
+import type { Request, Response, Router } from 'express';
+import { Router as makeRouter } from 'express';
+import Database from 'better-sqlite3';
+import { getDeclarationByVersion, getParents } from '../db';
+import { loadHeaders, verifyEnvelopeAgainstHeaders, type HeadersIndex } from '../spv/verify-envelope';
+import { listAdvisoriesForVersionActive, listAdvisoriesForProducerActive, getProducerIdForVersion } from '../db';
+
+const POLICY_MIN_CONFS = Number(process.env.POLICY_MIN_CONFS || 1);
+const BUNDLE_MAX_DEPTH = Number(process.env.BUNDLE_MAX_DEPTH || 8);
+const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
+
+let headersIdx: HeadersIndex | null = null;
+function ensureHeaders(): HeadersIndex {
+  if (!headersIdx) headersIdx = loadHeaders(HEADERS_FILE);
+  return headersIdx!;
+}
+
+export function readyRouter(db: Database.Database): Router {
+  const router = makeRouter();
+
+  router.get('/ready', async (req: Request, res: Response) => {
+    try {
+      const versionId = String(req.query.versionId || '').toLowerCase();
+      if (!/^[0-9a-fA-F]{64}$/.test(versionId)) {
+        return res.status(400).json({ ready: false, reason: 'bad-request' });
+      }
+
+      // Headers snapshot
+      let idx: HeadersIndex;
+      try {
+        idx = ensureHeaders();
+      } catch {
+        return res.status(200).json({ ready: false, reason: 'headers-unavailable' });
+      }
+
+      const stack: Array<{ v: string; d: number }> = [{ v: versionId, d: 0 }];
+      const seen = new Set<string>();
+      let minConfsAcross = Number.POSITIVE_INFINITY;
+
+      while (stack.length) {
+        const { v, d } = stack.pop()!;
+        if (seen.has(v)) continue;
+        seen.add(v);
+
+        // Advisory check (active)
+        const now = Math.floor(Date.now() / 1000);
+        const pid = getProducerIdForVersion(db, v);
+        const advV = listAdvisoriesForVersionActive(db, v, now);
+        const advP = pid ? listAdvisoriesForProducerActive(db, pid, now) : [];
+        const hasBlock = [...advV, ...advP].some((a) => a.type === 'BLOCK');
+        if (hasBlock) {
+          return res.status(200).json({ ready: false, reason: 'advisory-blocked' });
+        }
+
+        const decl = getDeclarationByVersion(db, v);
+        if (!decl?.proof_json) {
+          return res.status(200).json({ ready: false, reason: `missing-envelope:${v}` });
+        }
+
+        const env = JSON.parse(decl.proof_json);
+        const vr = await verifyEnvelopeAgainstHeaders(env, idx, POLICY_MIN_CONFS);
+        if (!vr.ok) {
+          return res.status(200).json({ ready: false, reason: vr.reason, confirmations: vr.confirmations ?? 0 });
+        }
+        if (typeof vr.confirmations === 'number') {
+          minConfsAcross = Math.min(minConfsAcross, vr.confirmations);
+        }
+
+        if (d < BUNDLE_MAX_DEPTH) {
+          const parents = getParents(db, v);
+          for (const p of parents) stack.push({ v: p, d: d + 1 });
+        }
+      }
+
+      if (!seen.size) return res.status(200).json({ ready: false, reason: 'not-found' });
+
+      const confsOut = Number.isFinite(minConfsAcross) ? minConfsAcross : undefined;
+      return res.status(200).json({ ready: true, reason: null, confirmations: confsOut });
+    } catch (e: any) {
+      return res.status(500).json({ ready: false, reason: String(e?.message || e) });
+    }
+  });
+
+  return router;
+}
+```
+
+7) Update file: server.ts (mount advisories)
+With content patch:
+```ts
+import express from 'express';
+import { openDb, initSchema } from './src/db';
+import { submitDlm1Router } from './src/routes/submit-builder';
+import { submitReceiverRouter } from './src/routes/submit-receiver';
+import { bundleRouter } from './src/routes/bundle';
+import { readyRouter } from './src/routes/ready';
+import { priceRouter } from './src/routes/price';
+import { listingsRouter } from './src/routes/listings';
+import { payRouter } from './src/routes/pay';
+import { dataRouter } from './src/routes/data';
+import { producersRouter } from './src/routes/producers';
+import { advisoriesRouter } from './src/routes/advisories';
+
+const PORT = Number(process.env.OVERLAY_PORT || 8788);
+const BODY_MAX_SIZE = Number(process.env.BODY_MAX_SIZE || 1048576);
+
+async function main() {
+  const app = express();
+  app.use(express.json({ limit: '2mb' }));
+
+  const db = openDb();
+  initSchema(db);
+
+  app.use(submitDlm1Router());
+  app.use(submitReceiverRouter(db, { bodyMaxSize: BODY_MAX_SIZE }));
+  app.use(bundleRouter(db));
+  app.use(readyRouter(db));
+  app.use(priceRouter(db));
+  app.use(payRouter(db));
+  app.use(dataRouter(db));
+  app.use(listingsRouter(db));
+  app.use(producersRouter(db));
+  app.use(advisoriesRouter(db)); // NEW
+
+  app.get('/health', (_req, res) => res.json({ ok: true }));
+
+  app.listen(PORT, () => console.log(`Overlay listening on :${PORT}`));
+}
+main().catch((e) => { console.error(e); process.exit(1); });
+```
+
+8) Create file: test/integration/advisories.spec.ts
+With content:
+```ts
+import assert from 'assert';
+import express from 'express';
+import request from 'supertest';
+import Database from 'better-sqlite3';
+import { initSchema, upsertManifest, upsertProducer, insertAdvisory, insertAdvisoryTargets } from '../../src/db';
+import { advisoriesRouter } from '../../src/routes/advisories';
+import { readyRouter } from '../../src/routes/ready';
+import { txidFromRawTx } from '../../src/spv/verify-envelope';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { getDeclarationByVersion, upsertDeclaration, replaceEdges } from '../../src/db';
+
+(async function run() {
+  // headers for /ready
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adv-'));
+  const headersPath = path.join(tmpDir, 'headers.json');
+  process.env.HEADERS_FILE = headersPath;
+
+  // Build minimal header set for SPV (one block with arbitrary root)
+  const bestHeight = 100;
+  const blockHash = 'f'.repeat(64);
+  const root = 'a'.repeat(64);
+  const byHash = { [blockHash]: { prevHash: '0'.repeat(64), merkleRoot: root, height: bestHeight } };
+  fs.writeFileSync(headersPath, JSON.stringify({ bestHeight, tipHash: blockHash, byHash }, null, 2));
+
+  // App + DB
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  const db = new Database(':memory:');
+  initSchema(db);
+  app.use(advisoriesRouter(db));
+  app.use(readyRouter(db));
+
+  // Insert producer + manifest + declaration with a valid SPV envelope
+  const producerId = upsertProducer(db, { identity_key: '02abc'.padEnd(66, 'a'), name: 'Acme', website: 'https://acme.example' });
+  const vid = 'a'.repeat(64);
+  const m = {
+    type: 'datasetVersionManifest',
+    datasetId: 'ds-1',
+    content: { contentHash: 'c'.repeat(64) },
+    provenance: { createdAt: '2024-05-01T00:00:00Z', producer: { identityKey: '02abc'.padEnd(66,'a') } },
+    policy: { license: 'cc-by-4.0', classification: 'public' }
+  };
+  upsertManifest(db, {
+    version_id: vid,
+    manifest_hash: vid,
+    content_hash: m.content.contentHash,
+    title: null, license: 'cc-by-4.0', classification: 'public',
+    created_at: m.provenance.createdAt,
+    manifest_json: JSON.stringify(m),
+    dataset_id: m.datasetId,
+    producer_id: producerId
+  });
+
+  // Minimal SPV envelope consistent with headers snapshot
+  const rawTx = '00';
+  const txid = txidFromRawTx(rawTx);
+  const env = {
+    rawTx,
+    proof: { txid, merkleRoot: root, path: [{ hash: '1'.repeat(64), position: 'right' }] },
+    block: { blockHash, blockHeight: bestHeight }
+  };
+  upsertDeclaration(db, {
+    version_id: vid, txid: 'd'.repeat(64), type: 'DLM1', status: 'pending',
+    created_at: Math.floor(Date.now()/1000), opret_vout: 0, raw_tx: rawTx, proof_json: JSON.stringify(env)
+  } as any);
+
+  // 1) Create a BLOCK advisory scoped to this version via POST
+  const post = await request(app)
+    .post('/advisories')
+    .set('content-type', 'application/json')
+    .send({
+      type: 'BLOCK',
+      reason: 'security issue',
+      targets: { versionIds: [vid] }
+    });
+  assert.strictEqual(post.status, 200);
+  const advisoryId = post.body.advisoryId;
+  assert.ok(advisoryId);
+
+  // 2) GET /advisories?versionId=... returns the advisory
+  const getAdv = await request(app).get(`/advisories?versionId=${vid}`);
+  assert.strictEqual(getAdv.status, 200);
+  assert.strictEqual(getAdv.body.items.length, 1);
+
+  // 3) /ready returns ready:false due to advisory-blocked
+  const rdy = await request(app).get(`/ready?versionId=${vid}`);
+  assert.strictEqual(rdy.status, 200);
+  assert.strictEqual(rdy.body.ready, false);
+  assert.strictEqual(rdy.body.reason, 'advisory-blocked');
+
+  // 4) Expire the advisory; /ready should become ready:true
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare('UPDATE advisories SET expires_at = ? WHERE advisory_id = ?').run(now - 10, advisoryId);
+  const rdy2 = await request(app).get(`/ready?versionId=${vid}`);
+  assert.strictEqual(rdy2.status, 200);
+  assert.strictEqual(rdy2.body.ready, true);
+
+  // 5) Create a WARN advisory on producer scope; /advisories returns it, /ready still true
+  const post2 = await request(app)
+    .post('/advisories')
+    .set('content-type', 'application/json')
+    .send({
+      type: 'WARN',
+      reason: 'informational notice',
+      targets: { producerIds: [producerId] }
+    });
+  assert.strictEqual(post2.status, 200);
+  const list2 = await request(app).get(`/advisories?versionId=${vid}`);
+  assert.strictEqual(list2.status, 200);
+  assert.strictEqual(list2.body.items.length >= 1, true);
+
+  const rdy3 = await request(app).get(`/ready?versionId=${vid}`);
+  assert.strictEqual(rdy3.status, 200);
+  assert.strictEqual(rdy3.body.ready, true);
+
+  console.log('OK: Advisories & Recalls tests passed.');
+})().catch((e) => {
+  console.error('advisories tests failed:', e);
+  process.exit(1);
+});
+```
+
+9) Update file: package.json
+With content patch (add test script):
+```json
+{
+  "scripts": {
+    "test:advisories": "ts-node test/integration/advisories.spec.ts"
+  }
+}
+```
+
+How to run D10
+- Apply schema changes (new advisories tables). In dev, recreate DB:
+  rm -f ./data/overlay.db
+- Run tests:
+  npm run test:advisories
+
+What you completed (matches D10 DoD)
+- Persist advisories and associate targets by versionId or producerId.
+- Admin endpoints:
+  - POST /advisories to create advisories with targets.
+  - GET /advisories?versionId=… (or producerId=…) to fetch active advisories.
+- /ready enforces advisories: any active BLOCK advisory on the version or its producer returns ready:false (reason: advisory-blocked). WARN advisories do not block readiness.
+- Expiry is honored; expired advisories no longer block or appear in active results.
+
+Next steps
+- Add identity-signed protection (D19) on POST /advisories.
+- UI: show advisory badges on listing and dataset detail, and display reasons for WARN items.
