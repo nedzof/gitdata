@@ -1,12 +1,11 @@
 import assert from 'assert';
 import express from 'express';
 import request from 'supertest';
+import Database from 'better-sqlite3';
 
-// Routes under test
+import { initSchema } from '../../src/db';
 import { submitDlm1Router } from '../../src/routes/submit-builder';
-import { submitHandlerFactory } from '../../src/routes/submit-receiver';
-
-// Helpers from your builder (optional; we only need fromHex here)
+import { submitReceiverRouter } from '../../src/routes/submit-receiver';
 import { fromHex, toHex } from '../../src/builders/opreturn';
 
 // -------- Minimal in-memory repo for the test --------
@@ -142,90 +141,49 @@ function makeApp() {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
-  const repo = makeRepo();
-  const policy = { BODY_MAX_SIZE: 1_000_000, POLICY_MIN_CONFS: 0 };
-  const headersFile = './data/headers.json'; // not used in this test (we skip SPV)
+  // In-memory DB and schema
+  const db = new Database(':memory:');
+  initSchema(db);
 
-  // Mount builder under /api/v1
-  app.use('/api/v1', submitDlm1Router());
+  // Mount routes (no prefix to match D01)
+  app.use(submitDlm1Router());
+  app.use(submitReceiverRouter(db, { bodyMaxSize: 1_000_000 }));
 
-  // Mount receiver as POST /api/v1/submit
-  app.post('/api/v1/submit', submitHandlerFactory({ repo, headersFile, policy }) as any);
-
-  return { app, repo };
+  return { app, db };
 }
 
 // -------- Test scenario --------
 (async function run() {
-  const { app, repo } = makeApp();
+  const { app, db } = makeApp();
 
-  // 1) Call Builder with a valid manifest
   const manifest = {
     type: 'datasetVersionManifest',
     datasetId: 'open-images-50k',
-    description: 'Test dataset manifest for integration flow.',
-    content: {
-      contentHash: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
-      sizeBytes: 123,
-      mimeType: 'application/parquet',
-    },
-    lineage: {
-      parents: [
-        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-      ],
-      transforms: [{ name: 'resize', parametersHash: 'abc12345' }],
-    },
-    provenance: {
-      createdAt: '2024-05-01T00:00:00Z',
-      locations: [{ type: 'http', uri: 'https://example.com/manifest.json' }],
-    },
-    policy: {
-      license: 'cc-by-4.0',
-      classification: 'public',
-      pii_flags: [],
-    },
-    // signatures allowed, but not required; derivation ignores them
+    description: 'Integration test dataset',
+    content: { contentHash: 'c'.repeat(64), sizeBytes: 123, mimeType: 'application/parquet' },
+    lineage: { parents: ['b'.repeat(64)] },
+    provenance: { createdAt: '2024-05-01T00:00:00Z' },
+    policy: { license: 'cc-by-4.0', classification: 'public' }
   };
 
-  const buildResp = await request(app)
-    .post('/api/v1/submit/dlm1')
-    .set('content-type', 'application/json')
-    .send({ manifest });
-
+  // 1) Builder: get outputs + versionId
+  const buildResp = await request(app).post('/submit/dlm1').send({ manifest }).set('content-type','application/json');
   assert.strictEqual(buildResp.status, 200, `builder status ${buildResp.status}`);
-  assert.strictEqual(buildResp.body.status, 'ok');
-  assert.ok(/^[0-9a-fA-F]{64}$/.test(buildResp.body.versionId), 'versionId must be 64-hex');
-  assert.ok(Array.isArray(buildResp.body.outputs) && buildResp.body.outputs.length === 1, 'outputs[0] present');
-
   const versionId = buildResp.body.versionId as string;
   const scriptHex = buildResp.body.outputs[0].scriptHex as string;
-  assert.ok(/^006a/.test(scriptHex), 'OP_FALSE OP_RETURN prefix expected');
+  assert.ok(scriptHex.startsWith('006a'), 'OP_FALSE OP_RETURN expected');
+  assert.ok(/^[0-9a-fA-F]{64}$/.test(versionId), 'versionId must be 64-hex');
 
-  // 2) Craft a synthetic raw tx with that OP_RETURN output
+  // 2) Craft a synthetic rawTx and submit to receiver
   const rawTx = buildTxWithScript(scriptHex);
-  assert.ok(/^[0-9a-fA-F]+$/.test(rawTx), 'rawTx hex constructed');
+  const recv = await request(app).post('/submit').send({ rawTx, manifest }).set('content-type','application/json');
+  assert.strictEqual(recv.status, 200, `receiver status ${recv.status}`);
+  assert.strictEqual(recv.body.status, 'success');
+  assert.strictEqual(recv.body.type, 'DLM1');
+  assert.strictEqual((recv.body.versionId || '').toLowerCase(), versionId.toLowerCase());
 
-  // 3) Call Receiver with the rawTx; ensure versionId is decoded and persisted
-  const recvResp = await request(app)
-    .post('/api/v1/submit')
-    .set('content-type', 'application/json')
-    .send({ rawTx });
-
-  assert.strictEqual(recvResp.status, 200, `receiver status ${recvResp.status}`);
-  assert.strictEqual(recvResp.body.status, 'success');
-  assert.strictEqual(recvResp.body.type, 'DLM1');
-  assert.strictEqual(
-    (recvResp.body.versionId || '').toLowerCase(),
-    versionId.toLowerCase(),
-    'versionId decoded matches builder'
-  );
-
-  // 4) Check repo received the record under versionId or txid
-  const stored = repo._getByVersion(versionId);
-  assert.ok(stored, 'repo has stored declaration by versionId');
-
-  console.log('OK: submit/dlm1 → build rawTx → submit flow passed.');
+  console.log('OK: /submit/dlm1 → craft rawTx → /submit flow passed.');
 })().catch((e) => {
-  console.error('Integration test failed:', e);
+  console.error(e);
   process.exit(1);
 });

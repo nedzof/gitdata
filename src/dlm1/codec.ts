@@ -62,32 +62,6 @@ function sha256HexUtf8(s: string): string {
   return createHash('sha256').update(Buffer.from(s, 'utf8')).digest('hex');
 }
 
-/**
- * Canonicalize manifest to JSON string:
- * - Remove any property named "signatures" at any depth
- * - Sort object keys lexicographically
- * - Preserve array order
- * - Drop undefined values
- */
-export function canonicalizeManifest(manifest: unknown): string {
-  function sanitize(v: any): any {
-    if (v === undefined) return undefined;
-    if (v === null) return null;
-    if (Array.isArray(v)) return v.map(sanitize);
-    if (typeof v === 'object') {
-      const out: Record<string, any> = {};
-      for (const k of Object.keys(v).sort()) {
-        if (k === 'signatures') continue;
-        const sv = sanitize(v[k]);
-        if (sv !== undefined) out[k] = sv;
-      }
-      return out;
-    }
-    return v;
-  }
-  const s = sanitize(manifest);
-  return JSON.stringify(s);
-}
 
 /**
  * Derive versionId:
@@ -105,7 +79,7 @@ export function deriveVersionId(manifest: DLM1Manifest): Hex {
 /**
  * Extract parents from manifest.lineage.parents (64-hex), unique + lowercase.
  */
-export function extractParents(manifest: DLM1Manifest): Hex[] {
+export function extractParentsLegacy(manifest: any): Hex[] {
   const arr = manifest.lineage?.parents || [];
   const out = new Set<string>();
   for (const p of arr) {
@@ -238,8 +212,57 @@ export function decodeDLM1(buf: Uint8Array): Dlm1Anchor {
 /**
  * Convenience: build DLM1 anchor fields from a manifest per your schema.
  */
-export function anchorFromManifest(manifest: DLM1Manifest): Dlm1Anchor {
+export function anchorFromManifest(manifest: any): Dlm1Anchor {
   const mh = deriveVersionId(manifest);
   const p = extractParents(manifest);
   return { mh, p: p.length ? p : undefined };
+}
+
+// D01 specification functions
+const EXCLUDE_KEYS = new Set(['signatures', 'versionId']);
+
+export function canonicalizeManifest(manifest: any): string {
+  function sanitize(v: any): any {
+    if (Array.isArray(v)) return v.map(sanitize);
+    if (v && typeof v === 'object') {
+      const out: Record<string, any> = {};
+      for (const k of Object.keys(v).sort()) {
+        if (EXCLUDE_KEYS.has(k)) continue;
+        out[k] = sanitize(v[k]);
+      }
+      return out;
+    }
+    return v;
+  }
+  return JSON.stringify(sanitize(manifest));
+}
+
+export function sha256Hex(s: string): string {
+  return createHash('sha256').update(Buffer.from(s, 'utf8')).digest('hex');
+}
+
+/** Derive versionId from canonical manifest; if explicit versionId is provided it must match or throw */
+export function deriveManifestIds(manifest: any): { versionId: string; manifestHash: string } {
+  const manifestHash = sha256Hex(canonicalizeManifest(manifest)).toLowerCase();
+  const explicit = manifest?.versionId;
+  if (typeof explicit === 'string' && /^[0-9a-fA-F]{64}$/.test(explicit)) {
+    if (explicit.toLowerCase() !== manifestHash) throw new Error('versionId-mismatch: provided versionId does not match canonical manifest hash');
+    return { versionId: explicit.toLowerCase(), manifestHash };
+  }
+  return { versionId: manifestHash, manifestHash };
+}
+
+export function extractParents(manifest: any): string[] {
+  const parents = manifest?.lineage?.parents;
+  if (!Array.isArray(parents)) return [];
+  return parents
+    .filter((x: any) => typeof x === 'string' && /^[0-9a-fA-F]{64}$/.test(x))
+    .map((x: string) => x.toLowerCase());
+}
+
+export function buildDlm1AnchorFromManifest(manifest: any): { cbor: Uint8Array; versionId: string; parents: string[] } {
+  const { versionId } = deriveManifestIds(manifest);
+  const parents = extractParents(manifest);
+  const cbor = encodeDLM1({ mh: versionId, p: parents });
+  return { cbor, versionId, parents };
 }

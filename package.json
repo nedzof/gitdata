@@ -11,7 +11,20 @@
     "dev": "tsx src/mock/overlay-mock-extended.ts",
     "wallet": "tsx src/mock/wallet-stub.ts"
   },
+  "dependencies": {
+    "express": "^4.18.0",
+    "better-sqlite3": "^8.7.0",
+    "ajv": "^8.12.0",
+    "ajv-formats": "^3.0.1",
+    "@noble/curves": "^1.4.0",
+    "cbor": "^9.0.2"
+  },
   "devDependencies": {
+    "@types/express": "^4.17.0",
+    "@types/node": "^20.0.0",
+    "@types/better-sqlite3": "^7.6.0",
+    "supertest": "^6.3.0",
+    "@types/supertest": "^2.0.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "eslint": "^9.0.0",
@@ -22,15 +35,7 @@
     "tsx": "^4.7.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0",
-    "newman": "^6.1.0"
-    "@noble/curves": "^1.4.0",
-    "ajv": "^8.12.0",
-    "ajv-formats": "^3.0.1",
-    "typescript": "^5.5.0",
-    "tsx": "^4.7.0",
-    "vitest": "^2.0.0",
-    "newman": "^6.1.0"
-    "cbor": "^9.0.2"
-
+    "newman": "^6.1.0",
+    "ts-node": "^10.9.0"
   }
 }

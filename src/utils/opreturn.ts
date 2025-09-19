@@ -172,7 +172,14 @@ export function findOpReturnOutputs(rawTxHex: Hex): OpReturnOutput[] {
 
     const pushesHex = parsed.pushes.map(toHex);
     const pushesAscii = parsed.pushes.map(asciiOrNull);
-    const tagAscii = pushesAscii[0] || undefined;
+
+    // Detect DLM1/TRN1 by prefix on first push
+    let tagAscii: string | undefined;
+    const TAGS = ['DLM1', 'TRN1'] as const;
+    if (parsed.pushes.length > 0 && parsed.pushes[0].length >= 4) {
+      const first4 = parsed.pushes[0].subarray(0, 4).toString('ascii');
+      if (TAGS.includes(first4 as any)) tagAscii = first4;
+    }
 
     results.push({
       vout: n,

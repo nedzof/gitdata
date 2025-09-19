@@ -1,7 +1,7 @@
 import assert from 'assert';
-import { anchorFromManifest, encodeDLM1, decodeDLM1, deriveVersionId, canonicalizeManifest, type DLM1Manifest } from '../src/dlm1/codec';
-import { ascii, toHex, fromHex, pushData, buildOpReturnScript, buildOpReturnScriptMulti, composeTag } from '../src/builders/opreturn';
-import { findOpReturnOutputs, findFirstOpReturn } from '../src/utils/opreturn';
+import { encodeDLM1, decodeDLM1, buildDlm1AnchorFromManifest, deriveManifestIds } from '../src/dlm1/codec';
+import { composeTag, buildOpReturnScript, buildOpReturnScriptMulti, pushData, pushdataHeaderLen, opReturnScriptLen, opReturnOutputSize, ascii, toHex, fromHex } from '../src/builders/opreturn';
+import { findFirstOpReturn } from '../src/utils/opreturn';
 
 // Helpers to assemble a minimal raw tx (legacy)
 function varInt(n: number): Uint8Array {
@@ -39,80 +39,63 @@ function buildTxWithScript(scriptHex: string): string {
 }
 
 (function run() {
-  // Sample manifest per your schema (no explicit versionId; includes signatures to test canonicalize)
-  const manifest: DLM1Manifest = {
+  // Manifest for tests
+  const manifest = {
     type: 'datasetVersionManifest',
     datasetId: 'open-images-50k',
-    content: {
-      contentHash: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
-      sizeBytes: 123456,
-      mimeType: 'application/parquet',
-      schema: { uri: 'https://schema.example/parquet', schemaHash: 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' }
-    },
-    lineage: {
-      parents: [
-        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-      ],
-      transforms: [{ name: 'filter', parametersHash: 'a1b2c3d4' }]
-    },
-    provenance: {
-      createdAt: '2024-07-01T12:00:00Z',
-      producer: { identityKey: '02'.padEnd(66, 'f') },
-      locations: [{ type: 'http', uri: 'https://example.com/manifest.json' }]
-    },
-    policy: {
-      license: 'cc-by-4.0',
-      classification: 'public',
-      pii_flags: []
-    },
-    signatures: {
-      producer: { publicKey: '02'.padEnd(66, 'f'), signature: 'deadbeefcafebabe' },
-      endorsements: [{ publicKey: '03'.padEnd(66, 'e'), signature: 'beadfeedfa11', role: 'auditor' }]
-    }
+    description: 'Test dataset',
+    content: { contentHash: 'c'.repeat(64), sizeBytes: 123, mimeType: 'application/parquet' },
+    lineage: { parents: ['b'.repeat(64)] },
+    provenance: { createdAt: '2024-05-01T00:00:00Z' },
+    policy: { license: 'cc-by-4.0', classification: 'public' },
+    signatures: { producer: { publicKey: '02'.padEnd(66,'a'), signature: 'dead' } }
   };
 
-  // Derive versionId canonically (signatures must be ignored)
-  const vId = deriveVersionId(manifest);
-  assert.ok(/^[0-9a-fA-F]{64}$/.test(vId), 'derived versionId is 64-hex');
+  const ids = deriveManifestIds(manifest);
+  assert.ok(/^[0-9a-fA-F]{64}$/.test(ids.versionId), 'derived versionId must be 64-hex');
 
-  // Build DLM1 anchor and CBOR
-  const anchor = anchorFromManifest(manifest);
-  assert.strictEqual(anchor.mh, vId.toLowerCase());
-  assert.deepStrictEqual(anchor.p, ['bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb']);
+  const built = buildDlm1AnchorFromManifest(manifest);
+  assert.strictEqual(built.versionId, ids.versionId);
 
-  const cbor = encodeDLM1(anchor);
-  const decoded = decodeDLM1(cbor);
-  assert.strictEqual(decoded.mh, anchor.mh);
-  assert.deepStrictEqual(decoded.p, anchor.p);
+  const cbor = encodeDLM1({ mh: built.versionId, p: built.parents });
+  const dec = decodeDLM1(cbor);
+  assert.strictEqual(dec.mh, built.versionId);
+  assert.deepStrictEqual(dec.p, built.parents);
 
-  // Build OP_RETURN script with [ "DLM1" || cbor ]
-  const scriptHex = buildOpReturnScript(composeTag('DLM1', cbor));
-  assert.ok(scriptHex.startsWith('006a'), 'OP_FALSE OP_RETURN prefix');
+  // Single-push [ "DLM1" || cbor ]
+  const blob = composeTag('DLM1', cbor);
+  const scriptHex = buildOpReturnScript(blob);
+  assert.ok(scriptHex.startsWith('006a'), 'OP_FALSE OP_RETURN expected');
 
-  // Embed into a raw tx and parse back
-  const raw = buildTxWithScript(scriptHex);
-  const out = findFirstOpReturn(raw);
-  assert.ok(out, 'OP_RETURN present');
+  const rawTx = buildTxWithScript(scriptHex);
+  const out = findFirstOpReturn(rawTx);
+  assert.ok(out, 'OP_RETURN must be present');
   assert.strictEqual(out!.tagAscii, 'DLM1');
 
-  // Extract CBOR from first push and decode again
+  // Extract CBOR and decode
   const pushedHex = out!.pushesHex[0]!;
   const cborHex = pushedHex.slice('DLM1'.length * 2);
-  const decoded2 = decodeDLM1(fromHex(cborHex));
-  assert.strictEqual(decoded2.mh, anchor.mh);
-  assert.deepStrictEqual(decoded2.p, anchor.p);
+  const dec2 = decodeDLM1(fromHex(cborHex));
+  assert.strictEqual(dec2.mh, built.versionId);
 
-  // Multi-push script also parses (["DLM1", cbor])
+  // Multi-push [ "DLM1", cbor ]
   const scriptHexMulti = buildOpReturnScriptMulti([ascii('DLM1'), cbor]);
-  const raw2 = buildTxWithScript(scriptHexMulti);
-  const out2 = findFirstOpReturn(raw2);
+  const rawTx2 = buildTxWithScript(scriptHexMulti);
+  const out2 = findFirstOpReturn(rawTx2);
   assert.ok(out2);
   assert.strictEqual(out2!.tagAscii, 'DLM1');
 
-  // If versionId provided explicitly, it must be respected
-  const explicit = { ...manifest, versionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' };
-  const vId2 = deriveVersionId(explicit as DLM1Manifest);
-  assert.strictEqual(vId2, explicit.versionId.toLowerCase());
+  // PUSHDATA thresholds
+  const pd1 = pushData(new Uint8Array(0x4c));
+  assert.strictEqual(pd1[0], 0x4c);
+  const pd2 = pushData(new Uint8Array(0x100));
+  assert.strictEqual(pd2[0], 0x4d);
+  const pd4 = pushData(new Uint8Array(0x10000));
+  assert.strictEqual(pd4[0], 0x4e);
 
-  console.log('OK: DLM1 OP_RETURN build/parse/round-trip with manifest schema');
+  // Size helpers
+  const sLen = opReturnScriptLen(blob.length);
+  assert.strictEqual(opReturnOutputSize(blob.length), 8 + (sLen < 0xfd ? 1 : sLen <= 0xffff ? 3 : 5) + sLen);
+
+  console.log('OK: DLM1 encode/decode and OP_RETURN builder/parser tests passed.');
 })();

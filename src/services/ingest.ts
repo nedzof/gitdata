@@ -67,7 +67,11 @@ export async function ingestSubmission(opts: {
     type: tag,
     status: 'pending',
     created_at: Math.floor(Date.now() / 1000),
+    block_hash: null,
+    height: null,
+    opret_vout: null,
     raw_tx: rawTx,
+    proof_json: null,
   } as any);
 
   if (opretVout !== null) {
