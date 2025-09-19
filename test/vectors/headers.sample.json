@@ -1,0 +1,11 @@
+{
+  "bestHeight": 800000,
+  "tipHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "byHash": {
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff": {
+      "prevHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "merkleRoot": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "height": 800000
+    }
+  }
+}

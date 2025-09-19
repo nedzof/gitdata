@@ -6,6 +6,7 @@
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:spv": "tsx test/spv.spec.ts",
     "newman": "newman run postman/collection.postman_collection.json -e postman/env.postman_environment.json --reporters cli,junit --reporter-junit-export test-results/newman.xml",
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/mock/overlay-mock-extended.ts",

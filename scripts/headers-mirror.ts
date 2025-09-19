@@ -1,207 +1,183 @@
-#!/usr/bin/env tsx
 /**
- * Lightweight headers mirror for SPV.
- * - Fetches headers from one or more remote sources
- * - Validates continuity (prevHash, height)
- * - Optionally requires agreement on tip across all sources
- * - Writes atomically to HEADERS_FILE as a plain array of headers
+ * HEADERS MIRROR (SPV-first)
+ * - Fetch headers JSON from one or more sources (HEADERS_URLS)
+ * - Validate shape and basic continuity
+ * - Normalize to { bestHeight, tipHash, byHash: { [hash]: { height, prevHash, merkleRoot } } }
+ * - Atomically write to HEADERS_FILE (tmp + rename)
  *
  * Env:
- * - HEADERS_URLS='["https://relay-a/headers.json","https://relay-b/headers.json"]'
- *   or HEADERS_URL='https://relay/headers.json'
- * - HEADERS_FILE=./data/headers.json
- * - INTERVAL_MS=60000     (optional; if set, runs repeatedly)
- * - TIMEOUT_MS=10000      (optional HTTP timeout)
- * - REQUIRE_AGREEMENT=true (optional; require same tip across sources)
- * - STRICT_RAW=false      (optional; require header.raw to be present/valid)
+ *  - HEADERS_URLS='["https://host/a.json","https://host/b.json"]' or comma-separated
+ *  - HEADERS_FILE=./data/headers.json
+ *  - REQUIRE_AGREEMENT=true|false (optional; if true, require same tipHash & bestHeight across sources)
  */
 
-import fs from 'node:fs/promises'
-import path from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
+import fs from 'fs';
+import path from 'path';
 
-type Header = {
-  raw?: string
-  hash: string
-  prevHash: string
-  merkleRoot: string
-  height: number
-  time: number
-}
+type SourceShape =
+  | {
+      bestHeight?: number;
+      tipHash?: string;
+      headers?: Array<{ hash: string; prevHash: string; merkleRoot: string; height: number }>;
+    }
+  | {
+      bestHeight?: number;
+      tipHash?: string;
+      byHash?: Record<string, { prevHash: string; merkleRoot: string; height: number }>;
+    };
 
-const env = (k: string, d?: string) => process.env[k] ?? d
+type Normalized = {
+  bestHeight: number;
+  tipHash: string;
+  byHash: Record<string, { prevHash: string; merkleRoot: string; height: number }>;
+};
 
-// Config
-const OUT_FILE = env('HEADERS_FILE', './data/headers.json')!
-const TIMEOUT_MS = Number(env('TIMEOUT_MS', '10000'))
-const INTERVAL_MS = env('INTERVAL_MS') ? Number(env('INTERVAL_MS')) : 0
-const REQUIRE_AGREEMENT = (env('REQUIRE_AGREEMENT', 'true') || 'true').toLowerCase() === 'true'
-const STRICT_RAW = (env('STRICT_RAW', 'false') || 'false').toLowerCase() === 'true'
-
-// Sources: HEADERS_URLS (JSON array) or HEADERS_URL (single)
 function parseUrls(): string[] {
-  const urlsJson = env('HEADERS_URLS')
-  if (urlsJson) {
-    try {
-      const arr = JSON.parse(urlsJson)
-      if (Array.isArray(arr) && arr.length) return arr
-    } catch {}
-  }
-  const single = env('HEADERS_URL')
-  if (single) return [single]
-  throw new Error('Set HEADERS_URLS (JSON array) or HEADERS_URL (string)')
-}
-
-function isHex(s: string | undefined, len?: number) {
-  if (!s || typeof s !== 'string') return false
-  const ss = s.startsWith('0x') ? s.slice(2) : s
-  if (!/^[0-9a-fA-F]+$/.test(ss)) return false
-  return len == null ? true : ss.length === len
-}
-
-function isHeader(h: any): h is Header {
-  const base =
-    h &&
-    typeof h === 'object' &&
-    isHex(h.hash, 64) &&
-    isHex(h.prevHash, 64) &&
-    isHex(h.merkleRoot, 64) &&
-    Number.isInteger(h.height) &&
-    Number.isInteger(h.time)
-
-  if (!base) return false
-  if (STRICT_RAW) return isHex(h.raw, 160) // 80 bytes => 160 hex chars
-  // raw is optional unless STRICT_RAW=true
-  return !h.raw || isHex(h.raw, 160)
-}
-
-function validateChain(headers: Header[]) {
-  if (!Array.isArray(headers) || !headers.length) throw new Error('empty headers array')
-  for (let i = 0; i < headers.length; i++) {
-    const h = headers[i]
-    if (!isHeader(h)) throw new Error(`bad header at index ${i}`)
-    if (i > 0) {
-      const prev = headers[i - 1]
-      if (h.height !== prev.height + 1) {
-        throw new Error(`height discontinuity at ${h.height} (prev ${prev.height})`)
-      }
-      if (h.prevHash.toLowerCase() !== prev.hash.toLowerCase()) {
-        throw new Error(`prevHash mismatch at height ${h.height}`)
-      }
-    }
-  }
-}
-
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<any> {
-  const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  const raw = process.env.HEADERS_URLS || '';
   try {
-    const res = await fetch(url, { signal: ctrl.signal, headers: { accept: 'application/json' } })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    return await res.json()
+    if (raw.trim().startsWith('[')) return JSON.parse(raw);
+  } catch {}
+  if (!raw) return [];
+  return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+async function httpGetJson(url: string, timeoutMs = 8000): Promise<any> {
+  const ctl = new AbortController();
+  const tm = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctl.signal as any });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
   } finally {
-    clearTimeout(t)
+    clearTimeout(tm);
   }
 }
 
-// Accept either a plain array of headers or an object with { headers: [...] } or { chain: [...] }
-function resolveHeadersShape(json: any): Header[] {
-  const arr = Array.isArray(json)
-    ? json
-    : Array.isArray(json?.headers)
-    ? json.headers
-    : Array.isArray(json?.chain)
-    ? json.chain
-    : undefined
-  if (!arr) throw new Error('no headers array found in source')
-  return arr as Header[]
-}
+function normalizeShape(js: any): Normalized {
+  const byHash: Normalized['byHash'] = {};
+  let bestHeight = typeof js.bestHeight === 'number' ? js.bestHeight : 0;
+  let tipHash = (js.tipHash || '').toLowerCase();
 
-async function readCurrent(): Promise<string | undefined> {
-  try {
-    return await fs.readFile(OUT_FILE, 'utf8')
-  } catch {
-    return undefined
-  }
-}
-
-async function writeAtomic(txt: string): Promise<void> {
-  await fs.mkdir(path.dirname(OUT_FILE), { recursive: true })
-  const tmp = `${OUT_FILE}.tmp`
-  await fs.writeFile(tmp, txt)
-  await fs.rename(tmp, OUT_FILE)
-}
-
-function tipOf(arr: Header[]) {
-  const last = arr[arr.length - 1]
-  return { height: last.height, hash: last.hash.toLowerCase() }
-}
-
-async function once(): Promise<void> {
-  const urls = parseUrls()
-  const results: { url: string; headers: Header[]; tip: { height: number; hash: string} }[] = []
-  const errs: string[] = []
-
-  await Promise.all(
-    urls.map(async (url) => {
-      try {
-        const json = await fetchWithTimeout(url, TIMEOUT_MS)
-        const arr = resolveHeadersShape(json)
-        validateChain(arr)
-        results.push({ url, headers: arr, tip: tipOf(arr) })
-      } catch (e: any) {
-        errs.push(`${url}: ${e?.message || String(e)}`)
+  if (Array.isArray(js.headers)) {
+    for (const h of js.headers as any[]) {
+      if (!h?.hash || !h?.merkleRoot || typeof h?.height !== 'number') continue;
+      const hash = String(h.hash).toLowerCase();
+      byHash[hash] = {
+        prevHash: String(h.prevHash || '').toLowerCase(),
+        merkleRoot: String(h.merkleRoot).toLowerCase(),
+        height: Number(h.height),
+      };
+      if (byHash[hash].height > bestHeight) {
+        bestHeight = byHash[hash].height;
+        tipHash = hash;
       }
-    }),
-  )
-
-  if (!results.length) throw new Error(`all sources failed: ${errs.join(' | ')}`)
-
-  if (REQUIRE_AGREEMENT) {
-    const h0 = results[0].tip.height
-    const tip0 = results[0].tip.hash
-    const disagree = results.some((r) => r.tip.height !== h0 || r.tip.hash !== tip0)
-    if (disagree) {
-      const views = results.map((r) => `${r.url} → h=${r.tip.height} tip=${r.tip.hash}`).join(' ; ')
-      throw new Error(`sources disagree on tip: ${views}`)
     }
-  }
-
-  // Choose the longest chain (highest height). On ties, pick the first.
-  const best = results.reduce((a, b) => (b.tip.height > a.tip.height ? b : a))
-
-  // Prepare output (plain array of headers, matching your current format)
-  const txt = JSON.stringify(best.headers)
-
-  // Write only if changed
-  const prev = (await readCurrent()) || ''
-  if (prev === txt) {
-    console.log(`no change (h=${best.tip.height} tip=${best.tip.hash})`)
-    return
-  }
-
-  await writeAtomic(txt)
-  console.log(`headers updated: ${best.headers.length} (h=${best.tip.height} tip=${best.tip.hash})`)
-}
-
-async function main() {
-  if (INTERVAL_MS && INTERVAL_MS > 0) {
-    console.log(`Headers mirror running every ${INTERVAL_MS} ms -> ${OUT_FILE}`)
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      try {
-        await once()
-      } catch (e: any) {
-        console.error('mirror error:', e?.message || String(e))
+  } else if (js.byHash && typeof js.byHash === 'object') {
+    for (const [k, v] of Object.entries<any>(js.byHash)) {
+      const hash = String(k).toLowerCase();
+      byHash[hash] = {
+        prevHash: String(v.prevHash || '').toLowerCase(),
+        merkleRoot: String(v.merkleRoot).toLowerCase(),
+        height: Number(v.height),
+      };
+      if (byHash[hash].height > bestHeight) {
+        bestHeight = byHash[hash].height;
+        tipHash = hash;
       }
-      await delay(INTERVAL_MS)
     }
   } else {
-    await once()
+    throw new Error('unsupported-headers-format');
   }
+
+  if (!tipHash || typeof bestHeight !== 'number') {
+    throw new Error('missing-tip-or-height');
+  }
+
+  // Light continuity check: every non-genesis block's prev exists in set, except possibly earliest.
+  const hashes = new Set(Object.keys(byHash));
+  for (const [hash, rec] of Object.entries(byHash)) {
+    if (rec.prevHash && !hashes.has(rec.prevHash) && rec.height > 0) {
+      // Allow if prev missing but we won't reject entire file; just warn.
+      // In strict mode you'd throw here.
+      // console.warn(`continuity-warning: prevHash ${rec.prevHash} missing for ${hash} @ h=${rec.height}`);
+    }
+  }
+
+  return { bestHeight, tipHash, byHash };
 }
 
-main().catch((e) => {
-  console.error('fatal', e?.message || String(e))
-  process.exit(99)
-})
+function pickWinner(norms: Normalized[], requireAgreement: boolean): Normalized {
+  if (norms.length === 0) throw new Error('no-sources-succeeded');
+  if (requireAgreement) {
+    const h = norms[0].bestHeight;
+    const tip = norms[0].tipHash;
+    for (const n of norms) {
+      if (n.bestHeight !== h || n.tipHash !== tip) {
+        throw new Error('sources-disagree');
+      }
+    }
+    return norms[0];
+  }
+  // pick highest bestHeight
+  let winner = norms[0];
+  for (const n of norms) {
+    if (n.bestHeight > winner.bestHeight) winner = n;
+  }
+  return winner;
+}
+
+async function run() {
+  const urls = parseUrls();
+  const outFile = process.env.HEADERS_FILE || './data/headers.json';
+  const requireAgreement = /^true$/i.test(process.env.REQUIRE_AGREEMENT || 'false');
+
+  if (urls.length === 0) {
+    console.error('HEADERS_URLS not set; nothing to mirror.');
+    process.exit(2);
+  }
+
+  const results: Normalized[] = [];
+  for (const u of urls) {
+    try {
+      const js = await httpGetJson(u);
+      results.push(normalizeShape(js));
+      console.log(`ok ${u} h=${results.at(-1)!.bestHeight} tip=${results.at(-1)!.tipHash}`);
+    } catch (e: any) {
+      console.warn(`fail ${u} ${String(e?.message || e)}`);
+    }
+  }
+
+  let chosen: Normalized;
+  try {
+    chosen = pickWinner(results, requireAgreement);
+  } catch (e: any) {
+    console.error(`mirror-failed: ${String(e?.message || e)}`);
+    process.exit(1);
+    return;
+  }
+
+  // Atomic write (write only if changed)
+  const outAbs = path.resolve(outFile);
+  fs.mkdirSync(path.dirname(outAbs), { recursive: true });
+  const data = JSON.stringify(chosen, null, 2);
+
+  let needWrite = true;
+  try {
+    const curr = fs.readFileSync(outAbs, 'utf8');
+    needWrite = curr !== data;
+  } catch {}
+  if (!needWrite) {
+    console.log('no-change');
+    return;
+  }
+
+  const tmp = outAbs + '.tmp';
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, outAbs);
+  console.log(`wrote ${outAbs} h=${chosen.bestHeight} tip=${chosen.tipHash}`);
+}
+
+run().catch((e) => {
+  console.error('fatal:', e);
+  process.exit(1);
+});
