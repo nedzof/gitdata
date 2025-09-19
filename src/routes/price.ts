@@ -3,6 +3,7 @@ import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
 import { getManifest, setPrice } from '../db';
 import { upsertPriceRule, deletePriceRule, getBestUnitPrice } from '../db';
+import { requireIdentity } from '../middleware/identity';
 
 const PRICE_DEFAULT_SATS = Number(process.env.PRICE_DEFAULT_SATS || 5000);
 const PRICE_QUOTE_TTL_SEC = Number(process.env.PRICE_QUOTE_TTL_SEC || 1800);
@@ -52,7 +53,7 @@ export function priceRouter(db: Database.Database): Router {
   });
 
   // Legacy: POST /price { versionId, satoshis } - for backward compatibility
-  router.post('/price', (req: Request, res: Response) => {
+  router.post('/price', requireIdentity(), (req: Request, res: Response) => {
     const { versionId, satoshis } = req.body || {};
     if (!isHex64(String(versionId || ''))) {
       return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
@@ -73,7 +74,7 @@ export function priceRouter(db: Database.Database): Router {
 
   // Admin: POST /price/rules (set/add rule)
   // Body: { versionId?, producerId?, tierFrom, satoshis }
-  router.post('/price/rules', (req: Request, res: Response) => {
+  router.post('/price/rules', requireIdentity(), (req: Request, res: Response) => {
     const { versionId, producerId, tierFrom, satoshis } = req.body || {};
     if (!versionId && !producerId) return json(res, 400, { error: 'bad-request', hint: 'versionId or producerId required' });
     if (versionId && !isHex64(String(versionId || ''))) return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
@@ -94,7 +95,7 @@ export function priceRouter(db: Database.Database): Router {
   });
 
   // Admin: DELETE /price/rules?versionId=&producerId=&tierFrom=
-  router.delete('/price/rules', (req: Request, res: Response) => {
+  router.delete('/price/rules', requireIdentity(), (req: Request, res: Response) => {
     const versionId = req.query.versionId ? String(req.query.versionId).toLowerCase() : undefined;
     const producerId = req.query.producerId ? String(req.query.producerId) : undefined;
     const tierFrom = req.query.tierFrom ? Number(req.query.tierFrom) : undefined;

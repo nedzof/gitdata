@@ -16,6 +16,7 @@ import { agentsRouter } from './src/routes/agents';
 import { rulesRouter } from './src/routes/rules';
 import { jobsRouter } from './src/routes/jobs';
 import { catalogRouter } from './src/routes/catalog';
+import { producersRegisterRouter } from './src/routes/producers-register';
 import { createJobProcessor } from './src/worker/job-processor';
 import { opsRouter } from './src/routes/metrics';
 import { auditLogger } from './src/middleware/audit';
@@ -59,6 +60,9 @@ app.use(rateLimit('data'), dataRouter(db));
 app.use(rateLimit('submit'), listingsRouter(db));
 app.use(rateLimit('submit'), producersRouter(db));
 app.use(rateLimit('submit'), advisoriesRouter(db));
+
+// D19: Identity-signed producer registration
+app.use(producersRegisterRouter(db));
 
 // D16: A2A Agent marketplace routes
 app.use('/agents', agentsRouter(db));

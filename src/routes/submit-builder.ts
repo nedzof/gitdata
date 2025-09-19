@@ -1,6 +1,7 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import { validateDlm1Manifest, initValidators } from '../validators';
+import { requireIdentity } from '../middleware/identity';
 import {
   buildDlm1AnchorFromManifest,
   deriveManifestIds,
@@ -53,7 +54,7 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
 
   const router = makeRouter();
 
-  router.post('/submit/dlm1', async (req: Request, res: Response) => {
+  router.post('/submit/dlm1', requireIdentity(), async (req: Request, res: Response) => {
     try {
       if (!req.is('application/json')) {
         return jsonError(res, 415, 'unsupported-media-type', 'Use application/json');

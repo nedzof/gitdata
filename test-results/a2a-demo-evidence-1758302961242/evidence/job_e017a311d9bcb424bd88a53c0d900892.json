@@ -1,0 +1,47 @@
+{
+  "trigger": "manual",
+  "manifest": {
+    "versionId": "v1_final_output",
+    "datasetId": "test-dataset",
+    "contentHash": null
+  },
+  "actions": [
+    {
+      "action": "notify",
+      "agentId": "ag_05748a4b10d5bb14a3e170e52b0f5c23",
+      "status": 200,
+      "headers": {
+        "connection": "keep-alive",
+        "content-length": "74",
+        "content-type": "application/json; charset=utf-8",
+        "date": "Fri, 19 Sep 2025 17:29:22 GMT",
+        "etag": "W/\"4a-RhtxhambfNdZyHEOexDTDsbfOLQ\"",
+        "keep-alive": "timeout=5",
+        "x-powered-by": "Express"
+      },
+      "body": {
+        "ok": true,
+        "processed": true,
+        "signatureValid": false,
+        "timestamp": 1758302962
+      },
+      "timestamp": 1758302962
+    },
+    {
+      "action": "contract.generate",
+      "status": 200,
+      "contractId": "contract_qqp7i7t53g",
+      "terms": {
+        "manifest": {
+          "versionId": "v1_final_output",
+          "datasetId": "test-dataset",
+          "contentHash": null
+        },
+        "generated_at": 1758302962,
+        "type": "simulated"
+      },
+      "timestamp": 1758302962
+    }
+  ],
+  "completedAt": 1758302962
+}
