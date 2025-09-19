@@ -2,8 +2,6 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 
-export type Hex = string;
-
 export type DeclarationRow = {
   version_id: string;
   txid: string | null;
