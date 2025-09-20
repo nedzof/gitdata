@@ -976,14 +976,133 @@ export function initOpenLineageSchema(db: Database.Database) {
   db.exec(sql);
 }
 
-// OpenLineage event ingestion (idempotent)
-export function ingestOpenLineageEvent(db: Database.Database, event: OpenLineageEvent): boolean {
+// OpenLineage DLQ functions
+export function addToDLQ(db: Database.Database, event: any, validationErrors: string[]): void {
+  const dlqId = `dlq_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+  const now = Math.floor(Date.now() / 1000);
+
+  db.prepare(`
+    INSERT INTO ol_dlq(dlq_id, payload_json, validation_errors, attempts, last_error, next_try_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(dlqId, JSON.stringify(event), JSON.stringify(validationErrors), 0,
+         validationErrors.join('; '), null, now, now);
+}
+
+export function processDLQItem(db: Database.Database, dlqId: string): boolean {
+  const dlqItem = db.prepare('SELECT * FROM ol_dlq WHERE dlq_id = ?').get(dlqId) as any;
+  if (!dlqItem) return false;
+
+  try {
+    const event = JSON.parse(dlqItem.payload_json);
+
+    // Retry validation and processing
+    const success = ingestOpenLineageEvent(db, event, false);
+
+    if (success) {
+      // Remove from DLQ on success
+      db.prepare('DELETE FROM ol_dlq WHERE dlq_id = ?').run(dlqId);
+      return true;
+    } else {
+      // Update retry count and next retry time
+      const nextTryAt = Math.floor(Date.now() / 1000) + (300 * Math.pow(2, dlqItem.attempts)); // Exponential backoff
+      const maxRetries = 5;
+
+      if (dlqItem.attempts >= maxRetries) {
+        // Move to permanent failure or delete
+        console.warn(`DLQ item ${dlqId} exceeded max retries, removing`);
+        db.prepare('DELETE FROM ol_dlq WHERE dlq_id = ?').run(dlqId);
+        return false;
+      }
+
+      db.prepare(`
+        UPDATE ol_dlq
+        SET attempts = attempts + 1, next_try_at = ?, updated_at = ?
+        WHERE dlq_id = ?
+      `).run(nextTryAt, Math.floor(Date.now() / 1000), dlqId);
+
+      return false;
+    }
+  } catch (error) {
+    console.error(`Failed to process DLQ item ${dlqId}:`, error);
+    return false;
+  }
+}
+
+export function listDLQItems(db: Database.Database, limit: number = 50): any[] {
+  return db.prepare(`
+    SELECT dlq_id, payload_json, validation_errors, attempts, last_error, created_at
+    FROM ol_dlq
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(limit) as any[];
+}
+
+export function retryDLQItems(db: Database.Database): number {
+  const now = Math.floor(Date.now() / 1000);
+  const readyItems = db.prepare(`
+    SELECT dlq_id FROM ol_dlq
+    WHERE (next_try_at IS NULL OR next_try_at <= ?) AND attempts < 5
+    ORDER BY created_at ASC
+    LIMIT 10
+  `).all(now) as any[];
+
+  let processed = 0;
+  for (const item of readyItems) {
+    if (processDLQItem(db, item.dlq_id)) {
+      processed++;
+    }
+  }
+
+  return processed;
+}
+
+// OpenLineage event ingestion with validation (idempotent)
+export function ingestOpenLineageEvent(db: Database.Database, event: OpenLineageEvent, skipValidation: boolean = false): boolean {
+  // Validate event if validation is enabled
+  if (!skipValidation) {
+    try {
+      // Import FacetValidator for comprehensive validation
+      const { FacetValidator } = require('../openlineage/facet-validator');
+      const validator = new FacetValidator();
+
+      // Perform comprehensive validation
+      const validationResult = validator.validateOpenLineageEvent(event);
+
+      if (!validationResult.valid) {
+        console.warn('OpenLineage validation failed:', validationResult.errors);
+        addToDLQ(db, event, validationResult.errors);
+        return false;
+      }
+
+      // Log warnings but continue processing
+      if (validationResult.warnings.length > 0) {
+        console.warn('OpenLineage validation warnings:', validationResult.warnings);
+      }
+
+    } catch (validationError) {
+      console.warn('OpenLineage validation error:', validationError);
+      // Fallback to basic validation if FacetValidator fails
+      const requiredFields = ['eventType', 'eventTime', 'producer', 'job', 'run'];
+      const missingFields = requiredFields.filter(field => !event[field]);
+
+      if (missingFields.length > 0) {
+        addToDLQ(db, event, [`Missing required fields: ${missingFields.join(', ')}`]);
+        return false;
+      }
+
+      if (!['START', 'COMPLETE', 'ABORT'].includes(event.eventType)) {
+        addToDLQ(db, event, [`Invalid eventType: ${event.eventType}`]);
+        return false;
+      }
+    }
+  }
+
   const payload = JSON.stringify(event);
   const hash = require('crypto').createHash('sha256').update(payload).digest('hex');
   const eventId = `ol_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
   const now = Math.floor(Date.now() / 1000);
 
-  // Check if already exists
+  // Check if already exists (idempotency)
   const existing = db.prepare('SELECT event_id FROM ol_events WHERE hash = ?').get(hash);
   if (existing) {
     return false; // Already processed

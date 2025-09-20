@@ -1,0 +1,64 @@
+{
+  "$id": "https://github.com/nedzof/gitdata/schemas/v1/gitdataProvenance.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gitdata Provenance Facet",
+  "description": "Light lineage statistics and provenance metadata",
+  "type": "object",
+  "required": ["v"],
+  "properties": {
+    "_producer": {
+      "type": "string",
+      "format": "uri",
+      "description": "Producer URL that created this facet"
+    },
+    "_schemaURL": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL to this JSON Schema"
+    },
+    "v": {
+      "type": "string",
+      "enum": ["1"],
+      "description": "Schema version"
+    },
+    "producerIdentityKey": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{66}$",
+      "description": "Producer's public key (33 bytes hex) for identity verification"
+    },
+    "parentsCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "description": "Number of direct parent datasets"
+    },
+    "lineageDepth": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Maximum depth in the lineage tree"
+    },
+    "totalAncestors": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of ancestor datasets in the lineage"
+    },
+    "dataClassification": {
+      "type": "string",
+      "enum": ["public", "internal", "confidential", "restricted"],
+      "description": "Data classification level"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]+$",
+        "maxLength": 32
+      },
+      "maxItems": 10,
+      "uniqueItems": true,
+      "description": "Metadata tags for categorization"
+    }
+  },
+  "additionalProperties": false
+}

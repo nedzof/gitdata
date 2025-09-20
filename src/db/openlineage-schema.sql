@@ -78,3 +78,18 @@ CREATE INDEX IF NOT EXISTS idx_ol_datasets_name ON ol_datasets(name);
 CREATE INDEX IF NOT EXISTS idx_ol_edges_parent ON ol_edges(namespace, parent_dataset_name);
 CREATE INDEX IF NOT EXISTS idx_ol_edges_child ON ol_edges(namespace, child_dataset_name);
 CREATE INDEX IF NOT EXISTS idx_ol_edges_run ON ol_edges(run_id);
+
+-- OpenLineage Dead Letter Queue for invalid events
+CREATE TABLE IF NOT EXISTS ol_dlq (
+  dlq_id TEXT PRIMARY KEY,           -- unique ID for DLQ entry
+  payload_json TEXT NOT NULL,        -- original event payload
+  validation_errors TEXT,            -- JSON array of validation errors
+  attempts INTEGER NOT NULL DEFAULT 0, -- retry attempts
+  last_error TEXT,                   -- last error message
+  next_try_at INTEGER,               -- unix timestamp for next retry
+  created_at INTEGER NOT NULL,       -- when first added to DLQ
+  updated_at INTEGER NOT NULL        -- last update timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_ol_dlq_next_try ON ol_dlq(next_try_at);
+CREATE INDEX IF NOT EXISTS idx_ol_dlq_created ON ol_dlq(created_at);

@@ -1,0 +1,51 @@
+{
+  "version": "1.0.0",
+  "description": "OpenLineage Facet Registry for Gitdata",
+  "baseUrl": "https://github.com/nedzof/gitdata/schemas/v1",
+  "facets": {
+    "gitdataSpv": {
+      "version": "1",
+      "schemaUrl": "https://github.com/nedzof/gitdata/schemas/v1/gitdataSpv.json",
+      "localPath": "src/schemas/v1/gitdataSpv.json",
+      "description": "SPV blockchain verification information",
+      "context": ["run"],
+      "required": true
+    },
+    "governance": {
+      "version": "1",
+      "schemaUrl": "https://github.com/nedzof/gitdata/schemas/v1/governance.json",
+      "localPath": "src/schemas/v1/governance.json",
+      "description": "Policy governance and compliance information",
+      "context": ["run"],
+      "required": false
+    },
+    "gitdataProvenance": {
+      "version": "1",
+      "schemaUrl": "https://github.com/nedzof/gitdata/schemas/v1/gitdataProvenance.json",
+      "localPath": "src/schemas/v1/gitdataProvenance.json",
+      "description": "Lineage statistics and provenance metadata",
+      "context": ["dataset"],
+      "required": false
+    },
+    "datasetVersion": {
+      "version": "standard",
+      "schemaUrl": "https://openlineage.io/spec/facets/1-0-0/DatasetVersionDatasetFacet.json",
+      "description": "Standard OpenLineage dataset version information",
+      "context": ["dataset"],
+      "required": true
+    },
+    "dataSource": {
+      "version": "standard",
+      "schemaUrl": "https://openlineage.io/spec/facets/1-0-0/DatasourceDatasetFacet.json",
+      "description": "Standard OpenLineage data source information",
+      "context": ["dataset"],
+      "required": true
+    }
+  },
+  "validation": {
+    "strictMode": true,
+    "allowUnknownFacets": false,
+    "maxFacetSize": 16384,
+    "validateSchemas": true
+  }
+}

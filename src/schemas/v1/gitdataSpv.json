@@ -1,0 +1,59 @@
+{
+  "$id": "https://github.com/nedzof/gitdata/schemas/v1/gitdataSpv.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gitdata SPV Facet",
+  "description": "SPV (Simplified Payment Verification) information for blockchain-anchored data lineage",
+  "type": "object",
+  "required": ["v", "confs", "bundleUrl"],
+  "properties": {
+    "_producer": {
+      "type": "string",
+      "format": "uri",
+      "description": "Producer URL that created this facet"
+    },
+    "_schemaURL": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL to this JSON Schema"
+    },
+    "v": {
+      "type": "string",
+      "enum": ["1"],
+      "description": "Schema version"
+    },
+    "confs": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of blockchain confirmations"
+    },
+    "bundleUrl": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL to retrieve the complete lineage bundle"
+    },
+    "bundleHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA256 hash of the bundle content"
+    },
+    "txid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Bitcoin transaction ID containing the DLM1 anchor"
+    },
+    "readyDecision": {
+      "type": ["string", "null"],
+      "enum": ["allow", "warn", "block", null],
+      "description": "Policy decision from /ready endpoint"
+    },
+    "readyReasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "description": "Reasons for the ready decision"
+    }
+  },
+  "additionalProperties": false
+}

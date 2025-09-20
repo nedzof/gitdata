@@ -94,10 +94,13 @@ export function submitReceiverRouter(db: Database.Database, opts: {
         const bundleData = body.manifest?.dlm1?.bundle;
         const parentVersionIds = bundleData?.parents || [];
 
+        const producerUrl = `${req.protocol}://${req.get('host')}/adapter/openlineage/1.0`;
+        const schemaBaseUrl = 'https://github.com/nedzof/gitdata/schemas/v1';
+
         const openLineageEvent = {
           eventType: 'COMPLETE' as const,
           eventTime: new Date().toISOString(),
-          producer: `${req.protocol}://${req.get('host')}/adapter/openlineage/1.0`,
+          producer: producerUrl,
           job: {
             namespace,
             name: `publish::${versionId}`
@@ -109,11 +112,27 @@ export function submitReceiverRouter(db: Database.Database, opts: {
                 nominalStartTime: new Date().toISOString()
               },
               gitdataSpv: {
+                _producer: producerUrl,
+                _schemaURL: `${schemaBaseUrl}/gitdataSpv.json`,
+                v: '1',
                 confs: 0, // Will be updated by verification process
                 bundleUrl: `${req.protocol}://${req.get('host')}/bundle?versionId=${versionId}`,
                 bundleHash: bundleData?.hash || '',
                 readyDecision: null, // Will be set by policy check
                 readyReasons: []
+              },
+              governance: {
+                _producer: producerUrl,
+                _schemaURL: `${schemaBaseUrl}/governance.json`,
+                v: '1',
+                policyDecision: 'allow', // Default, will be updated by policy check
+                policyVersion: '1.0.0',
+                appliedRules: [],
+                evidence: {
+                  bundleValidated: true,
+                  parentageVerified: parentVersionIds.length > 0,
+                  sizeWithinLimits: true
+                }
               }
             }
           },
@@ -134,6 +153,17 @@ export function submitReceiverRouter(db: Database.Database, opts: {
               dataSource: {
                 name: 'gitdata',
                 uri: `${req.protocol}://${req.get('host')}/listings/${versionId}`
+              },
+              gitdataProvenance: {
+                _producer: producerUrl,
+                _schemaURL: `${schemaBaseUrl}/gitdataProvenance.json`,
+                v: '1',
+                producerIdentityKey: process.env.PRODUCER_IDENTITY_KEY || '000000000000000000000000000000000000000000000000000000000000000000',
+                parentsCount: parentVersionIds.length,
+                lineageDepth: parentVersionIds.length > 0 ? 1 : 0, // Simplified calculation
+                totalAncestors: parentVersionIds.length,
+                dataClassification: 'public',
+                tags: ['dlm1', 'gitdata']
               }
             }
           }]

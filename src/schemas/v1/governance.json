@@ -1,0 +1,56 @@
+{
+  "$id": "https://github.com/nedzof/gitdata/schemas/v1/governance.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gitdata Governance Facet",
+  "description": "Policy governance information for data lineage compliance",
+  "type": "object",
+  "required": ["v", "policyId", "decision"],
+  "properties": {
+    "_producer": {
+      "type": "string",
+      "format": "uri",
+      "description": "Producer URL that created this facet"
+    },
+    "_schemaURL": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL to this JSON Schema"
+    },
+    "v": {
+      "type": "string",
+      "enum": ["1"],
+      "description": "Schema version"
+    },
+    "policyId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Identifier of the policy that was evaluated"
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["allow", "warn", "block"],
+      "description": "Policy decision result"
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 256
+      },
+      "maxItems": 16,
+      "description": "Human-readable reasons for the decision"
+    },
+    "evidenceHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA256 hash of policy evaluation evidence"
+    },
+    "evaluatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the policy was evaluated"
+    }
+  },
+  "additionalProperties": false
+}
