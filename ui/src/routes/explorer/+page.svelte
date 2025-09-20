@@ -18,44 +18,60 @@
   async function loadDatasets() {
     loading = true;
     try {
-      // Mock data for now
-      datasets = [
-        {
-          versionId: 'TOXSIM-REPORT-12',
-          type: 'Analysis Report',
-          producer: 'ToxSimAgent',
-          createdAt: '2024-01-15T10:30:00Z',
-          price: '100 sats',
-          license: 'Internal-Use-Only'
-        },
-        {
-          versionId: 'MOLECULA-DESIGNS-45',
-          type: 'Design Data',
-          producer: 'MoleculaAgent',
-          createdAt: '2024-01-14T09:15:00Z',
-          price: '250 sats',
-          license: 'Research-License-v2'
-        },
-        {
-          versionId: 'GENOSCREEN-RESULT-01',
-          type: 'Screening Results',
-          producer: 'GenoScreenerAgent',
-          createdAt: '2024-01-13T14:45:00Z',
-          price: '500 sats',
-          license: 'Data-Provider-ABC-License'
-        },
-        {
-          versionId: 'PHARMA-GENOME-73',
-          type: 'Genome Data',
-          producer: 'human@pharmaco.corp',
-          createdAt: '2024-01-12T11:20:00Z',
-          price: '1000 sats',
-          license: 'PharmaCorp-Proprietary'
+      // First try to load from listings API (manifests)
+      let datasets_loaded = false;
+
+      try {
+        const listingsResponse = await fetch('/listings?limit=200');
+        if (listingsResponse.ok) {
+          const listingsResult = await listingsResponse.json();
+          if (listingsResult.items && listingsResult.items.length > 0) {
+            datasets = listingsResult.items.map(item => ({
+              versionId: item.versionId,
+              type: item.name || 'Dataset',
+              producer: item.producerId || 'Unknown',
+              createdAt: item.updatedAt || new Date().toISOString(),
+              price: 'Variable',
+              license: 'See manifest'
+            }));
+            datasets_loaded = true;
+          }
         }
-      ];
+      } catch (e) {
+        console.warn('Listings API failed:', e);
+      }
+
+      // If no listings data, fall back to models API
+      if (!datasets_loaded) {
+        try {
+          const modelsResponse = await fetch('/api/models/search?limit=200');
+          if (modelsResponse.ok) {
+            const modelsResult = await modelsResponse.json();
+            datasets = (modelsResult.items || []).map(item => ({
+              versionId: item.modelVersionId,
+              type: `${item.framework} Model`,
+              producer: 'Model Registry',
+              createdAt: new Date(item.createdAt * 1000).toISOString(),
+              price: 'Variable',
+              license: 'See details'
+            }));
+            datasets_loaded = true;
+          }
+        } catch (e) {
+          console.warn('Models API failed:', e);
+        }
+      }
+
+      // If still no data, show empty state
+      if (!datasets_loaded) {
+        datasets = [];
+      }
+
       applyFilters();
     } catch (error) {
       console.error('Failed to load datasets:', error);
+      datasets = [];
+      applyFilters();
     } finally {
       loading = false;
     }

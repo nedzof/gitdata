@@ -23,69 +23,155 @@
   async function loadDataset() {
     loading = true;
     try {
-      // Mock data based on D25 example
-      dataset = {
-        versionId: versionId,
-        type: 'Analysis Report',
-        producer: 'ToxSimAgent',
-        createdAt: '2024-01-15T10:30:00Z',
-        license: 'Internal-Use-Only',
-        contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-        price: '100 sats',
-        size: '2.3 MB'
-      };
+      let dataset_loaded = false;
 
-      // Mock lineage data with extended information
-      lineage = [
-        {
-          versionId: 'TOXSIM-REPORT-12',
-          license: 'Internal-Use-Only',
-          producer: 'ToxSimAgent',
-          current: true,
-          createdAt: '2024-01-15T10:30:00Z',
-          size: '2.3 MB',
-          type: 'Analysis Report',
-          dependencies: ['MOLECULA-DESIGNS-45']
-        },
-        {
-          versionId: 'MOLECULA-DESIGNS-45',
-          license: 'Research-License-v2',
-          producer: 'MoleculaAgent',
-          current: false,
-          createdAt: '2024-01-14T09:15:00Z',
-          size: '1.8 MB',
-          type: 'Design Data',
-          dependencies: ['GENOSCREEN-RESULT-01']
-        },
-        {
-          versionId: 'GENOSCREEN-RESULT-01',
-          license: 'Data-Provider-ABC-License',
-          producer: 'GenoScreenerAgent',
-          current: false,
-          createdAt: '2024-01-13T14:45:00Z',
-          size: '5.2 MB',
-          type: 'Screening Results',
-          dependencies: ['PHARMA-GENOME-73']
-        },
-        {
-          versionId: 'PHARMA-GENOME-73',
-          license: 'PharmaCorp-Proprietary',
-          producer: 'human@pharmaco.corp',
-          current: false,
-          isRoot: true,
-          createdAt: '2024-01-12T11:20:00Z',
-          size: '12.7 MB',
-          type: 'Genome Data',
-          dependencies: []
+      // First try to load from listings API (manifests)
+      try {
+        const datasetResponse = await fetch(`/listings/${encodeURIComponent(versionId)}`);
+        if (datasetResponse.ok) {
+          const datasetResult = await datasetResponse.json();
+
+          // Map the database result to our expected format
+          dataset = {
+            versionId: datasetResult.versionId,
+            type: datasetResult.manifest?.name || 'Dataset',
+            producer: datasetResult.manifest?.datasetId || 'Unknown',
+            createdAt: datasetResult.manifest?.createdAt || new Date().toISOString(),
+            license: datasetResult.manifest?.license || 'See manifest',
+            contentHash: datasetResult.manifest?.contentHash || 'Unknown',
+            price: 'Variable',
+            size: 'Unknown'
+          };
+          dataset_loaded = true;
         }
-      ];
+      } catch (e) {
+        console.warn('Listings API failed:', e);
+      }
+
+      // If not found in listings, try models API
+      if (!dataset_loaded) {
+        try {
+          const modelResponse = await fetch(`/api/models/${encodeURIComponent(versionId)}`);
+          if (modelResponse.ok) {
+            const modelResult = await modelResponse.json();
+
+            dataset = {
+              versionId: modelResult.modelVersionId,
+              type: `${modelResult.framework} Model`,
+              producer: 'Model Registry',
+              createdAt: new Date(modelResult.createdAt * 1000).toISOString(),
+              license: 'See model details',
+              contentHash: modelResult.modelHash,
+              price: 'Variable',
+              size: modelResult.sizeBytes ? `${(modelResult.sizeBytes / 1024 / 1024).toFixed(1)} MB` : 'Unknown'
+            };
+            dataset_loaded = true;
+          }
+        } catch (e) {
+          console.warn('Models API failed:', e);
+        }
+      }
+
+      if (!dataset_loaded) {
+        throw new Error('Dataset not found in any registry');
+      }
+
+      // Load lineage data - try multiple sources
+      let lineage_loaded = false;
+
+      // First try models lineage API (if this looks like a model ID)
+      if (versionId.startsWith('md_')) {
+        try {
+          const modelLineageResponse = await fetch(`/api/models/${encodeURIComponent(versionId)}/lineage`);
+          if (modelLineageResponse.ok) {
+            const modelLineageResult = await modelLineageResponse.json();
+            if (Array.isArray(modelLineageResult) && modelLineageResult.length > 0) {
+              lineage = modelLineageResult.map((item, index) => ({
+                versionId: item.versionId,
+                license: 'See details',
+                producer: 'System',
+                current: item.versionId === versionId,
+                createdAt: item.createdAt || new Date().toISOString(),
+                size: 'Unknown',
+                type: item.type || 'Unknown',
+                dependencies: [],
+                isRoot: index === modelLineageResult.length - 1
+              }));
+              lineage_loaded = true;
+            }
+          }
+        } catch (e) {
+          console.warn('Model lineage API failed:', e);
+        }
+      }
+
+      // If no model lineage, try bundle API
+      if (!lineage_loaded) {
+        try {
+          const lineageResponse = await fetch(`/bundle?versionId=${encodeURIComponent(versionId)}`);
+          if (lineageResponse.ok) {
+            const lineageResult = await lineageResponse.json();
+            lineage = buildLineageFromBundle(lineageResult, versionId);
+            lineage_loaded = true;
+          }
+        } catch (e) {
+          console.warn('Bundle API failed:', e);
+        }
+      }
+
+      // Fallback: single item lineage
+      if (!lineage_loaded) {
+        lineage = [{
+          versionId: versionId,
+          license: dataset.license,
+          producer: dataset.producer,
+          current: true,
+          createdAt: dataset.createdAt,
+          size: dataset.size,
+          type: dataset.type,
+          dependencies: [],
+          isRoot: true
+        }];
+      }
 
       // Initialize all nodes as expanded
       expandedNodes = new Set(lineage.map(item => item.versionId));
     } catch (error) {
       console.error('Failed to load dataset:', error);
+      dataset = null;
+      lineage = [];
     } finally {
       loading = false;
+    }
+  }
+
+  function buildLineageFromBundle(bundleData, currentVersionId) {
+    // If bundle has lineage information, use it
+    if (bundleData.lineage && Array.isArray(bundleData.lineage)) {
+      return bundleData.lineage.map((item, index) => ({
+        versionId: item.versionId || item.id || `unknown-${index}`,
+        license: item.license || 'Unknown',
+        producer: item.producer || 'Unknown',
+        current: item.versionId === currentVersionId,
+        createdAt: item.createdAt || new Date().toISOString(),
+        size: item.size || 'Unknown',
+        type: item.type || 'Unknown',
+        dependencies: item.dependencies || [],
+        isRoot: index === bundleData.lineage.length - 1
+      }));
+    } else {
+      // Fallback: single item lineage
+      return [{
+        versionId: currentVersionId,
+        license: 'Unknown',
+        producer: 'Unknown',
+        current: true,
+        createdAt: new Date().toISOString(),
+        size: 'Unknown',
+        type: 'Unknown',
+        dependencies: [],
+        isRoot: true
+      }];
     }
   }
 
@@ -95,23 +181,28 @@
     try {
       policyResult = { loading: true };
 
-      // Mock policy check
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
+      // Parse the policy to validate JSON
       const policy = JSON.parse(policyJson);
-      const ready = Math.random() > 0.3; // 70% chance of ready
+
+      // Call the real ready API
+      const response = await fetch(`/ready?versionId=${encodeURIComponent(versionId)}`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
 
       policyResult = {
-        ready,
-        reason: ready
-          ? 'All policy conditions satisfied'
-          : 'License compatibility issue detected',
-        policy
+        ready: result.ready || false,
+        reason: result.reason || result.message || 'No reason provided',
+        policy,
+        details: result
       };
     } catch (error) {
       policyResult = {
         ready: false,
-        reason: 'Invalid JSON policy',
+        reason: error.message.includes('JSON') ? 'Invalid JSON policy' : `Policy check failed: ${error.message}`,
         error: error.message
       };
     }
