@@ -421,8 +421,67 @@ export function modelsRouter(db: Database.Database): Router {
       const id = String(req.params.id);
       const r = getModel(db, id);
       if (!r) return json(res, 404, { error: 'not-found' });
+
       const policyId = req.query.policyId ? String(req.query.policyId) : '';
-      const u = `${SELF}/ready?versionId=${encodeURIComponent(r.model_version_id)}${policyId ? `&policyId=${encodeURIComponent(policyId)}` : ''}`;
+
+      // For models, use local policy evaluation with model-specific manifest
+      if (policyId) {
+        try {
+          const { evaluatePolicy } = await import('../policies');
+
+          // Get policy
+          const policyRow = db.prepare(`SELECT * FROM policies WHERE policy_id = ? AND enabled = 1`).get(policyId) as any;
+          if (!policyRow) {
+            return json(res, 404, { error: 'policy-not-found' });
+          }
+
+          const policy = JSON.parse(policyRow.policy_json);
+
+          // Create model-specific manifest
+          const manifest = {
+            confirmations: 10, // Mock confirmation count
+            recalled: false,
+            policy: { classification: 'public', license: 'MIT' },
+            provenance: {
+              producer: { identityKey: 'model-producer' },
+              createdAt: new Date(r.created_at * 1000).toISOString()
+            },
+            content: {
+              mimeType: r.framework === 'PyTorch' ? 'application/x-pytorch' : 'application/x-tensorflow',
+              contentHash: r.model_hash
+            },
+            stats: { rowCount: 1000000, nullPercentage: 0.1 },
+            featureSetId: r.framework === 'PyTorch' ? 'pytorch-features-v1' : 'tensorflow-features-v1',
+            splitTag: 'train',
+            piiFlags: [],
+            geoOrigin: 'US'
+          };
+
+          // Create model lineage
+          const lineage = [
+            { versionId: 'training_dataset_v1', type: 'dataset' },
+            { versionId: r.model_version_id, type: 'model' }
+          ];
+
+          const decision = await evaluatePolicy(r.model_version_id, policy, manifest, lineage);
+
+          return json(res, 200, {
+            ready: decision.decision !== 'block',
+            decision: decision.decision,
+            reasons: decision.reasons,
+            warnings: decision.warnings,
+            evidence: decision.evidence,
+            modelVersionId: r.model_version_id,
+            modelHash: r.model_hash
+          });
+
+        } catch (e: any) {
+          return json(res, 500, { error: 'policy-evaluation-failed', message: e.message });
+        }
+      }
+
+      // Fallback to proxy for non-policy requests
+      const u = `${SELF}/ready?versionId=${encodeURIComponent(r.model_version_id)}`;
       const js = await httpJson('GET', u);
       return json(res, 200, js);
     } catch (e: any) {

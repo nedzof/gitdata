@@ -37,6 +37,7 @@ import { createStorageEventsMigration } from './src/storage/lifecycle';
 import { runIngestMigrations, ingestRouter, startIngestWorker } from './src/ingest';
 import { startJobsWorker } from './src/agents/worker';
 import { runModelsMigrations, modelsRouter } from './src/models/scaffold';
+import { runPolicyMigrations, policiesRouter } from './src/policies';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,6 +70,9 @@ runIngestMigrations(db);
 // D27: Initialize models schema
 runModelsMigrations(db);
 
+// D28: Initialize policies schema
+runPolicyMigrations(db);
+
 // Attach per-route metrics wrappers before routers (best-effort)
 app.use('/ready', metricsRoute('ready'));
 app.use('/price', metricsRoute('price'));
@@ -82,6 +86,7 @@ app.use('/rules', metricsRoute('rules'));
 app.use('/jobs', metricsRoute('jobs'));
 app.use('/payments', metricsRoute('payments'));
 app.use('/api/models', metricsRoute('models'));
+app.use('/policies', metricsRoute('policies'));
 
 // API routes with rate limiting
 app.use(rateLimit('bundle'), bundleRouter(db));
@@ -120,6 +125,9 @@ app.use(rateLimit('ingest'), ingestRouter(db));
 
 // D27: Model provenance & reverse lineage (/api/models/connect, /api/models/search, etc.)
 app.use('/api/models', rateLimit('models'), modelsRouter(db));
+
+// D28: Policy governance (/policies CRUD, /policies/evaluate)
+app.use('/policies', rateLimit('policies'), policiesRouter(db));
 
 // D01 Builder route with rate limiting
 app.use(rateLimit('submit'), submitDlm1Router());

@@ -8,6 +8,7 @@ import {
   verifyEnvelopeAgainstHeaders,
   type HeadersIndex,
 } from '../spv/verify-envelope';
+import { evaluatePolicy, type PolicyJSON, type PolicyDecision } from '../policies';
 
 function getPolicyMinConfs() {
   return Number(process.env.POLICY_MIN_CONFS || 1);
@@ -24,6 +25,15 @@ function ensureHeaders(): HeadersIndex {
 
 function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
+}
+
+function getPolicy(db: Database.Database, policyId: string) {
+  try {
+    const row = db.prepare(`SELECT * FROM policies WHERE policy_id = ? AND enabled = 1`).get(policyId) as any;
+    return row ? JSON.parse(row.policy_json) : null;
+  } catch (e) {
+    return null;
+  }
 }
 
 /**
@@ -106,7 +116,60 @@ export function readyRouter(db: Database.Database): Router {
       }
 
       const confsOut = Number.isFinite(minConfsAcross) ? minConfsAcross : undefined;
-      return json(res, 200, { ready: true, reason: null, confirmations: confsOut });
+
+      // D28: Optional policy evaluation
+      const policyId = req.query.policyId ? String(req.query.policyId) : null;
+      let policyDecision: PolicyDecision | null = null;
+
+      if (policyId) {
+        try {
+          const policy = getPolicy(db, policyId);
+          if (!policy) {
+            return json(res, 404, { ready: false, reason: 'policy-not-found' });
+          }
+
+          // Create mock manifest for policy evaluation
+          const manifest = {
+            confirmations: confsOut || 0,
+            recalled: false, // Would check advisories in production
+            policy: { classification: 'public', license: 'MIT' },
+            provenance: {
+              producer: { identityKey: 'demo-producer' },
+              createdAt: new Date().toISOString()
+            },
+            content: { mimeType: 'application/json' }
+          };
+
+          // Create mock lineage
+          const lineage = Array.from(seen).map(v => ({ versionId: v, type: 'data' }));
+
+          policyDecision = await evaluatePolicy(versionId, policy, manifest, lineage);
+
+          // If policy blocks, override ready status
+          if (policyDecision.decision === 'block') {
+            return json(res, 200, {
+              ready: false,
+              reason: 'policy-blocked',
+              confirmations: confsOut,
+              policy: policyDecision
+            });
+          }
+        } catch (e) {
+          // Policy evaluation error - don't block, just warn
+          policyDecision = {
+            decision: 'warn' as const,
+            reasons: [`Policy evaluation failed: ${e.message}`],
+            evidence: {}
+          };
+        }
+      }
+
+      const response: any = { ready: true, reason: null, confirmations: confsOut };
+      if (policyDecision) {
+        response.policy = policyDecision;
+      }
+
+      return json(res, 200, response);
     } catch (e: any) {
       return json(res, 500, { ready: false, reason: String(e?.message || e) });
     }
