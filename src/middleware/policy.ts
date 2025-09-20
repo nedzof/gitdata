@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import Database from 'better-sqlite3';
-import { listJobs } from '../db';
+import { listJobs, getTestDatabase, isTestEnvironment } from '../db';
 
 // Policy configuration from environment
 const RULES_MAX_CONCURRENCY = Number(process.env.RULES_MAX_CONCURRENCY || 10);
@@ -31,7 +31,7 @@ function resetExpiredCounts() {
   }
 }
 
-export function enforceAgentRegistrationPolicy(db: Database.Database) {
+export function enforceAgentRegistrationPolicy(testDb?: Database.Database) {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
       // Skip rate limiting only if explicitly disabled (not in tests that want to test rate limiting)
@@ -81,11 +81,14 @@ export function enforceAgentRegistrationPolicy(db: Database.Database) {
   };
 }
 
-export function enforceRuleConcurrency(db: Database.Database) {
+export function enforceRuleConcurrency(testDb?: Database.Database) {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
-      // Skip concurrency limits only if explicitly disabled
-      if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits']) {
+      // Get appropriate database
+      const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
+
+      // Skip concurrency limits if no database available (PostgreSQL mode)
+      if (!db || (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits'])) {
         return next();
       }
 
@@ -108,11 +111,14 @@ export function enforceRuleConcurrency(db: Database.Database) {
   };
 }
 
-export function enforceJobCreationPolicy(db: Database.Database) {
+export function enforceJobCreationPolicy(testDb?: Database.Database) {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
-      // Skip job creation limits only if explicitly disabled
-      if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits']) {
+      // Get appropriate database
+      const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
+
+      // Skip job creation limits if no database available (PostgreSQL mode) or explicitly disabled
+      if (!db || (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits'])) {
         return next();
       }
 
@@ -271,7 +277,19 @@ export function resetPolicyState() {
 }
 
 // Policy metrics for monitoring
-export function getPolicyMetrics(db: Database.Database) {
+export function getPolicyMetrics(testDb?: Database.Database) {
+  // Get appropriate database
+  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
+
+  if (!db) {
+    // Return empty metrics for PostgreSQL mode
+    return {
+      jobs: { running: 0, queued: 0, failed: 0, dead: 0 },
+      agentRegistrations: { totalIPs: 0, totalRegistrations: 0 },
+      concurrency: { current: 0, max: RULES_MAX_CONCURRENCY }
+    };
+  }
+
   const runningJobs = listJobs(db, 'running').length;
   const queuedJobs = listJobs(db, 'queued').length;
   const failedJobs = listJobs(db, 'failed').length;

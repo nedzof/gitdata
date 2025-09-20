@@ -1,7 +1,8 @@
 import { test, expect, beforeAll, afterAll, beforeEach, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import { openDb, initSchema } from '../../src/db';
+import Database from 'better-sqlite3';
+import { initSchema, getTestDatabase } from '../../src/db';
 import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
@@ -18,13 +19,13 @@ import {
 } from '../../src/middleware/policy';
 
 let app: express.Application;
-let db: any;
+let db: Database.Database;
 let workerCleanup: any;
 
 beforeAll(async () => {
   // Create in-memory database for testing
-  db = openDb(':memory:');
-  initSchema(db);
+  await initSchema();
+  db = getTestDatabase();
 
   // Setup Express app with agent marketplace routes
   app = express();

@@ -1,18 +1,23 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
-import { createTemplate, getTemplate, listTemplates, updateTemplate, deleteTemplate } from '../db';
+import { createTemplate, getTemplate, listTemplates, updateTemplate, deleteTemplate, getTestDatabase, isTestEnvironment } from '../db';
 import { generateContract, EXAMPLE_CONTRACT_TEMPLATE, EXAMPLE_TEMPLATE_SCHEMA } from '../agents/templates';
 import { requireIdentity } from '../middleware/identity';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
-export function templatesRouter(db: Database.Database): Router {
+export function templatesRouter(testDb?: Database.Database): Router {
+  // Get appropriate database
+  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
   const router = makeRouter();
 
   // POST / (create template)
   router.post('/', requireIdentity(false), (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return json(res, 501, { error: 'not-implemented', message: 'Templates not yet implemented for PostgreSQL' });
+      }
       const { name, description, content, type = 'pdf', variables } = req.body || {};
       if (!name || !content) {
         return json(res, 400, { error: 'bad-request', hint: 'name and content required' });

@@ -1,7 +1,7 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
-import { createRule, updateRule, getRule, listRules, deleteRule, enqueueJob } from '../db';
+import { createRule, updateRule, getRule, listRules, deleteRule, enqueueJob, getTestDatabase, isTestEnvironment } from '../db';
 import { requireIdentity } from '../middleware/identity';
 import { searchManifests } from '../db';
 
@@ -12,12 +12,17 @@ function toJsonOrString(v: any) {
   return typeof v === 'string' ? v : JSON.stringify(v ?? {});
 }
 
-export function rulesRouter(db: Database.Database): Router {
+export function rulesRouter(testDb?: Database.Database): Router {
+  // Get appropriate database
+  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
   const router = makeRouter();
 
   // POST / (create)
   router.post('/', requireIdentity(false), (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return json(res, 501, { error: 'not-implemented', message: 'Rules not yet implemented for PostgreSQL' });
+      }
       const { name, enabled=true, when, find, actions } = req.body || {};
       if (!name || !when || !find || !Array.isArray(actions)) {
         return json(res, 400, { error: 'bad-request', hint: 'name, when, find, actions[] required' });
@@ -36,6 +41,9 @@ export function rulesRouter(db: Database.Database): Router {
 
   // GET /
   router.get('/', (req: Request, res: Response) => {
+    if (!db) {
+      return json(res, 501, { error: 'not-implemented', message: 'Rules not yet implemented for PostgreSQL' });
+    }
     const enabledOnly = /^true$/i.test(String(req.query.enabled || 'false'));
     const items = listRules(db, enabledOnly, 100, 0).map(r => ({
       ruleId: r.rule_id, name: r.name, enabled: !!r.enabled,
@@ -47,6 +55,9 @@ export function rulesRouter(db: Database.Database): Router {
 
   // GET /:id
   router.get('/:id', (req: Request, res: Response) => {
+    if (!db) {
+      return json(res, 501, { error: 'not-implemented', message: 'Rules not yet implemented for PostgreSQL' });
+    }
     const r = getRule(db, String(req.params.id));
     if (!r) return json(res, 404, { error: 'not-found' });
     return json(res, 200, {
@@ -77,6 +88,9 @@ export function rulesRouter(db: Database.Database): Router {
 
   // DELETE /:id
   router.delete('/:id', requireIdentity(false), (req: Request, res: Response) => {
+    if (!db) {
+      return json(res, 501, { error: 'not-implemented', message: 'Rules not yet implemented for PostgreSQL' });
+    }
     deleteRule(db, String(req.params.id));
     return json(res, 200, { status: 'ok' });
   });
@@ -84,6 +98,9 @@ export function rulesRouter(db: Database.Database): Router {
   // POST /:id/run (manual trigger => enqueue jobs for found items)
   router.post('/:id/run', requireIdentity(false), (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return json(res, 501, { error: 'not-implemented', message: 'Rules not yet implemented for PostgreSQL' });
+      }
       const r = getRule(db, String(req.params.id));
       if (!r) return json(res, 404, { error: 'not-found' });
       const find = JSON.parse(r.find_json || '{}');

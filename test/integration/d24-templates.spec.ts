@@ -1,17 +1,18 @@
 import { test, expect, beforeAll, afterAll, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import { openDb, initSchema } from '../../src/db';
+import Database from 'better-sqlite3';
+import { initSchema, getTestDatabase } from '../../src/db';
 import { templatesRouter } from '../../src/routes/templates';
 import { generateContract, renderTemplate, validateTemplateVariables, EXAMPLE_TEMPLATE_SCHEMA } from '../../src/agents/templates';
 import { enforceResourceLimits } from '../../src/middleware/policy';
 
 let app: express.Application;
-let db: any;
+let db: Database.Database;
 
 beforeAll(async () => {
-  db = openDb(':memory:');
-  initSchema(db);
+  await initSchema();
+  db = getTestDatabase();
 
   app = express();
   app.use(express.json());
@@ -19,7 +20,7 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  if (db) db.close();
+  if (db && db.open) db.close();
 });
 
 describe('D24 Template System - Comprehensive Testing', () => {

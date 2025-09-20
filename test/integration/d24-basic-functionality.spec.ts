@@ -1,7 +1,8 @@
 import { test, expect, beforeEach, afterEach, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import { openDb, initSchema } from '../../src/db';
+import Database from 'better-sqlite3';
+import { initSchema, getTestDatabase } from '../../src/db';
 import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
@@ -11,8 +12,75 @@ import { startJobsWorker } from '../../src/agents/worker';
 
 // Create a fresh setup for each test to avoid rate limiting conflicts
 function createTestApp() {
-  const db = openDb(':memory:');
-  initSchema(db);
+  // Create fresh database for this test
+  const db = new Database(':memory:');
+
+  // Initialize base schema in test database
+  const initSQL = `
+    CREATE TABLE IF NOT EXISTS agents (
+      agent_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      capabilities_json TEXT NOT NULL DEFAULT '[]',
+      webhook_url TEXT NOT NULL,
+      identity_key TEXT,
+      status TEXT DEFAULT 'unknown',
+      last_ping_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS rules (
+      rule_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      when_json TEXT NOT NULL,
+      find_json TEXT NOT NULL,
+      actions_json TEXT NOT NULL,
+      owner_producer_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS jobs (
+      job_id TEXT PRIMARY KEY,
+      rule_id TEXT NOT NULL,
+      target_id TEXT,
+      state TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_run_at INTEGER NOT NULL,
+      last_error TEXT,
+      evidence_json TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS contract_templates (
+      template_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      template_content TEXT NOT NULL,
+      template_type TEXT DEFAULT 'pdf',
+      variables_json TEXT,
+      owner_producer_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS artifacts (
+      artifact_id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      artifact_type TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      file_path TEXT,
+      content_data BLOB,
+      version_id TEXT,
+      metadata_json TEXT,
+      created_at INTEGER NOT NULL,
+      published_at INTEGER
+    );
+  `;
+
+  db.exec(initSQL);
 
   const app = express();
   app.use(express.json());

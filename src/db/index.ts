@@ -515,3 +515,290 @@ export async function searchOLDatasets(namespace: string, query?: string): Promi
   // TODO: Implement OpenLineage dataset search
   return [];
 }
+
+// Agent, Rule, and Job management functions for D24 compatibility
+
+export function listJobs(db: any, state?: string, limit = 100, offset = 0): JobRow[] {
+  if (!db) return [];
+
+  let query = 'SELECT * FROM jobs';
+  const params: any[] = [];
+
+  if (state) {
+    query += ' WHERE state = ?';
+    params.push(state);
+  }
+
+  query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+
+  return db.prepare(query).all(...params) as JobRow[];
+}
+
+export function upsertAgent(db: any, agent: Partial<any>): string {
+  if (!db) throw new Error('Database not available');
+
+  const agentId = agent.agent_id || `agent_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const now = Date.now();
+
+  db.prepare(`
+    INSERT OR REPLACE INTO agents (
+      agent_id, name, capabilities_json, webhook_url, identity_key,
+      status, last_ping_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    agentId,
+    agent.name,
+    agent.capabilities_json || '[]',
+    agent.webhook_url,
+    agent.identity_key,
+    agent.status || 'unknown',
+    agent.last_ping_at,
+    agent.created_at || now,
+    now
+  );
+
+  return agentId;
+}
+
+export function getAgent(db: any, agentId: string): any {
+  if (!db) return null;
+  return db.prepare('SELECT * FROM agents WHERE agent_id = ?').get(agentId);
+}
+
+export function searchAgents(db: any, q?: string, capability?: string, limit = 50, offset = 0): any[] {
+  if (!db) return [];
+
+  let query = 'SELECT * FROM agents WHERE 1=1';
+  const params: any[] = [];
+
+  if (q) {
+    query += ' AND (name LIKE ? OR agent_id LIKE ?)';
+    params.push(`%${q}%`, `%${q}%`);
+  }
+
+  if (capability) {
+    query += ' AND capabilities_json LIKE ?';
+    params.push(`%${capability}%`);
+  }
+
+  query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+
+  return db.prepare(query).all(...params);
+}
+
+export function setAgentPing(db: any, agentId: string, success: boolean): void {
+  if (!db) return;
+
+  const status = success ? 'up' : 'down';
+  const now = Date.now();
+
+  db.prepare(`
+    UPDATE agents
+    SET status = ?, last_ping_at = ?, updated_at = ?
+    WHERE agent_id = ?
+  `).run(status, now, now, agentId);
+}
+
+export function createRule(db: any, rule: Partial<any>): string {
+  if (!db) throw new Error('Database not available');
+
+  const ruleId = `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const now = Date.now();
+
+  db.prepare(`
+    INSERT INTO rules (
+      rule_id, name, enabled, when_json, find_json, actions_json,
+      owner_producer_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    ruleId,
+    rule.name,
+    rule.enabled || 1,
+    rule.when_json || '{}',
+    rule.find_json || '{}',
+    rule.actions_json || '[]',
+    rule.owner_producer_id,
+    now,
+    now
+  );
+
+  return ruleId;
+}
+
+export function updateRule(db: any, ruleId: string, updates: Partial<any>): void {
+  if (!db) return;
+
+  const now = Date.now();
+  const setFields = [];
+  const params = [];
+
+  if (updates.name !== undefined) {
+    setFields.push('name = ?');
+    params.push(updates.name);
+  }
+
+  if (updates.enabled !== undefined) {
+    setFields.push('enabled = ?');
+    params.push(updates.enabled);
+  }
+
+  if (updates.when_json !== undefined) {
+    setFields.push('when_json = ?');
+    params.push(updates.when_json);
+  }
+
+  if (updates.find_json !== undefined) {
+    setFields.push('find_json = ?');
+    params.push(updates.find_json);
+  }
+
+  if (updates.actions_json !== undefined) {
+    setFields.push('actions_json = ?');
+    params.push(updates.actions_json);
+  }
+
+  if (setFields.length === 0) return;
+
+  setFields.push('updated_at = ?');
+  params.push(now);
+  params.push(ruleId);
+
+  db.prepare(`UPDATE rules SET ${setFields.join(', ')} WHERE rule_id = ?`).run(...params);
+}
+
+export function getRule(db: any, ruleId: string): any {
+  if (!db) return null;
+  return db.prepare('SELECT * FROM rules WHERE rule_id = ?').get(ruleId);
+}
+
+export function listRules(db: any, enabledOnly = false, limit = 100, offset = 0): any[] {
+  if (!db) return [];
+
+  let query = 'SELECT * FROM rules';
+  const params: any[] = [];
+
+  if (enabledOnly) {
+    query += ' WHERE enabled = 1';
+  }
+
+  query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+
+  return db.prepare(query).all(...params);
+}
+
+export function deleteRule(db: any, ruleId: string): void {
+  if (!db) return;
+  db.prepare('DELETE FROM rules WHERE rule_id = ?').run(ruleId);
+}
+
+export function enqueueJob(db: any, job: Partial<any>): string {
+  if (!db) throw new Error('Database not available');
+
+  const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const now = Date.now();
+
+  db.prepare(`
+    INSERT INTO jobs (
+      job_id, rule_id, target_id, state, attempts, next_run_at,
+      last_error, evidence_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    jobId,
+    job.rule_id,
+    job.target_id,
+    job.state || 'queued',
+    job.attempts || 0,
+    job.next_run_at || now,
+    job.last_error,
+    job.evidence_json,
+    now,
+    now
+  );
+
+  return jobId;
+}
+
+export function createTemplate(db: any, template: Partial<any>): string {
+  if (!db) throw new Error('Database not available');
+
+  const templateId = `template_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const now = Date.now();
+
+  db.prepare(`
+    INSERT INTO contract_templates (
+      template_id, name, description, template_content, template_type,
+      variables_json, owner_producer_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    templateId,
+    template.name,
+    template.description,
+    template.template_content,
+    template.template_type || 'pdf',
+    template.variables_json,
+    template.owner_producer_id,
+    now,
+    now
+  );
+
+  return templateId;
+}
+
+export function getTemplate(db: any, templateId: string): any {
+  if (!db) return null;
+  return db.prepare('SELECT * FROM contract_templates WHERE template_id = ?').get(templateId);
+}
+
+export function listTemplates(db: any, limit = 100, offset = 0): any[] {
+  if (!db) return [];
+  return db.prepare('SELECT * FROM contract_templates ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset);
+}
+
+export function updateTemplate(db: any, templateId: string, updates: Partial<any>): void {
+  if (!db) return;
+
+  const now = Date.now();
+  const setFields = [];
+  const params = [];
+
+  if (updates.name !== undefined) {
+    setFields.push('name = ?');
+    params.push(updates.name);
+  }
+
+  if (updates.description !== undefined) {
+    setFields.push('description = ?');
+    params.push(updates.description);
+  }
+
+  if (updates.template_content !== undefined) {
+    setFields.push('template_content = ?');
+    params.push(updates.template_content);
+  }
+
+  if (updates.template_type !== undefined) {
+    setFields.push('template_type = ?');
+    params.push(updates.template_type);
+  }
+
+  if (updates.variables_json !== undefined) {
+    setFields.push('variables_json = ?');
+    params.push(updates.variables_json);
+  }
+
+  if (setFields.length === 0) return;
+
+  setFields.push('updated_at = ?');
+  params.push(now);
+  params.push(templateId);
+
+  db.prepare(`UPDATE contract_templates SET ${setFields.join(', ')} WHERE template_id = ?`).run(...params);
+}
+
+export function deleteTemplate(db: any, templateId: string): void {
+  if (!db) return;
+  db.prepare('DELETE FROM contract_templates WHERE template_id = ?').run(templateId);
+}

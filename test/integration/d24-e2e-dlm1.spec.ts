@@ -1,7 +1,8 @@
 import { test, expect, beforeAll, afterAll, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import { openDb, initSchema, createManifest, setPrice } from '../../src/db';
+import Database from 'better-sqlite3';
+import { initSchema, getTestDatabase, upsertManifest, setPrice } from '../../src/db';
 import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
@@ -14,13 +15,13 @@ import { startJobsWorker } from '../../src/agents/worker';
 import { MockServer } from '../helpers/mock-server';
 
 let app: express.Application;
-let db: any;
+let db: Database.Database;
 let workerCleanup: any;
 let mockServer: MockServer;
 
 beforeAll(async () => {
-  db = openDb(':memory:');
-  initSchema(db);
+  await initSchema();
+  db = getTestDatabase();
 
   // Create Express app with full DLM1 infrastructure
   app = express();
