@@ -110,6 +110,42 @@ class APIClient {
     return this.request(`/jobs?${params}`);
   }
 
+  // Policies endpoints
+  async createPolicy(name: string, policy: any) {
+    return this.request('/policies', {
+      method: 'POST',
+      body: { name, policy }
+    });
+  }
+
+  async getPolicies() {
+    return this.request('/policies');
+  }
+
+  async getPolicy(policyId: string) {
+    return this.request(`/policies/${encodeURIComponent(policyId)}`);
+  }
+
+  async updatePolicy(policyId: string, updates: any) {
+    return this.request(`/policies/${encodeURIComponent(policyId)}`, {
+      method: 'PATCH',
+      body: updates
+    });
+  }
+
+  async deletePolicy(policyId: string) {
+    return this.request(`/policies/${encodeURIComponent(policyId)}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async evaluatePolicy(versionId: string, policyId?: string, policy?: any) {
+    return this.request('/policies/evaluate', {
+      method: 'POST',
+      body: { versionId, policyId, policy }
+    });
+  }
+
   // Health endpoint
   async getHealth() {
     return this.request('/health');

@@ -6,7 +6,7 @@
   function handleSearch(event) {
     event.preventDefault();
     if (searchQuery.trim()) {
-      goto(`/explorer/version/${encodeURIComponent(searchQuery.trim())}`);
+      goto(`/data/version/${encodeURIComponent(searchQuery.trim())}`);
     }
   }
 </script>
@@ -25,11 +25,9 @@
   </form>
 
   <div class="links">
-    <a href="/docs">Docs</a>
-    <a href="/explorer">Explorer</a>
-    <a href="/models">Models</a>
-    <a href="/agents">Agents</a>
-    <a href="/rules">Rules</a>
-    <a href="/jobs">Jobs</a>
+    <a href="/docs">📚 Docs</a>
+    <a href="/data">📊 Data & Policies</a>
+    <a href="/models">🤖 Models</a>
+    <a href="/automation">⚙️ Automation Hub</a>
   </div>
 </main>
