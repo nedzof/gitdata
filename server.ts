@@ -92,22 +92,24 @@ app.use(rateLimit('pay'), payRouter());
 app.use(rateLimit('data'), dataRouter());
 app.use(healthRouter());
 app.use('/listings', rateLimit('submit'), listingsRouter());
-// app.use(rateLimit('submit'), producersRouter(db)); // TODO: Update to hybrid
-// app.use(rateLimit('submit'), advisoriesRouter(db)); // TODO: Update to hybrid
+// TODO: These routes need to be updated to work without database parameter
+// app.use(rateLimit('submit'), producersRouter());
+app.use(rateLimit('submit'), advisoriesRouter());
 
 // TODO: Update these routes to use hybrid database
 // D19: Identity-signed producer registration
-// app.use(producersRegisterRouter(db));
+// app.use(producersRegisterRouter());
 
-// D16: A2A Agent marketplace routes with policy enforcement
-// app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(db), agentsRouter(db));
-// app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(db), enforceJobCreationPolicy(db), rulesRouter(db));
-// app.use('/jobs', jobsRouter(db));
-// app.use('/templates', enforceResourceLimits(), templatesRouter(db));
-// app.use('/artifacts', createArtifactRoutes(db));
+// D16: A2A Agent marketplace routes with policy enforcement (updated for hybrid)
+app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(), agentsRouter());
+app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(), enforceJobCreationPolicy(), rulesRouter());
+app.use('/jobs', jobsRouter());
+app.use('/templates', enforceResourceLimits(), templatesRouter());
+// TODO: createArtifactRoutes still needs database parameter
+// app.use('/artifacts', createArtifactRoutes());
 
-// D18: Catalog routes (/search and /resolve)
-// app.use(catalogRouter(db));
+// D18: Catalog routes (/search and /resolve) - updated for hybrid
+app.use(catalogRouter());
 
 // D17: Ops routes (/health and /metrics)
 // app.use(opsRouter(db));

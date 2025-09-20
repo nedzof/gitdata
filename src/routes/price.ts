@@ -15,13 +15,13 @@ export function priceRouter(db: Database.Database): Router {
   const router = makeRouter();
 
   // GET /price?versionId=&quantity=...
-  router.get('/price', (req: Request, res: Response) => {
+  router.get('/price', async (req: Request, res: Response) => {
     const versionId = String(req.query.versionId || '').toLowerCase();
     const qtyParam = req.query.quantity;
     const quantity = Math.max(1, Number(qtyParam || 1));
     if (!isHex64(versionId)) return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
 
-    const man = getManifest(db, versionId);
+    const man = await getManifest(versionId);
     if (!man) return json(res, 404, { error: 'not-found', hint: 'manifest missing' });
 
     const best = getBestUnitPrice(db, versionId, quantity, PRICE_DEFAULT_SATS);
@@ -53,7 +53,7 @@ export function priceRouter(db: Database.Database): Router {
   });
 
   // Legacy: POST /price { versionId, satoshis } - for backward compatibility
-  router.post('/price', requireIdentity(), (req: Request, res: Response) => {
+  router.post('/price', requireIdentity(), async (req: Request, res: Response) => {
     const { versionId, satoshis } = req.body || {};
     if (!isHex64(String(versionId || ''))) {
       return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
@@ -63,12 +63,12 @@ export function priceRouter(db: Database.Database): Router {
     }
 
     // Optional: ensure manifest exists before setting price
-    const man = getManifest(db, String(versionId).toLowerCase());
+    const man = await getManifest(String(versionId).toLowerCase());
     if (!man) {
       return json(res, 404, { error: 'not-found', hint: 'manifest missing' });
     }
 
-    setPrice(db, String(versionId).toLowerCase(), Number(satoshis));
+    await setPrice(String(versionId).toLowerCase(), Number(satoshis));
     return json(res, 200, { status: 'ok' });
   });
 

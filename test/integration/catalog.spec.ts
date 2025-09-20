@@ -60,7 +60,7 @@ describe('Catalog Integration Test', () => {
       dataset_id: datasetId,
       producer_id: null,
     });
-    replaceEdges(db, vChild, [vParent]);
+    await replaceEdges(vChild, [vParent]);
 
     // 1) /search by datasetId
     const s1 = await request(app).get(`/search?datasetId=${datasetId}`);

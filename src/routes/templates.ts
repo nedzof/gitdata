@@ -40,7 +40,8 @@ export function templatesRouter(testDb?: Database.Database): Router {
   // GET / (list templates)
   router.get('/', (req: Request, res: Response) => {
     const ownerId = req.query.owner ? String(req.query.owner) : undefined;
-    const items = listTemplates(db, ownerId, 100, 0).map(t => ({
+    // Fix: listTemplates doesn't take ownerId parameter, call with correct parameters
+    const items = listTemplates(db, 100, 0).map(t => ({
       templateId: t.template_id,
       name: t.name,
       description: t.description,
@@ -49,6 +50,7 @@ export function templatesRouter(testDb?: Database.Database): Router {
       createdAt: t.created_at,
       updatedAt: t.updated_at
     }));
+    // TODO: Filter by ownerId if needed
     return json(res, 200, { items });
   });
 

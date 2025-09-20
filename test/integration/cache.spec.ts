@@ -65,7 +65,7 @@ describe('Cache Integration Test', () => {
     created_at: man.provenance.createdAt, manifest_json: JSON.stringify(man),
     dataset_id: man.datasetId, producer_id: null
   });
-  replaceEdges(db, vid, []);
+  await replaceEdges(vid, []);
 
   const env = {
     rawTx,

@@ -92,17 +92,17 @@ export async function ingestSubmission(opts: {
   } as any);
 
   if (opretVout !== null) {
-    setOpretVout(db, versionId, opretVout);
+    await setOpretVout(versionId, opretVout);
   }
 
   // 5) Persist edges
   if (parents.length) {
-    replaceEdges(db, versionId, parents);
+    await replaceEdges(versionId, parents);
   }
 
   // 6) Optionally persist SPV envelope (JSON string)
   if (envelopeJson) {
-    setProofEnvelope(db, versionId, JSON.stringify(envelopeJson));
+    await setProofEnvelope(versionId, JSON.stringify(envelopeJson));
   }
 
   return { versionId, opretVout, tag };

@@ -7,13 +7,17 @@ import {
   listAdvisoriesForVersionActive,
   listAdvisoriesForProducerActive,
   getProducerIdForVersion,
+  isTestEnvironment,
+  getTestDatabase,
   type AdvisoryRow,
 } from '../db';
 import { initAdvisoryValidator, validateAdvisory } from '../validators/advisory';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
-export function advisoriesRouter(db: Database.Database): Router {
+export function advisoriesRouter(testDb?: Database.Database): Router {
+  // Get appropriate database
+  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
   const router = makeRouter();
   initAdvisoryValidator();
 
@@ -21,6 +25,10 @@ export function advisoriesRouter(db: Database.Database): Router {
   // Body: { type:'BLOCK'|'WARN', reason:string, expiresAt?:number, payload?:object, targets:{ versionIds?:string[], producerIds?:string[] } }
   router.post('/advisories', (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return json(res, 501, { error: 'not-implemented', message: 'Advisories not yet implemented for PostgreSQL' });
+      }
+
       const { type, reason, expiresAt, payload, targets } = req.body || {};
       if (type !== 'BLOCK' && type !== 'WARN') return json(res, 400, { error: 'bad-request', hint: 'type must be BLOCK or WARN' });
       if (typeof reason !== 'string' || reason.length < 3) return json(res, 400, { error: 'bad-request', hint: 'reason required' });
@@ -70,6 +78,10 @@ export function advisoriesRouter(db: Database.Database): Router {
 
   // GET /advisories?versionId=... | /advisories?producerId=...
   router.get('/advisories', (req: Request, res: Response) => {
+    if (!db) {
+      return json(res, 501, { error: 'not-implemented', message: 'Advisories not yet implemented for PostgreSQL' });
+    }
+
     const versionId = req.query.versionId ? String(req.query.versionId).toLowerCase() : undefined;
     const producerId = req.query.producerId ? String(req.query.producerId) : undefined;
     const now = Math.floor(Date.now() / 1000);

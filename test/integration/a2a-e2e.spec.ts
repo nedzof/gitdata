@@ -14,7 +14,7 @@ import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
-import { initSchema } from '../../src/db';
+import { getTestDatabase } from '../../src/db';
 import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
@@ -78,8 +78,7 @@ class A2AE2ETest {
     fs.mkdirSync(path.join(this.evidenceDir, 'evidence'), { recursive: true });
 
     // Setup test database
-    this.db = new Database(':memory:');
-    initSchema(this.db);
+    this.db = getTestDatabase();
 
     // Insert test data for search manifests
     this.db.prepare(`

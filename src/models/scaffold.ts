@@ -276,7 +276,7 @@ function buildLineageTree(db: Database.Database, versionId: string): any[] {
     }
 
     // Get manifest details for current version
-    const manifest = getManifest(db, currentVersionId);
+    const manifest = await getManifest(currentVersionId);
     if (manifest) {
       try {
         const manifestData = JSON.parse(manifest.manifest_json || '{}');

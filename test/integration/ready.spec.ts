@@ -113,7 +113,7 @@ describe('/ready endpoint comprehensive tests', () => {
       title: null, license: 'cc-by-4.0', classification: 'public',
       created_at: manifestChild.provenance.createdAt, manifest_json: JSON.stringify(manifestChild)
     });
-    replaceEdges(db, vidChild, [vidParent]);
+    await replaceEdges(vidChild, [vidParent]);
 
     // SPV envelopes (blockHash/height path for both)
     const envChild = {

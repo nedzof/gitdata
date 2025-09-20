@@ -57,12 +57,12 @@ export function dataRouter(db: Database.Database): Router {
       }
 
       // Load receipt and validate
-      const rc = getReceipt(db, receiptId);
+      const rc = await getReceipt(receiptId);
       if (!rc) return json(res, 404, { error: 'not-found', hint: 'receipt missing' });
 
       const now = Math.floor(Date.now() / 1000);
       if (now > rc.expires_at) {
-        setReceiptStatus(db, receiptId, 'expired');
+        await setReceiptStatus(receiptId, 'expired');
         return json(res, 403, { error: 'expired', hint: 'receipt expired' });
       }
 
@@ -77,7 +77,7 @@ export function dataRouter(db: Database.Database): Router {
       }
 
       // Optional manifest validation
-      const man = getManifest(db, rc.version_id);
+      const man = await getManifest(rc.version_id);
       if (!man) {
         return json(res, 409, { error: 'manifest-missing', hint: 'manifest not found for version' });
       }
@@ -109,9 +109,9 @@ export function dataRouter(db: Database.Database): Router {
           const presignedUrl = await storage.getPresignedUrl(contentHash, DATA_DELIVERY_TIER);
 
           // Update usage counters when URL is generated (optimistic counting)
-          updateReceiptUsage(db, receiptId, size);
+          await updateReceiptUsage(receiptId, size);
           if (SINGLE_USE_RECEIPTS) {
-            setReceiptStatus(db, receiptId, 'consumed');
+            await setReceiptStatus(receiptId, 'consumed');
           }
 
           if (redirect) {
@@ -182,12 +182,12 @@ export function dataRouter(db: Database.Database): Router {
         try { res.end(); } catch {}
       });
 
-      data.on('end', () => {
+      data.on('end', async () => {
         // Update counters after successful delivery
         try {
-          updateReceiptUsage(db, receiptId, range ? (range.end! - range.start! + 1) : size);
+          await updateReceiptUsage(receiptId, range ? (range.end! - range.start! + 1) : size);
           if (SINGLE_USE_RECEIPTS && !range) {
-            setReceiptStatus(db, receiptId, 'consumed');
+            await setReceiptStatus(receiptId, 'consumed');
           }
         } catch {
           // swallow DB errors here; delivery succeeded

@@ -82,7 +82,7 @@ export function readyRouter(db: Database.Database): Router {
           return json(res, 200, { ready: false, reason: 'advisory-blocked' });
         }
 
-        const decl = getDeclarationByVersion(db, v);
+        const decl = await getDeclarationByVersion(v);
         if (!decl?.proof_json) {
           return json(res, 200, { ready: false, reason: `missing-envelope:${v}` });
         }

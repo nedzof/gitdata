@@ -1,7 +1,7 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
-import { searchManifests, listVersionsByDataset, getParents } from '../db';
+import { searchManifests, listVersionsByDataset, getParents, isTestEnvironment, getTestDatabase } from '../db';
 
 function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
@@ -22,7 +22,9 @@ function nextCursor(offset: number, count: number): string | null {
   return count > 0 ? `offset:${offset + count}` : null;
 }
 
-export function catalogRouter(db: Database.Database): Router {
+export function catalogRouter(testDb?: Database.Database): Router {
+  // Get appropriate database
+  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
   const router = makeRouter();
 
   /**
@@ -34,6 +36,10 @@ export function catalogRouter(db: Database.Database): Router {
    */
   router.get('/search', (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return json(res, 501, { error: 'not-implemented', message: 'Search not yet implemented for PostgreSQL' });
+      }
+
       const q = req.query.q ? String(req.query.q) : undefined;
       const datasetId = req.query.datasetId ? String(req.query.datasetId) : undefined;
       const tag = req.query.tag ? String(req.query.tag).toLowerCase() : undefined;
@@ -90,6 +96,10 @@ export function catalogRouter(db: Database.Database): Router {
    */
   router.get('/resolve', (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return json(res, 501, { error: 'not-implemented', message: 'Resolve not yet implemented for PostgreSQL' });
+      }
+
       const versionId = req.query.versionId ? String(req.query.versionId).toLowerCase() : undefined;
       const datasetId = req.query.datasetId ? String(req.query.datasetId) : undefined;
 

@@ -21,7 +21,7 @@ export function payRouter(db: Database.Database): Router {
   const router = makeRouter();
 
   // POST /pay { versionId, quantity }
-  router.post('/pay', (req: Request, res: Response) => {
+  router.post('/pay', async (req: Request, res: Response) => {
     try {
       const { versionId, quantity } = req.body || {};
       if (!isHex64(String(versionId || ''))) {
@@ -31,18 +31,18 @@ export function payRouter(db: Database.Database): Router {
         return json(res, 400, { error: 'bad-request', hint: 'quantity must be integer > 0' });
       }
 
-      const man = getManifest(db, String(versionId).toLowerCase());
+      const man = await getManifest(String(versionId).toLowerCase());
       if (!man) {
         return json(res, 404, { error: 'not-found', hint: 'manifest missing' });
       }
 
-      const unit = getPrice(db, String(versionId).toLowerCase()) ?? PRICE_DEFAULT_SATS;
+      const unit = (await getPrice(String(versionId).toLowerCase())) ?? PRICE_DEFAULT_SATS;
       const amount = unit * Number(quantity);
       const now = Math.floor(Date.now() / 1000);
       const expiresAt = now + RECEIPT_TTL_SEC;
 
       const receiptId = randomId('rcpt');
-      insertReceipt(db, {
+      await insertReceipt({
         receipt_id: receiptId,
         version_id: String(versionId).toLowerCase(),
         quantity: Number(quantity),
