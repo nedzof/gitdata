@@ -1,7 +1,7 @@
 /**
  * Rate limits per route using a simple token bucket per (ip, routeKey).
  * Configure via RATE_LIMITS_JSON, e.g.:
- *   {"submit":1000,"bundle":1000,"ready":1000,"price":1000,"data":1000,"pay":1000}
+ *   {"submit":200,"bundle":200,"ready":200,"price":200,"data":200,"pay":200}
  * Units: requests per minute.
  */
 
@@ -12,8 +12,8 @@ function getLimits(): LimitsConfig {
     const raw = process.env.RATE_LIMITS_JSON;
     if (raw) return JSON.parse(raw);
   } catch {}
-  // Defaults (very permissive for development)
-  return { submit: 1000, bundle: 1000, ready: 1000, price: 1000, data: 1000, pay: 1000, agents: 1000, rules: 1000, jobs: 1000, models: 1000, payments: 1000, storage: 1000, ingest: 1000, policies: 1000 };
+  // Defaults (permissive for development - 200 requests per minute each)
+  return { submit: 200, bundle: 200, ready: 200, price: 200, data: 200, pay: 200, agents: 200, rules: 200, jobs: 200, models: 200, payments: 200, storage: 200, ingest: 200, policies: 200 };
 }
 
 type Bucket = { tokens: number; lastRefillMs: number; capacity: number; ratePerMs: number };
