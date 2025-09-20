@@ -194,6 +194,39 @@ process.on('SIGTERM', () => {
 
 // UI static files already served above before rate limiting
 
+// SPA fallback - serve index.html for all non-API routes
+app.get('*', (req, res, next) => {
+  // Skip API routes
+  if (req.path.startsWith('/api') ||
+      req.path.startsWith('/v1') ||
+      req.path.startsWith('/ready') ||
+      req.path.startsWith('/price') ||
+      req.path.startsWith('/listings') ||
+      req.path.startsWith('/pay') ||
+      req.path.startsWith('/data') ||
+      req.path.startsWith('/bundle') ||
+      req.path.startsWith('/submit') ||
+      req.path.startsWith('/health') ||
+      req.path.startsWith('/metrics') ||
+      req.path.startsWith('/agents') ||
+      req.path.startsWith('/rules') ||
+      req.path.startsWith('/jobs') ||
+      req.path.startsWith('/templates') ||
+      req.path.startsWith('/catalog') ||
+      req.path.startsWith('/producers') ||
+      req.path.startsWith('/advisories') ||
+      req.path.startsWith('/ops') ||
+      req.path.startsWith('/payments') ||
+      req.path.startsWith('/storage') ||
+      req.path.startsWith('/ingest') ||
+      req.path.startsWith('/policies')) {
+    return next();
+  }
+
+  // Serve the SPA index.html for all other routes
+  res.sendFile(path.join(__dirname, 'ui/build/index.html'));
+});
+
 // Start
 const PORT = Number(process.env.OVERLAY_PORT || 8788);
 app.listen(PORT, () => {
