@@ -51,6 +51,10 @@ class APIClient {
     return this.request(`/listings?${params}`);
   }
 
+  async getListings() {
+    return this.request('/listings');
+  }
+
   async getListingDetail(versionId: string) {
     return this.request(`/listings/${encodeURIComponent(versionId)}`);
   }
@@ -143,6 +147,13 @@ class APIClient {
     return this.request('/policies/evaluate', {
       method: 'POST',
       body: { versionId, policyId, policy }
+    });
+  }
+
+  async testPolicy(policyId: string, assetId: string) {
+    return this.request('/ready', {
+      method: 'POST',
+      body: { versionId: assetId, policyId }
     });
   }
 

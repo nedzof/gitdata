@@ -411,65 +411,54 @@
             />
           </div>
 
-          <div class="policy-fields">
-            <h4>Security & Trust</h4>
-            <div class="field-grid">
-              <div class="field-group">
-                <label>Minimum Confirmations</label>
-                <input type="number" bind:value={newPolicy.minConfs} min="0" />
-              </div>
-              <div class="field-group">
-                <label class="checkbox-label">
-                  <input type="checkbox" bind:checked={newPolicy.allowRecalled} />
-                  Allow Recalled Data
-                </label>
-              </div>
+          <div class="compact-grid">
+            <div class="field-group">
+              <label>Min Confirmations</label>
+              <input type="number" bind:value={newPolicy.minConfs} min="0" />
             </div>
-
-            <h4>Compliance</h4>
-            <div class="field-grid">
-              <div class="field-group">
-                <label>Allowed Classifications</label>
-                <input
-                  type="text"
-                  bind:value={newPolicy.classificationAllowList}
-                  placeholder="public, internal, restricted"
-                  on:blur={() => {
-                    if (typeof newPolicy.classificationAllowList === 'string') {
-                      newPolicy.classificationAllowList = newPolicy.classificationAllowList.split(',').map(s => s.trim());
-                    }
-                  }}
-                />
-              </div>
-              <div class="field-group">
-                <label>Allowed Licenses</label>
-                <input
-                  type="text"
-                  bind:value={newPolicy.licenseAllowList}
-                  placeholder="MIT, Apache-2.0, GPL-3.0"
-                  on:blur={() => {
-                    if (typeof newPolicy.licenseAllowList === 'string') {
-                      newPolicy.licenseAllowList = newPolicy.licenseAllowList.split(',').map(s => s.trim());
-                    }
-                  }}
-                />
-              </div>
+            <div class="field-group">
+              <label class="checkbox-label">
+                <input type="checkbox" bind:checked={newPolicy.allowRecalled} />
+                Allow Recalled
+              </label>
             </div>
-
-            <h4>Data Quality</h4>
-            <div class="field-grid">
-              <div class="field-group">
-                <label>Max Lineage Depth</label>
-                <input type="number" bind:value={newPolicy.maxLineageDepth} min="1" />
-              </div>
-              <div class="field-group">
-                <label>Max Data Age (seconds)</label>
-                <input type="number" bind:value={newPolicy.maxDataAgeSeconds} min="0" />
-              </div>
-              <div class="field-group">
-                <label>Min Producer Uptime (%)</label>
-                <input type="number" bind:value={newPolicy.minProducerUptime} min="0" max="100" step="0.1" />
-              </div>
+            <div class="field-group">
+              <label>Classifications</label>
+              <input
+                type="text"
+                bind:value={newPolicy.classificationAllowList}
+                placeholder="public, internal"
+                on:blur={() => {
+                  if (typeof newPolicy.classificationAllowList === 'string') {
+                    newPolicy.classificationAllowList = newPolicy.classificationAllowList.split(',').map(s => s.trim());
+                  }
+                }}
+              />
+            </div>
+            <div class="field-group">
+              <label>Licenses</label>
+              <input
+                type="text"
+                bind:value={newPolicy.licenseAllowList}
+                placeholder="MIT, Apache-2.0"
+                on:blur={() => {
+                  if (typeof newPolicy.licenseAllowList === 'string') {
+                    newPolicy.licenseAllowList = newPolicy.licenseAllowList.split(',').map(s => s.trim());
+                  }
+                }}
+              />
+            </div>
+            <div class="field-group">
+              <label>Max Lineage</label>
+              <input type="number" bind:value={newPolicy.maxLineageDepth} min="1" />
+            </div>
+            <div class="field-group">
+              <label>Max Age (sec)</label>
+              <input type="number" bind:value={newPolicy.maxDataAgeSeconds} min="0" />
+            </div>
+            <div class="field-group">
+              <label>Min Uptime (%)</label>
+              <input type="number" bind:value={newPolicy.minProducerUptime} min="0" max="100" step="0.1" />
             </div>
           </div>
 
@@ -478,7 +467,7 @@
               <span class="spinner">⚪</span>
               Creating...
             {:else}
-              🛡️ Create Policy
+              Create Policy
             {/if}
           </button>
         </form>
@@ -838,35 +827,25 @@
     background: #21262d;
     border: 1px solid #30363d;
     border-radius: 8px;
-    padding: 24px;
-    margin-bottom: 20px;
+    padding: 16px;
+    margin-bottom: 16px;
   }
 
   .form-section h3 {
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 600;
     color: #ffffff;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
 
   .form-group {
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
 
-  .policy-fields h4 {
-    font-size: 16px;
-    font-weight: 600;
-    color: #f0f6fc;
-    margin: 20px 0 12px 0;
-    padding-bottom: 8px;
-    border-bottom: 1px solid #30363d;
-  }
-
-  .field-grid {
+  .compact-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 16px;
-    margin-bottom: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
   }
 
   .field-group {
@@ -875,19 +854,19 @@
   }
 
   .field-group label {
-    margin-bottom: 8px;
+    margin-bottom: 4px;
     color: #f0f6fc;
     font-weight: 500;
-    font-size: 14px;
+    font-size: 12px;
   }
 
   .field-group input {
-    padding: 8px 12px;
+    padding: 6px 8px;
     background: #0d1117;
     border: 1px solid #30363d;
-    border-radius: 6px;
+    border-radius: 4px;
     color: #f0f6fc;
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .policies-list {
