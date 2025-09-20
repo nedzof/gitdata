@@ -1,7 +1,9 @@
 import Database from 'better-sqlite3';
-import { claimNextJob, setJobResult, bumpJobRetry, getRule, getAgent } from '../db';
+import { claimNextJob, setJobResult, bumpJobRetry, getRule, getAgent, setPrice, createReceipt, createArtifact } from '../db';
 import { callAgentWebhook } from './webhook';
 import { evalPredicate } from './predicate';
+import { generateContract } from './templates';
+import { publishContractArtifact, publishArtifactToDLM1 } from './dlm1-publisher';
 
 // Minimal evaluator context builder: load manifest details when needed (skipped here for brevity)
 
@@ -33,16 +35,59 @@ export function startJobsWorker(db: Database.Database): (() => void) {
           evidence.push({ action:'notify', agentId: agent.agent_id, status: r.status, body: r.body });
           if (r.status >= 300) throw new Error('agent-notify-failed');
         } else if (act.action === 'contract.generate') {
-          // In a real system you'd call an agent or template service. Here we simulate.
-          const artifact = { type:'contract/pdf', url:`/contracts/${job.job_id}.pdf`, hash:'deadbeef' };
+          if (!act.templateId) throw new Error('contract.generate requires templateId');
+          const variables = act.variables || {
+            AGREEMENT_ID: `AGR_${job.job_id}`,
+            VERSION_ID: job.target_id || 'unknown',
+            DATASET_ID: act.datasetId || 'unknown',
+            PROCESSING_TYPE: act.processingType || 'data-access',
+            PRICE_SATS: act.priceSats || 1000,
+            QUANTITY: act.quantity || 1
+          };
+          const result = generateContract(db, act.templateId, variables);
+          if (!result.success) throw new Error(`contract generation failed: ${result.error}`);
+
+          // Store artifact in database with proper content hash
+          const contentHash = require('crypto').createHash('sha256').update(result.content || '', 'utf8').digest('hex');
+          const artifactId = createArtifact(db, {
+            job_id: job.job_id,
+            artifact_type: 'contract/markdown',
+            content_hash: contentHash,
+            content_data: Buffer.from(result.content || '', 'utf8'),
+            metadata_json: JSON.stringify(result.metadata)
+          });
+
+          const artifact = {
+            artifactId,
+            type: 'contract/markdown',
+            contentHash,
+            metadata: result.metadata,
+            size: Buffer.byteLength(result.content || '', 'utf8')
+          };
           evidence.push({ action:'contract.generate', artifact });
         } else if (act.action === 'price.set') {
-          // You can call your own /price endpoints internally here; skipped to keep worker small.
+          if (!act.versionId || act.satoshis === undefined) throw new Error('price.set requires versionId and satoshis');
+          setPrice(db, act.versionId, act.satoshis);
           evidence.push({ action:'price.set', versionId: act.versionId, satoshis: act.satoshis });
         } else if (act.action === 'pay') {
-          evidence.push({ action:'pay', versionId: act.versionId, quantity: act.quantity });
+          if (!act.versionId || !act.quantity) throw new Error('pay requires versionId and quantity');
+          const receiptId = createReceipt(db, {
+            version_id: act.versionId,
+            quantity: act.quantity,
+            amount_sat: act.amountSat || (act.quantity * 1000)
+          });
+          evidence.push({ action:'pay', versionId: act.versionId, quantity: act.quantity, receiptId });
         } else if (act.action === 'publish') {
-          evidence.push({ action:'publish', note:'not implemented in worker scaffold' });
+          if (!act.artifactId) throw new Error('publish requires artifactId');
+          const overlayUrl = process.env.OVERLAY_URL || 'http://localhost:8788';
+          const publishResult = await publishArtifactToDLM1(db, act.artifactId, overlayUrl);
+          if (!publishResult.success) throw new Error(`artifact publishing failed: ${publishResult.error}`);
+          evidence.push({
+            action:'publish',
+            artifactId: act.artifactId,
+            versionId: publishResult.versionId,
+            status: 'published'
+          });
         } else {
           evidence.push({ action: act.action, note: 'unknown action (skipped)' });
         }

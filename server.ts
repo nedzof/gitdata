@@ -15,6 +15,8 @@ import { advisoriesRouter } from './src/routes/advisories';
 import { agentsRouter } from './src/routes/agents';
 import { rulesRouter } from './src/routes/rules';
 import { jobsRouter } from './src/routes/jobs';
+import { templatesRouter } from './src/routes/templates';
+import { createArtifactRoutes } from './src/agents/dlm1-publisher';
 import { catalogRouter } from './src/routes/catalog';
 import { producersRegisterRouter } from './src/routes/producers-register';
 import { createJobProcessor } from './src/worker/job-processor';
@@ -22,6 +24,13 @@ import { opsRouter } from './src/routes/metrics';
 import { auditLogger } from './src/middleware/audit';
 import { rateLimit } from './src/middleware/limits';
 import { metricsRoute } from './src/middleware/metrics';
+import {
+  enforceAgentRegistrationPolicy,
+  enforceRuleConcurrency,
+  enforceJobCreationPolicy,
+  enforceResourceLimits,
+  enforceAgentSecurityPolicy
+} from './src/middleware/policy';
 import { runPaymentsMigrations, paymentsRouter, reconcilePayments } from './src/payments';
 import { storageRouter } from './src/routes/storage';
 import { createStorageEventsMigration } from './src/storage/lifecycle';
@@ -87,10 +96,12 @@ app.use(rateLimit('submit'), advisoriesRouter(db));
 // D19: Identity-signed producer registration
 app.use(producersRegisterRouter(db));
 
-// D16: A2A Agent marketplace routes
-app.use('/agents', agentsRouter(db));
-app.use('/rules', rulesRouter(db));
+// D16: A2A Agent marketplace routes with policy enforcement
+app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(db), agentsRouter(db));
+app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(db), enforceJobCreationPolicy(db), rulesRouter(db));
 app.use('/jobs', jobsRouter(db));
+app.use('/templates', enforceResourceLimits(), templatesRouter(db));
+app.use('/artifacts', createArtifactRoutes(db));
 
 // D18: Catalog routes (/search and /resolve)
 app.use(catalogRouter(db));

@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import { snapshotMetrics } from '../metrics/registry';
 import { getHeadersSnapshot } from '../spv/headers-cache';
+import { getPolicyMetrics } from '../middleware/policy';
 
 const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
 
@@ -35,7 +36,12 @@ export function opsRouter(db: Database.Database): Router {
   router.get('/metrics', (_req: Request, res: Response) => {
     try {
       const m = snapshotMetrics();
-      return res.status(200).json(m);
+      const policyMetrics = getPolicyMetrics(db);
+
+      return res.status(200).json({
+        ...m,
+        policy: policyMetrics
+      });
     } catch (e: any) {
       return res.status(500).json({ error: 'metrics-failed', message: String(e?.message || e) });
     }

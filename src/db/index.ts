@@ -691,3 +691,168 @@ export function listVersionsByDataset(
     LIMIT ? OFFSET ?`;
   return db.prepare(sql).all(datasetId, limit, offset) as any[];
 }
+
+// Contract Templates
+export type ContractTemplateRow = {
+  template_id: string;
+  name: string;
+  description?: string | null;
+  template_content: string;
+  template_type: 'pdf' | 'markdown' | 'html' | 'json';
+  variables_json?: string | null;
+  owner_producer_id?: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export function createTemplate(db: Database.Database, t: Partial<ContractTemplateRow>): string {
+  const id = t.template_id || ('tpl_' + Math.random().toString(16).slice(2) + Date.now().toString(16));
+  const now = Math.floor(Date.now()/1000);
+  db.prepare(`
+    INSERT INTO contract_templates(template_id, name, description, template_content, template_type, variables_json, owner_producer_id, created_at, updated_at)
+    VALUES (@template_id, @name, @description, @template_content, @template_type, @variables_json, @owner_producer_id, @created_at, @updated_at)
+  `).run({
+    template_id: id,
+    name: t.name!,
+    description: t.description || null,
+    template_content: t.template_content!,
+    template_type: t.template_type || 'pdf',
+    variables_json: t.variables_json || null,
+    owner_producer_id: t.owner_producer_id || null,
+    created_at: now,
+    updated_at: now,
+  });
+  return id;
+}
+
+export function getTemplate(db: Database.Database, templateId: string): ContractTemplateRow | undefined {
+  return db.prepare('SELECT * FROM contract_templates WHERE template_id = ?').get(templateId) as any;
+}
+
+export function listTemplates(db: Database.Database, ownerId?: string, limit=50, offset=0): ContractTemplateRow[] {
+  const sql = `
+    SELECT * FROM contract_templates
+    ${ownerId ? 'WHERE owner_producer_id = ?' : ''}
+    ORDER BY updated_at DESC
+    LIMIT ? OFFSET ?`;
+  const params = ownerId ? [ownerId, limit, offset] : [limit, offset];
+  return db.prepare(sql).all(...params) as any[];
+}
+
+export function updateTemplate(db: Database.Database, id: string, patch: Partial<ContractTemplateRow>) {
+  const now = Math.floor(Date.now()/1000);
+  db.prepare(`
+    UPDATE contract_templates SET
+      name=COALESCE(@name,name),
+      description=COALESCE(@description,description),
+      template_content=COALESCE(@template_content,template_content),
+      template_type=COALESCE(@template_type,template_type),
+      variables_json=COALESCE(@variables_json,variables_json),
+      updated_at=@updated_at
+    WHERE template_id=@template_id
+  `).run({
+    template_id: id,
+    name: patch.name,
+    description: patch.description,
+    template_content: patch.template_content,
+    template_type: patch.template_type,
+    variables_json: patch.variables_json,
+    updated_at: now
+  });
+}
+
+export function deleteTemplate(db: Database.Database, id: string) {
+  db.prepare('DELETE FROM contract_templates WHERE template_id = ?').run(id);
+}
+
+// Artifacts
+export type ArtifactRow = {
+  artifact_id: string;
+  job_id: string;
+  artifact_type: string;
+  content_hash: string;
+  file_path?: string | null;
+  content_data?: Buffer | null;
+  version_id?: string | null;
+  metadata_json?: string | null;
+  created_at: number;
+  published_at?: number | null;
+};
+
+export function createArtifact(db: Database.Database, a: Partial<ArtifactRow>): string {
+  const id = a.artifact_id || ('art_' + Math.random().toString(16).slice(2) + Date.now().toString(16));
+  const now = Math.floor(Date.now()/1000);
+
+  db.prepare(`
+    INSERT INTO artifacts(artifact_id, job_id, artifact_type, content_hash, file_path, content_data, version_id, metadata_json, created_at, published_at)
+    VALUES (@artifact_id, @job_id, @artifact_type, @content_hash, @file_path, @content_data, @version_id, @metadata_json, @created_at, @published_at)
+  `).run({
+    artifact_id: id,
+    job_id: a.job_id!,
+    artifact_type: a.artifact_type!,
+    content_hash: a.content_hash!,
+    file_path: a.file_path || null,
+    content_data: a.content_data || null,
+    version_id: a.version_id || null,
+    metadata_json: a.metadata_json || null,
+    created_at: now,
+    published_at: a.published_at || null,
+  });
+  return id;
+}
+
+export function getArtifact(db: Database.Database, artifactId: string): ArtifactRow | undefined {
+  return db.prepare('SELECT * FROM artifacts WHERE artifact_id = ?').get(artifactId) as any;
+}
+
+export function getArtifactsByJob(db: Database.Database, jobId: string): ArtifactRow[] {
+  return db.prepare('SELECT * FROM artifacts WHERE job_id = ? ORDER BY created_at DESC').all(jobId) as any[];
+}
+
+export function updateArtifactVersion(db: Database.Database, artifactId: string, versionId: string) {
+  const now = Math.floor(Date.now()/1000);
+  db.prepare('UPDATE artifacts SET version_id = ?, published_at = ? WHERE artifact_id = ?')
+    .run(versionId, now, artifactId);
+}
+
+export function listArtifacts(db: Database.Database, options: {
+  type?: string;
+  jobId?: string;
+  published?: boolean;
+  limit?: number;
+  offset?: number;
+} = {}): ArtifactRow[] {
+  const { type, jobId, published, limit = 100, offset = 0 } = options;
+
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (type) {
+    conditions.push('artifact_type = ?');
+    params.push(type);
+  }
+
+  if (jobId) {
+    conditions.push('job_id = ?');
+    params.push(jobId);
+  }
+
+  if (published !== undefined) {
+    if (published) {
+      conditions.push('version_id IS NOT NULL');
+    } else {
+      conditions.push('version_id IS NULL');
+    }
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const sql = `
+    SELECT * FROM artifacts
+    ${whereClause}
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?
+  `;
+
+  params.push(limit, offset);
+  return db.prepare(sql).all(...params) as any[];
+}

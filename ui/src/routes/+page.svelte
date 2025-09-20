@@ -28,5 +28,8 @@
     <a href="/docs">Docs</a>
     <a href="/explorer">Explorer</a>
     <a href="/models">Models</a>
+    <a href="/agents">Agents</a>
+    <a href="/rules">Rules</a>
+    <a href="/jobs">Jobs</a>
   </div>
 </main>

@@ -162,3 +162,35 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_state_next ON jobs(state, next_run_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_rule ON jobs(rule_id);
+
+-- Contract templates for automation workflows
+CREATE TABLE IF NOT EXISTS contract_templates (
+  template_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  template_content TEXT NOT NULL,    -- Template content with placeholders
+  template_type TEXT DEFAULT 'pdf',  -- 'pdf', 'markdown', 'html', 'json'
+  variables_json TEXT,               -- JSON schema for template variables
+  owner_producer_id TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_templates_owner ON contract_templates(owner_producer_id);
+
+-- Artifacts storage for generated contracts and documents
+CREATE TABLE IF NOT EXISTS artifacts (
+  artifact_id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL,
+  artifact_type TEXT NOT NULL,        -- 'contract/pdf', 'contract/markdown', 'document/json', etc.
+  content_hash TEXT NOT NULL,
+  file_path TEXT,                     -- Local file system path (optional)
+  content_data BLOB,                  -- Inline content for small artifacts
+  version_id TEXT,                    -- DLM1 versionId if published on-chain
+  metadata_json TEXT,                 -- Additional metadata
+  created_at INTEGER NOT NULL,
+  published_at INTEGER                -- When artifact was published to DLM1
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts(job_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_version ON artifacts(version_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_hash ON artifacts(content_hash);
+CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(artifact_type);

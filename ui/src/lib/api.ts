@@ -71,7 +71,7 @@ class APIClient {
   }
 
   async getAgents() {
-    return this.request('/agents');
+    return this.request('/agents/search');
   }
 
   // Rules endpoints
