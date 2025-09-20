@@ -121,38 +121,40 @@
   <title>Connect - Gitdata</title>
 </svelte:head>
 
-<main class="container mx-auto px-4 py-8">
-  <div class="mb-8">
-    <h1 class="text-3xl font-bold text-gray-900">🔗 Connect</h1>
-    <p class="text-gray-600 mt-2">Subscribe to producers, manage agents, and configure webhooks</p>
-
-    {#if connectingAsset}
-      <div class="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <p class="text-blue-800">
-          <strong>Connecting to asset:</strong> {connectingAsset}
-        </p>
-      </div>
-    {/if}
+<div class="explorer">
+  <div class="page-header">
+    <div>
+      <h1>🔗 Connect</h1>
+      <p class="subtitle">Subscribe to producers, manage agents, and configure webhooks</p>
+    </div>
   </div>
 
+  {#if connectingAsset}
+    <div class="connecting-asset">
+      <p>
+        <strong>Connecting to asset:</strong> {connectingAsset}
+      </p>
+    </div>
+  {/if}
+
   <!-- Tabs -->
-  <div class="border-b border-gray-200 mb-8">
-    <nav class="flex space-x-8">
+  <div class="tab-nav">
+    <nav class="tab-buttons">
       <button
         on:click={() => switchTab('producers')}
-        class="py-2 px-1 border-b-2 font-medium text-sm transition-colors {activeTab === 'producers' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}"
+        class="tab-btn {activeTab === 'producers' ? 'active' : ''}"
       >
         🏭 Producers
       </button>
       <button
         on:click={() => switchTab('agents')}
-        class="py-2 px-1 border-b-2 font-medium text-sm transition-colors {activeTab === 'agents' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}"
+        class="tab-btn {activeTab === 'agents' ? 'active' : ''}"
       >
         🤖 Agents
       </button>
       <button
         on:click={() => switchTab('subscriptions')}
-        class="py-2 px-1 border-b-2 font-medium text-sm transition-colors {activeTab === 'subscriptions' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}"
+        class="tab-btn {activeTab === 'subscriptions' ? 'active' : ''}"
       >
         📋 Subscriptions
       </button>
@@ -444,4 +446,68 @@
       </div>
     </div>
   {/if}
-</main>
+</div>
+
+<style>
+  .subtitle {
+    color: #8b949e;
+    font-size: 16px;
+    margin-bottom: 32px;
+    font-family: system-ui, sans-serif;
+  }
+
+  .connecting-asset {
+    background: #1f6feb;
+    border: 1px solid #388bfd;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 24px;
+    color: #ffffff;
+  }
+
+  .tab-nav {
+    border-bottom: 1px solid #30363d;
+    margin-bottom: 24px;
+  }
+
+  .tab-buttons {
+    display: flex;
+    gap: 32px;
+  }
+
+  .tab-btn {
+    background: none;
+    border: none;
+    color: #8b949e;
+    padding: 12px 0;
+    border-bottom: 2px solid transparent;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .tab-btn:hover {
+    color: #f0f6fc;
+    border-bottom-color: #30363d;
+  }
+
+  .tab-btn.active {
+    color: #58a6ff;
+    border-bottom-color: #58a6ff;
+  }
+
+  /* Convert all other Tailwind classes to dark theme */
+  :global(.bg-white) { background: #161b22 !important; }
+  :global(.border-gray-200) { border-color: #30363d !important; }
+  :global(.text-gray-900) { color: #ffffff !important; }
+  :global(.text-gray-600) { color: #8b949e !important; }
+  :global(.text-gray-500) { color: #6e7681 !important; }
+  :global(.text-gray-700) { color: #f0f6fc !important; }
+  :global(.bg-gray-100) { background: #21262d !important; }
+  :global(.bg-blue-500) { background: #1f6feb !important; }
+  :global(.bg-green-500) { background: #238636 !important; }
+  :global(.bg-red-500) { background: #da3633 !important; }
+  :global(.border-gray-300) { border-color: #30363d !important; }
+  :global(.focus\:ring-blue-500) { box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1) !important; }
+</style>

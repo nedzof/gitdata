@@ -55,10 +55,10 @@
   <title>Analysis - Gitdata</title>
 </svelte:head>
 
-<main class="container mx-auto px-4 py-8">
-  <div class="mb-8">
-    <h1 class="text-3xl font-bold text-gray-900">📊 Analysis</h1>
-    <p class="text-gray-600 mt-2">Visualize data lineage and dependencies using OpenLineage standard</p>
+<div class="explorer">
+  <div class="page-header">
+    <h1>📊 Analysis</h1>
+    <p class="subtitle">Visualize data lineage and dependencies using OpenLineage standard</p>
   </div>
 
   <!-- Input Section -->
@@ -180,13 +180,71 @@
   {/if}
 
   <!-- Help Section -->
-  <div class="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
-    <h3 class="text-lg font-semibold text-blue-900 mb-2">How to Use</h3>
-    <div class="text-blue-800 space-y-2 text-sm">
-      <p><strong>1. Get Asset IDs:</strong> Visit the <a href="/catalog" class="underline">Catalog</a> to browse available data and AI assets and copy their version IDs.</p>
+  <div class="help-section">
+    <h3>How to Use</h3>
+    <div class="help-content">
+      <p><strong>1. Get Asset IDs:</strong> Visit the <a href="/catalog">Catalog</a> to browse available data and AI assets and copy their version IDs.</p>
       <p><strong>2. Enter ID:</strong> Paste the version ID, transaction ID, or content hash in the input field above.</p>
       <p><strong>3. Visualize:</strong> Click "Visualize" to generate an interactive lineage graph showing data flow and dependencies.</p>
       <p><strong>4. Interact:</strong> Click on nodes in the graph to view detailed information about datasets, jobs, and transformations.</p>
     </div>
   </div>
-</main>
+</div>
+
+<style>
+  .subtitle {
+    color: #8b949e;
+    font-size: 16px;
+    margin-bottom: 32px;
+    font-family: system-ui, sans-serif;
+  }
+
+  .help-section {
+    background: #1f6feb;
+    border: 1px solid #388bfd;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 32px;
+  }
+
+  .help-section h3 {
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  .help-content {
+    color: #c3d0f0;
+  }
+
+  .help-content p {
+    margin-bottom: 8px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .help-content a {
+    color: #ffffff;
+    text-decoration: underline;
+  }
+
+  /* Global overrides for Tailwind classes */
+  :global(.bg-white) { background: #161b22 !important; }
+  :global(.border-gray-200) { border-color: #30363d !important; }
+  :global(.text-gray-900) { color: #ffffff !important; }
+  :global(.text-gray-600) { color: #8b949e !important; }
+  :global(.text-gray-500) { color: #6e7681 !important; }
+  :global(.text-gray-700) { color: #f0f6fc !important; }
+  :global(.bg-gray-50) { background: #21262d !important; }
+  :global(.border-gray-300) { border-color: #30363d !important; }
+  :global(.bg-blue-500) { background: #1f6feb !important; }
+  :global(.bg-blue-100) { background: #0d1117 !important; }
+  :global(.text-blue-700) { color: #58a6ff !important; }
+  :global(.bg-red-50) { background: #161b22 !important; }
+  :global(.border-red-200) { border-color: #da3633 !important; }
+  :global(.text-red-800) { color: #f85149 !important; }
+  :global(.text-red-700) { color: #f85149 !important; }
+  :global(.focus\\:ring-2) { box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1) !important; }
+  :global(.focus\\:ring-blue-500) { border-color: #58a6ff !important; }
+</style>

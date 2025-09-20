@@ -155,10 +155,10 @@
   <title>Policy - Gitdata</title>
 </svelte:head>
 
-<main class="container mx-auto px-4 py-8">
-  <div class="mb-8">
-    <h1 class="text-3xl font-bold text-gray-900">🛡️ Policy</h1>
-    <p class="text-gray-600 mt-2">Configure and manage data governance policies</p>
+<div class="explorer">
+  <div class="page-header">
+    <h1>🛡️ Policy</h1>
+    <p class="subtitle">Configure and manage data governance policies</p>
   </div>
 
   <!-- Tabs -->
@@ -458,4 +458,47 @@
       </div>
     </div>
   {/if}
-</main>
+</div>
+
+<style>
+  .subtitle {
+    color: #8b949e;
+    font-size: 16px;
+    margin-bottom: 32px;
+    font-family: system-ui, sans-serif;
+  }
+
+  /* Global overrides for all Tailwind classes to match dark theme */
+  :global(.bg-white) { background: #161b22 !important; }
+  :global(.border-gray-200) { border-color: #30363d !important; }
+  :global(.text-gray-900) { color: #ffffff !important; }
+  :global(.text-gray-600) { color: #8b949e !important; }
+  :global(.text-gray-500) { color: #6e7681 !important; }
+  :global(.text-gray-700) { color: #f0f6fc !important; }
+  :global(.bg-gray-50) { background: #21262d !important; }
+  :global(.bg-gray-100) { background: #21262d !important; }
+  :global(.border-gray-300) { border-color: #30363d !important; }
+  :global(.bg-blue-500) { background: #1f6feb !important; }
+  :global(.bg-blue-100) { background: #0d1117 !important; }
+  :global(.text-blue-600) { color: #58a6ff !important; }
+  :global(.text-blue-700) { color: #58a6ff !important; }
+  :global(.border-blue-500) { border-color: #58a6ff !important; }
+  :global(.bg-green-500) { background: #238636 !important; }
+  :global(.bg-green-100) { background: #0d1117 !important; }
+  :global(.text-green-600) { color: #2ea043 !important; }
+  :global(.text-green-700) { color: #2ea043 !important; }
+  :global(.bg-red-500) { background: #da3633 !important; }
+  :global(.bg-red-100) { background: #0d1117 !important; }
+  :global(.text-red-600) { color: #f85149 !important; }
+  :global(.text-red-700) { color: #f85149 !important; }
+  :global(.bg-yellow-100) { background: #0d1117 !important; }
+  :global(.text-yellow-600) { color: #f7b955 !important; }
+  :global(.text-yellow-700) { color: #f7b955 !important; }
+  :global(.focus\\:ring-2) { box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1) !important; }
+  :global(.focus\\:ring-blue-500) { border-color: #58a6ff !important; }
+  :global(.hover\\:bg-gray-300) { background: #30363d !important; }
+  :global(.hover\\:bg-gray-200) { background: #30363d !important; }
+  :global(.hover\\:text-gray-700) { color: #f0f6fc !important; }
+  :global(.hover\\:border-gray-300) { border-color: #58a6ff !important; }
+  :global(.border-transparent) { border-color: transparent !important; }
+</style>

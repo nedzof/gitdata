@@ -16,6 +16,129 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* App Layout */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Top Navigation */
+.top-nav {
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  height: 64px;
+}
+
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.logo {
+  font-size: 20px;
+  font-weight: 600;
+  color: #ffffff;
+  text-decoration: none;
+  letter-spacing: -0.5px;
+}
+
+.primary-btn {
+  background: #238636;
+  color: #ffffff;
+  padding: 8px 16px;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.primary-btn:hover {
+  background: #2ea043;
+}
+
+.nav-center {
+  flex: 1;
+  max-width: 400px;
+  margin: 0 40px;
+}
+
+.global-search {
+  width: 100%;
+}
+
+.search-input-nav {
+  width: 100%;
+  padding: 8px 16px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #f0f6fc;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.search-input-nav:focus {
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+}
+
+.search-input-nav::placeholder {
+  color: #6e7681;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+}
+
+.wallet-btn {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #f0f6fc;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.wallet-btn:hover {
+  background: #30363d;
+  border-color: #58a6ff;
+}
+
+.wallet-btn.connected {
+  background: #238636;
+  border-color: #238636;
+  color: #ffffff;
+}
+
+.wallet-btn.connected:hover {
+  background: #2ea043;
+}
+
+.content {
+  flex: 1;
+}
+
 /* Keine Ladezeiten - sofort sichtbar */
 .landing {
   height: 100vh;
@@ -549,6 +672,24 @@ button.danger:hover {
 
 /* Responsive */
 @media (max-width: 768px) {
+  .nav-container {
+    flex-direction: column;
+    height: auto;
+    padding: 12px 20px;
+    gap: 12px;
+  }
+
+  .nav-left,
+  .nav-center,
+  .nav-right {
+    width: 100%;
+    margin: 0;
+  }
+
+  .nav-center {
+    max-width: none;
+  }
+
   .landing h1 {
     font-size: 32px;
   }
