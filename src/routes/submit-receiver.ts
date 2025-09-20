@@ -12,6 +12,7 @@ import {
 import { ingestSubmission } from '../services/ingest';
 import { metricsRoute } from '../middleware/metrics';
 import { incAdmissions } from '../metrics/registry';
+import { ingestOpenLineageEvent } from '../db/index.js';
 
 // This new factory function connects directly to the database
 // instead of a generic 'repo'.
@@ -86,6 +87,69 @@ export function submitReceiverRouter(db: Database.Database, opts: {
 
       // Count successful admission
       incAdmissions(1);
+
+      // D38: Emit OpenLineage COMPLETE event after successful publish
+      try {
+        const namespace = process.env.OL_NAMESPACE || 'overlay:prod';
+        const bundleData = body.manifest?.dlm1?.bundle;
+        const parentVersionIds = bundleData?.parents || [];
+
+        const openLineageEvent = {
+          eventType: 'COMPLETE' as const,
+          eventTime: new Date().toISOString(),
+          producer: `${req.protocol}://${req.get('host')}/adapter/openlineage/1.0`,
+          job: {
+            namespace,
+            name: `publish::${versionId}`
+          },
+          run: {
+            runId: txid,
+            facets: {
+              nominalTime: {
+                nominalStartTime: new Date().toISOString()
+              },
+              gitdataSpv: {
+                confs: 0, // Will be updated by verification process
+                bundleUrl: `${req.protocol}://${req.get('host')}/bundle?versionId=${versionId}`,
+                bundleHash: bundleData?.hash || '',
+                readyDecision: null, // Will be set by policy check
+                readyReasons: []
+              }
+            }
+          },
+          inputs: parentVersionIds.map((parentId: string) => ({
+            namespace,
+            name: parentId
+          })),
+          outputs: [{
+            namespace,
+            name: versionId,
+            facets: {
+              datasetVersion: {
+                version: versionId,
+                type: 'dlm1',
+                contentHash: bundleData?.hash || '',
+                createdAt: new Date().toISOString()
+              },
+              dataSource: {
+                name: 'gitdata',
+                uri: `${req.protocol}://${req.get('host')}/listings/${versionId}`
+              }
+            }
+          }]
+        };
+
+        // Ingest the OpenLineage event (async, don't block response)
+        setImmediate(() => {
+          try {
+            ingestOpenLineageEvent(db, openLineageEvent);
+          } catch (olError) {
+            console.warn('OpenLineage event emission failed:', olError);
+          }
+        });
+      } catch (olError) {
+        console.warn('OpenLineage event creation failed:', olError);
+      }
 
       // Your existing 'topics' logic is preserved
       const topics = Array.isArray(body.topics) ? body.topics : [];

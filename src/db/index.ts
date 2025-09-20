@@ -889,3 +889,296 @@ export function listArtifacts(db: Database.Database, options: {
   params.push(limit, offset);
   return db.prepare(sql).all(...params) as any[];
 }
+
+// D38: OpenLineage Types and Functions
+
+export type OpenLineageEvent = {
+  eventType: 'START' | 'COMPLETE' | 'ABORT';
+  eventTime: string; // ISO UTC
+  producer: string;
+  job: {
+    namespace: string;
+    name: string;
+    facets?: Record<string, any>;
+  };
+  run: {
+    runId: string;
+    facets?: Record<string, any>;
+  };
+  inputs?: Array<{
+    namespace: string;
+    name: string;
+    facets?: Record<string, any>;
+  }>;
+  outputs?: Array<{
+    namespace: string;
+    name: string;
+    facets?: Record<string, any>;
+  }>;
+};
+
+export type OLEventRow = {
+  event_id: string;
+  event_time: string;
+  namespace: string;
+  job_name: string;
+  run_id: string;
+  event_type: string;
+  payload_json: string;
+  hash: string;
+  created_at: number;
+};
+
+export type OLJobRow = {
+  job_id: string;
+  namespace: string;
+  name: string;
+  latest_facets_json?: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type OLRunRow = {
+  run_key: string;
+  namespace: string;
+  job_name: string;
+  run_id: string;
+  state: string;
+  start_time?: string;
+  end_time?: string;
+  facets_json?: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type OLDatasetRow = {
+  dataset_key: string;
+  namespace: string;
+  name: string;
+  latest_facets_json?: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type OLEdgeRow = {
+  edge_id: string;
+  namespace: string;
+  parent_dataset_name: string;
+  child_dataset_name: string;
+  run_id: string;
+  created_at: number;
+};
+
+// Initialize OpenLineage schema
+export function initOpenLineageSchema(db: Database.Database) {
+  const schemaFile = 'src/db/openlineage-schema.sql';
+  const sql = fs.readFileSync(schemaFile, 'utf8');
+  db.exec(sql);
+}
+
+// OpenLineage event ingestion (idempotent)
+export function ingestOpenLineageEvent(db: Database.Database, event: OpenLineageEvent): boolean {
+  const payload = JSON.stringify(event);
+  const hash = require('crypto').createHash('sha256').update(payload).digest('hex');
+  const eventId = `ol_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+  const now = Math.floor(Date.now() / 1000);
+
+  // Check if already exists
+  const existing = db.prepare('SELECT event_id FROM ol_events WHERE hash = ?').get(hash);
+  if (existing) {
+    return false; // Already processed
+  }
+
+  const tx = db.transaction(() => {
+    // Insert raw event
+    db.prepare(`
+      INSERT INTO ol_events(event_id, event_time, namespace, job_name, run_id, event_type, payload_json, hash, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(eventId, event.eventTime, event.job.namespace, event.job.name, event.run.runId, event.eventType, payload, hash, now);
+
+    // Upsert job
+    const jobId = `${event.job.namespace}:${event.job.name}`;
+    db.prepare(`
+      INSERT INTO ol_jobs(job_id, namespace, name, latest_facets_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(namespace, name) DO UPDATE SET
+        latest_facets_json = COALESCE(excluded.latest_facets_json, ol_jobs.latest_facets_json),
+        updated_at = excluded.updated_at
+    `).run(jobId, event.job.namespace, event.job.name,
+           event.job.facets ? JSON.stringify(event.job.facets) : null, now, now);
+
+    // Upsert run
+    const runKey = `${event.job.namespace}:${event.job.name}:${event.run.runId}`;
+    const endTime = event.eventType === 'COMPLETE' || event.eventType === 'ABORT' ? event.eventTime : null;
+    const startTime = event.eventType === 'START' ? event.eventTime : null;
+
+    db.prepare(`
+      INSERT INTO ol_runs(run_key, namespace, job_name, run_id, state, start_time, end_time, facets_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(namespace, job_name, run_id) DO UPDATE SET
+        state = excluded.state,
+        start_time = COALESCE(excluded.start_time, ol_runs.start_time),
+        end_time = COALESCE(excluded.end_time, ol_runs.end_time),
+        facets_json = COALESCE(excluded.facets_json, ol_runs.facets_json),
+        updated_at = excluded.updated_at
+    `).run(runKey, event.job.namespace, event.job.name, event.run.runId, event.eventType,
+           startTime, endTime, event.run.facets ? JSON.stringify(event.run.facets) : null, now, now);
+
+    // Process datasets and edges
+    const allDatasets = [...(event.inputs || []), ...(event.outputs || [])];
+    for (const dataset of allDatasets) {
+      // Upsert dataset
+      const datasetKey = `${dataset.namespace}:${dataset.name}`;
+      db.prepare(`
+        INSERT INTO ol_datasets(dataset_key, namespace, name, latest_facets_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(namespace, name) DO UPDATE SET
+          latest_facets_json = COALESCE(excluded.latest_facets_json, ol_datasets.latest_facets_json),
+          updated_at = excluded.updated_at
+      `).run(datasetKey, dataset.namespace, dataset.name,
+             dataset.facets ? JSON.stringify(dataset.facets) : null, now, now);
+    }
+
+    // Create edges for inputs -> outputs (lineage)
+    if (event.inputs && event.outputs) {
+      for (const input of event.inputs) {
+        for (const output of event.outputs) {
+          const edgeId = `${event.job.namespace}_${input.name}_${output.name}_${event.run.runId}`;
+          db.prepare(`
+            INSERT OR IGNORE INTO ol_edges(edge_id, namespace, parent_dataset_name, child_dataset_name, run_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(edgeId, event.job.namespace, input.name, output.name, event.run.runId, now);
+        }
+      }
+    }
+  });
+
+  tx();
+  return true; // Successfully processed
+}
+
+// Query lineage graph
+export function queryLineage(db: Database.Database, options: {
+  node: string; // dataset:namespace:name
+  depth?: number;
+  direction?: 'up' | 'down' | 'both';
+  namespace?: string;
+}): {
+  node: string;
+  depth: number;
+  direction: string;
+  nodes: Array<{
+    namespace: string;
+    name: string;
+    type: 'dataset';
+    facets?: Record<string, any>;
+  }>;
+  edges: Array<{
+    from: string;
+    to: string;
+    rel: 'parent';
+  }>;
+  stats: {
+    nodes: number;
+    edges: number;
+    truncated: boolean;
+  };
+} {
+  const { depth = 3, direction = 'both' } = options;
+  const maxDepth = Math.min(depth, parseInt(process.env.OL_QUERY_MAX_DEPTH || '10'));
+
+  // Parse node identifier
+  const [, nodeNamespace, nodeName] = options.node.split(':');
+  const namespace = options.namespace || nodeNamespace;
+
+  const visitedNodes = new Set<string>();
+  const resultNodes = new Map<string, any>();
+  const resultEdges: Array<{ from: string; to: string; rel: 'parent' }> = [];
+
+  function traverse(currentName: string, currentDepth: number, goingUp: boolean) {
+    if (currentDepth > maxDepth || visitedNodes.has(currentName)) return;
+    visitedNodes.add(currentName);
+
+    // Get dataset info
+    const dataset = db.prepare(`
+      SELECT namespace, name, latest_facets_json
+      FROM ol_datasets
+      WHERE namespace = ? AND name = ?
+    `).get(namespace, currentName) as OLDatasetRow;
+
+    if (dataset) {
+      const nodeKey = `dataset:${dataset.namespace}:${dataset.name}`;
+      resultNodes.set(nodeKey, {
+        namespace: dataset.namespace,
+        name: dataset.name,
+        type: 'dataset',
+        facets: dataset.latest_facets_json ? JSON.parse(dataset.latest_facets_json) : {}
+      });
+    }
+
+    if (currentDepth < maxDepth) {
+      if (direction === 'up' || direction === 'both') {
+        // Get parents (inputs that led to this output)
+        const parents = db.prepare(`
+          SELECT DISTINCT parent_dataset_name
+          FROM ol_edges
+          WHERE namespace = ? AND child_dataset_name = ?
+        `).all(namespace, currentName) as any[];
+
+        for (const parent of parents) {
+          const parentKey = `dataset:${namespace}:${parent.parent_dataset_name}`;
+          const childKey = `dataset:${namespace}:${currentName}`;
+          resultEdges.push({ from: parentKey, to: childKey, rel: 'parent' });
+          traverse(parent.parent_dataset_name, currentDepth + 1, true);
+        }
+      }
+
+      if (direction === 'down' || direction === 'both') {
+        // Get children (outputs this was input to)
+        const children = db.prepare(`
+          SELECT DISTINCT child_dataset_name
+          FROM ol_edges
+          WHERE namespace = ? AND parent_dataset_name = ?
+        `).all(namespace, currentName) as any[];
+
+        for (const child of children) {
+          const parentKey = `dataset:${namespace}:${currentName}`;
+          const childKey = `dataset:${namespace}:${child.child_dataset_name}`;
+          resultEdges.push({ from: parentKey, to: childKey, rel: 'parent' });
+          traverse(child.child_dataset_name, currentDepth + 1, false);
+        }
+      }
+    }
+  }
+
+  traverse(nodeName, 0, false);
+
+  return {
+    node: options.node,
+    depth: maxDepth,
+    direction,
+    nodes: Array.from(resultNodes.values()),
+    edges: resultEdges,
+    stats: {
+      nodes: resultNodes.size,
+      edges: resultEdges.length,
+      truncated: visitedNodes.size > resultNodes.size
+    }
+  };
+}
+
+// Get dataset details
+export function getOLDataset(db: Database.Database, namespace: string, name: string): OLDatasetRow | undefined {
+  return db.prepare(`
+    SELECT * FROM ol_datasets
+    WHERE namespace = ? AND name = ?
+  `).get(namespace, name) as OLDatasetRow;
+}
+
+// Get run details
+export function getOLRun(db: Database.Database, runId: string): OLRunRow | undefined {
+  return db.prepare(`
+    SELECT * FROM ol_runs
+    WHERE run_id = ?
+  `).get(runId) as OLRunRow;
+}

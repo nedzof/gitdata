@@ -14,6 +14,12 @@ Key ENV
 - CACHE_TTLS_JSON={"headers":60000,"bundles":60000}
 - RATE_LIMITS_JSON={"submit":5,"bundle":10,"ready":20,"price":50,"data":10}
 
+OpenLineage (D38)
+- OL_NAMESPACE=overlay:prod
+- OL_QUERY_MAX_DEPTH=10
+- OL_QUERY_CACHE_TTL_SEC=120
+- OL_QUERY_RATE_LIMIT_PER_MIN=60
+
 Runbooks
 
 Producer (Builder → Wallet → Receiver → Price)

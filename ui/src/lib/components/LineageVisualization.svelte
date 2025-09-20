@@ -19,7 +19,8 @@
 
   async function loadLineageFromOpenLineage(versionId) {
     // Load from OpenLineage API endpoint
-    const response = await fetch(`/api/lineage/openlineage?versionId=${encodeURIComponent(versionId)}`);
+    const namespace = 'overlay:prod'; // Could be configurable
+    const response = await fetch(`/openlineage/lineage?node=dataset:${namespace}:${encodeURIComponent(versionId)}&depth=3&direction=both`);
 
     if (!response.ok) {
       throw new Error(`OpenLineage API error: ${response.status}`);
@@ -74,76 +75,34 @@
   }
 
   function transformOpenLineageData(openLineageData) {
-    // Transform OpenLineage events into our visualization format
+    // Transform OpenLineage lineage response into our visualization format
     const nodes = [];
     const edges = [];
-    const nodeMap = new Map();
 
-    // Process OpenLineage events to extract datasets and jobs
-    if (openLineageData.events) {
-      openLineageData.events.forEach(event => {
-        // Add datasets as nodes
-        if (event.inputs) {
-          event.inputs.forEach(input => {
-            const nodeId = `${input.namespace}/${input.name}`;
-            if (!nodeMap.has(nodeId)) {
-              nodes.push({
-                id: nodeId,
-                name: input.name,
-                type: 'DATASET',
-                level: 0,
-                facets: input.facets || {}
-              });
-              nodeMap.set(nodeId, true);
-            }
-          });
-        }
+    // Process nodes from OpenLineage response
+    if (openLineageData.nodes) {
+      openLineageData.nodes.forEach((node, index) => {
+        nodes.push({
+          id: node.name,
+          name: node.name,
+          type: node.type || 'DATASET',
+          level: index % 3, // Simple level assignment for visualization
+          facets: node.facets || {}
+        });
+      });
+    }
 
-        if (event.outputs) {
-          event.outputs.forEach(output => {
-            const nodeId = `${output.namespace}/${output.name}`;
-            if (!nodeMap.has(nodeId)) {
-              nodes.push({
-                id: nodeId,
-                name: output.name,
-                type: 'DATASET',
-                level: 2,
-                facets: output.facets || {}
-              });
-              nodeMap.set(nodeId, true);
-            }
-          });
-        }
+    // Process edges from OpenLineage response
+    if (openLineageData.edges) {
+      openLineageData.edges.forEach(edge => {
+        // Extract dataset names from the "dataset:namespace:name" format
+        const fromMatch = edge.from.match(/dataset:[^:]+:(.+)$/);
+        const toMatch = edge.to.match(/dataset:[^:]+:(.+)$/);
 
-        // Add job as node
-        const jobId = `${event.job.namespace}/${event.job.name}`;
-        if (!nodeMap.has(jobId)) {
-          nodes.push({
-            id: jobId,
-            name: event.job.name,
-            type: 'JOB',
-            level: 1,
-            facets: event.job.facets || {}
-          });
-          nodeMap.set(jobId, true);
-        }
-
-        // Create edges from inputs to job and job to outputs
-        if (event.inputs) {
-          event.inputs.forEach(input => {
-            edges.push({
-              from: `${input.namespace}/${input.name}`,
-              to: jobId
-            });
-          });
-        }
-
-        if (event.outputs) {
-          event.outputs.forEach(output => {
-            edges.push({
-              from: jobId,
-              to: `${output.namespace}/${output.name}`
-            });
+        if (fromMatch && toMatch) {
+          edges.push({
+            from: fromMatch[1],
+            to: toMatch[1]
           });
         }
       });

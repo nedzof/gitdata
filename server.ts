@@ -38,6 +38,8 @@ import { runIngestMigrations, ingestRouter, startIngestWorker } from './src/inge
 import { startJobsWorker } from './src/agents/worker';
 import { runModelsMigrations, modelsRouter } from './src/models/scaffold';
 import { runPolicyMigrations, policiesRouter } from './src/policies';
+import openlineageRouter from './src/routes/openlineage.js';
+import { initOpenLineageSchema } from './src/db/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,6 +75,9 @@ runModelsMigrations(db);
 // D28: Initialize policies schema
 runPolicyMigrations(db);
 
+// D38: Initialize OpenLineage schema
+initOpenLineageSchema(db);
+
 // Attach per-route metrics wrappers before routers (best-effort)
 app.use('/ready', metricsRoute('ready'));
 app.use('/price', metricsRoute('price'));
@@ -87,6 +92,7 @@ app.use('/jobs', metricsRoute('jobs'));
 app.use('/payments', metricsRoute('payments'));
 app.use('/api/models', metricsRoute('models'));
 app.use('/policies', metricsRoute('policies'));
+app.use('/openlineage', metricsRoute('openlineage'));
 
 // API routes with rate limiting
 app.use(rateLimit('bundle'), bundleRouter(db));
@@ -128,6 +134,9 @@ app.use('/api/models', rateLimit('models'), modelsRouter(db));
 
 // D28: Policy governance (/policies CRUD, /policies/evaluate)
 app.use('/policies', rateLimit('policies'), policiesRouter(db));
+
+// D38: OpenLineage API (/openlineage/lineage, /openlineage/nodes, etc.)
+app.use('/openlineage', rateLimit('openlineage'), openlineageRouter);
 
 // D01 Builder route with rate limiting
 app.use(rateLimit('submit'), submitDlm1Router(db));
@@ -219,7 +228,8 @@ app.get('*', (req, res, next) => {
       req.path.startsWith('/payments') ||
       req.path.startsWith('/storage') ||
       req.path.startsWith('/ingest') ||
-      req.path.startsWith('/policies')) {
+      req.path.startsWith('/policies') ||
+      req.path.startsWith('/openlineage')) {
     return next();
   }
 
