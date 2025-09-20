@@ -138,7 +138,7 @@
   }
 </script>
 
-<div class="models">
+<div class="explorer">
   <div class="header">
     <h1>Model Provenance & Lineage</h1>
     <button class="connect-btn" on:click={() => showConnectForm = !showConnectForm}>
