@@ -1,4 +1,4 @@
-import { test, expect, beforeAll, afterAll, describe } from 'vitest';
+import { test, expect, beforeAll, afterAll, beforeEach, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { openDb, initSchema } from '../../src/db';
@@ -11,7 +11,8 @@ import {
   enforceJobCreationPolicy,
   enforceResourceLimits,
   enforceAgentSecurityPolicy,
-  getPolicyMetrics
+  getPolicyMetrics,
+  resetPolicyState
 } from '../../src/middleware/policy';
 
 let app: express.Application;
@@ -22,7 +23,7 @@ beforeAll(async () => {
   initSchema(db);
 
   app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '5mb' })); // Increase limit to test resource limits middleware
 
   // Apply all policy middlewares for testing
   app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(db), agentsRouter(db));
@@ -33,6 +34,11 @@ beforeAll(async () => {
   app.get('/policy-metrics', (req, res) => {
     res.json(getPolicyMetrics(db));
   });
+});
+
+beforeEach(() => {
+  // Reset policy state between tests to avoid rate limiting carryover
+  resetPolicyState();
 });
 
 afterAll(() => {
@@ -49,6 +55,7 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
       for (let i = 0; i < 6; i++) {
         const response = await request(app)
           .post('/agents/register')
+          .set('x-test-rate-limits', 'true')
           .send({
             name: `Rate Limit Agent ${i}`,
             webhookUrl: `https://api.example.com/webhook-${i}`,
@@ -81,18 +88,19 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
 
   describe('Resource Limits', () => {
     test('should reject oversized requests', async () => {
-      // Test with oversized JSON payload (simulated)
+      // Create a truly large JSON payload that exceeds 1MB limit
       const largeData = 'x'.repeat(2 * 1024 * 1024); // 2MB
+      const largePayload = {
+        name: 'Large Agent',
+        webhookUrl: 'https://api.example.com/webhook',
+        capabilities: ['test'],
+        largeField: largeData
+      };
 
       const response = await request(app)
         .post('/agents/register')
-        .set('Content-Length', (2 * 1024 * 1024).toString())
-        .send({
-          name: 'Large Agent',
-          webhookUrl: 'https://api.example.com/webhook',
-          capabilities: ['test'],
-          largeField: largeData
-        });
+        .set('x-test-resource-limits', 'true')
+        .send(largePayload);
 
       // Should fail due to content-length check
       expect(response.status).toBe(413);
@@ -104,6 +112,7 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
 
       const response = await request(app)
         .post('/templates')
+        .set('x-test-resource-limits', 'true')
         .send({
           name: 'Huge Template',
           content: hugeTemplate,

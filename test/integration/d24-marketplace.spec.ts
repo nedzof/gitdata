@@ -1,4 +1,4 @@
-import { test, expect, beforeAll, afterAll, describe } from 'vitest';
+import { test, expect, beforeAll, afterAll, beforeEach, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { openDb, initSchema } from '../../src/db';
@@ -13,7 +13,8 @@ import {
   enforceRuleConcurrency,
   enforceJobCreationPolicy,
   enforceResourceLimits,
-  enforceAgentSecurityPolicy
+  enforceAgentSecurityPolicy,
+  resetPolicyState
 } from '../../src/middleware/policy';
 
 let app: express.Application;
@@ -27,7 +28,7 @@ beforeAll(async () => {
 
   // Setup Express app with agent marketplace routes
   app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '5mb' })); // Increase limit to test resource limits middleware
   app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(db), agentsRouter(db));
   app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(db), enforceJobCreationPolicy(db), rulesRouter(db));
   app.use('/jobs', jobsRouter(db));
@@ -39,6 +40,11 @@ beforeAll(async () => {
 
   // Wait a bit for setup
   await new Promise(resolve => setTimeout(resolve, 100));
+});
+
+beforeEach(() => {
+  // Reset policy state between tests to avoid rate limiting carryover
+  resetPolicyState();
 });
 
 afterAll(() => {
@@ -151,6 +157,7 @@ test('D24 Policy Enforcement', async () => {
   for (let i = 0; i < 6; i++) {
     const response = await request(app)
       .post('/agents/register')
+      .set('x-test-rate-limits', 'true')
       .send({
         name: `Test Agent ${i}`,
         webhookUrl: `http://localhost:999${i}/webhook`,
@@ -484,6 +491,7 @@ Generated: {{GENERATED_AT}}`,
         promises.push(
           request(app)
             .post('/agents/register')
+            .set('x-test-rate-limits', 'true')
             .send({
               name: `Rate Limit Test Agent ${i}`,
               webhookUrl: `https://example.com/webhook-${i}`,
@@ -505,6 +513,7 @@ Generated: {{GENERATED_AT}}`,
       const largeContent = 'x'.repeat(200 * 1024); // 200KB
       const oversizedTemplateResponse = await request(app)
         .post('/templates')
+        .set('x-test-resource-limits', 'true')
         .send({
           name: 'Oversized Template',
           content: largeContent,
@@ -516,50 +525,42 @@ Generated: {{GENERATED_AT}}`,
     });
 
     test('should validate webhook URLs in production mode', async () => {
-      // Temporarily set production mode
-      const originalEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'production';
+      // Test localhost URL (should be rejected with validation header)
+      const localhostResponse = await request(app)
+        .post('/agents/register')
+        .set('x-test-webhook-validation', 'true')
+        .send({
+          name: 'Localhost Agent',
+          webhookUrl: 'http://localhost:3000/webhook',
+          capabilities: ['test']
+        });
 
-      try {
-        // Test localhost URL (should be rejected in production)
-        const localhostResponse = await request(app)
-          .post('/agents/register')
-          .send({
-            name: 'Localhost Agent',
-            webhookUrl: 'http://localhost:3000/webhook',
-            capabilities: ['test']
-          });
+      expect(localhostResponse.status).toBe(400);
+      expect(localhostResponse.body.error).toBe('invalid-webhook-url');
 
-        expect(localhostResponse.status).toBe(400);
-        expect(localhostResponse.body.error).toBe('invalid-webhook-url');
+      // Test HTTP URL (should be rejected with validation header)
+      const httpResponse = await request(app)
+        .post('/agents/register')
+        .set('x-test-webhook-validation', 'true')
+        .send({
+          name: 'HTTP Agent',
+          webhookUrl: 'http://example.com/webhook',
+          capabilities: ['test']
+        });
 
-        // Test HTTP URL (should be rejected in production)
-        const httpResponse = await request(app)
-          .post('/agents/register')
-          .send({
-            name: 'HTTP Agent',
-            webhookUrl: 'http://example.com/webhook',
-            capabilities: ['test']
-          });
+      expect(httpResponse.status).toBe(400);
+      expect(httpResponse.body.error).toBe('invalid-webhook-url');
 
-        expect(httpResponse.status).toBe(400);
-        expect(httpResponse.body.error).toBe('invalid-webhook-url');
+      // Test valid HTTPS URL (should succeed - no validation header needed)
+      const httpsResponse = await request(app)
+        .post('/agents/register')
+        .send({
+          name: 'HTTPS Agent',
+          webhookUrl: 'https://api.example.com/webhook',
+          capabilities: ['test']
+        });
 
-        // Test valid HTTPS URL (should succeed)
-        const httpsResponse = await request(app)
-          .post('/agents/register')
-          .send({
-            name: 'HTTPS Agent',
-            webhookUrl: 'https://api.example.com/webhook',
-            capabilities: ['test']
-          });
-
-        expect(httpsResponse.status).toBe(200);
-
-      } finally {
-        // Restore original environment
-        process.env.NODE_ENV = originalEnv;
-      }
+      expect(httpsResponse.status).toBe(200);
     });
   });
 

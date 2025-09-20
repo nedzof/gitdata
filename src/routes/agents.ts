@@ -39,6 +39,21 @@ export function agentsRouter(db: Database.Database): Router {
     return json(res, 200, { items });
   });
 
+  // GET /:id (get agent details)
+  router.get('/:id', (req: Request, res: Response) => {
+    const id = String(req.params.id);
+    const ag = getAgent(db, id);
+    if (!ag) return json(res, 404, { error: 'not-found' });
+    return json(res, 200, {
+      agentId: ag.agent_id,
+      name: ag.name,
+      capabilities: JSON.parse(ag.capabilities_json || '[]'),
+      webhookUrl: ag.webhook_url,
+      status: ag.status,
+      lastPingAt: ag.last_ping_at || null
+    });
+  });
+
   // POST /:id/ping (agent calls back to prove reachability)
   router.post('/:id/ping', requireIdentity(false), (req: Request & { identityKey?: string }, res: Response) => {
     const id = String(req.params.id);

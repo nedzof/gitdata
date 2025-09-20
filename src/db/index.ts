@@ -203,6 +203,39 @@ export function upsertManifest(db: Database.Database, row: Partial<ManifestRow>)
   } as any);
 }
 
+export function createManifest(db: Database.Database, manifest: {
+  version_id: string;
+  dataset_id?: string;
+  manifest_json: string;
+  manifest_hash?: string;
+  content_hash?: string;
+  title?: string;
+  license?: string;
+  classification?: string;
+  created_at?: string;
+  producer_id?: string;
+}): void {
+  const stmt = db.prepare(`
+    INSERT INTO manifests (
+      version_id, manifest_hash, content_hash, title, license,
+      classification, created_at, manifest_json, dataset_id, producer_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    manifest.version_id,
+    manifest.manifest_hash || 'unknown',
+    manifest.content_hash || null,
+    manifest.title || null,
+    manifest.license || null,
+    manifest.classification || null,
+    manifest.created_at || new Date().toISOString(),
+    manifest.manifest_json,
+    manifest.dataset_id || null,
+    manifest.producer_id || null
+  );
+}
+
 export function getManifest(db: Database.Database, versionId: string): ManifestRow | undefined {
   return db.prepare('SELECT * FROM manifests WHERE version_id = ?').get(versionId) as any;
 }

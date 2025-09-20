@@ -130,7 +130,7 @@ app.use('/api/models', rateLimit('models'), modelsRouter(db));
 app.use('/policies', rateLimit('policies'), policiesRouter(db));
 
 // D01 Builder route with rate limiting
-app.use(rateLimit('submit'), submitDlm1Router());
+app.use(rateLimit('submit'), submitDlm1Router(db));
 
 // Receiver (BRC-22-ish: rawTx + manifest [+ envelope]) with rate limiting
 app.use(

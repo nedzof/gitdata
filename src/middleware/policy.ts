@@ -34,6 +34,11 @@ function resetExpiredCounts() {
 export function enforceAgentRegistrationPolicy(db: Database.Database) {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Skip rate limiting only if explicitly disabled (not in tests that want to test rate limiting)
+      if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits']) {
+        return next();
+      }
+
       resetExpiredCounts();
 
       const clientIP = getClientIP(req);
@@ -79,6 +84,11 @@ export function enforceAgentRegistrationPolicy(db: Database.Database) {
 export function enforceRuleConcurrency(db: Database.Database) {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Skip concurrency limits only if explicitly disabled
+      if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits']) {
+        return next();
+      }
+
       // Check overall running jobs count
       const runningJobsCount = listJobs(db, 'running').length;
 
@@ -101,6 +111,11 @@ export function enforceRuleConcurrency(db: Database.Database) {
 export function enforceJobCreationPolicy(db: Database.Database) {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Skip job creation limits only if explicitly disabled
+      if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits']) {
+        return next();
+      }
+
       const ruleId = req.params.id || req.body?.ruleId;
 
       if (ruleId) {
@@ -127,6 +142,11 @@ export function enforceJobCreationPolicy(db: Database.Database) {
 
 export function enforceResourceLimits() {
   return (req: Request, res: Response, next: NextFunction) => {
+    // Skip resource limits only if explicitly disabled
+    if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-resource-limits']) {
+      return next();
+    }
+
     // Check request size limits
     const contentLength = parseInt(req.headers['content-length'] || '0');
     const MAX_REQUEST_SIZE = 1024 * 1024; // 1MB
@@ -140,7 +160,7 @@ export function enforceResourceLimits() {
     }
 
     // Check template content limits for contract templates
-    if (req.path.includes('/templates') && req.body?.content) {
+    if ((req.path.includes('/templates') || req.originalUrl.includes('/templates')) && req.body?.content) {
       const contentSize = Buffer.byteLength(req.body.content, 'utf8');
       const MAX_TEMPLATE_SIZE = 100 * 1024; // 100KB
 
@@ -167,8 +187,17 @@ export function enforceAgentSecurityPolicy() {
       try {
         const parsed = new URL(url);
 
-        // Block localhost/private networks in production
-        if (process.env.NODE_ENV === 'production') {
+        // Always validate URL scheme (reject dangerous schemes)
+        const allowedSchemes = ['http:', 'https:'];
+        if (!allowedSchemes.includes(parsed.protocol)) {
+          return res.status(400).json({
+            error: 'invalid-webhook-url',
+            message: 'Webhook URLs must use HTTP or HTTPS protocols'
+          });
+        }
+
+        // Block localhost/private networks in production (and tests that want to test this)
+        if (process.env.NODE_ENV === 'production' || req.headers['x-test-webhook-validation']) {
           const hostname = parsed.hostname;
           if (
             hostname === 'localhost' ||
@@ -190,8 +219,8 @@ export function enforceAgentSecurityPolicy() {
           }
         }
 
-        // Require HTTPS in production
-        if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') {
+        // Require HTTPS in production (and tests that want to test this)
+        if ((process.env.NODE_ENV === 'production' || req.headers['x-test-webhook-validation']) && parsed.protocol !== 'https:') {
           return res.status(400).json({
             error: 'invalid-webhook-url',
             message: 'Webhook URLs must use HTTPS in production'
@@ -233,6 +262,12 @@ export function enforceAgentSecurityPolicy() {
 
     next();
   };
+}
+
+// Reset policy state for testing
+export function resetPolicyState() {
+  agentRegistrations.clear();
+  runningJobs.clear();
 }
 
 // Policy metrics for monitoring

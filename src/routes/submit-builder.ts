@@ -1,7 +1,9 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
+import Database from 'better-sqlite3';
 import { validateDlm1Manifest, initValidators } from '../validators';
 import { requireIdentity } from '../middleware/identity';
+import { createManifest } from '../db';
 import {
   buildDlm1AnchorFromManifest,
   deriveManifestIds,
@@ -45,7 +47,7 @@ function jsonError(res: Response, code: number, error: string, hint?: string, de
  *   "opReturnOutputBytes": <number>
  * }
  */
-export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router {
+export function submitDlm1Router(db?: Database.Database, opts?: { manifestSchemaPath?: string }): Router {
   if (opts?.manifestSchemaPath) {
     initValidators(opts.manifestSchemaPath);
   } else {
@@ -86,7 +88,27 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
       const blob = composeTag('DLM1', built.cbor);
       const scriptHex = buildOpReturnScript(blob);
 
-      // 4) Return wallet-ready outputs (BRC-100 compatible shape)
+      // 4) Store the manifest in the database for searching (if db is provided)
+      if (db) {
+        try {
+          createManifest(db, {
+            version_id: versionId,
+            manifest_hash: manifestHash,
+            dataset_id: manifest.datasetId || 'unknown',
+            content_hash: manifest.content?.contentHash || null,
+            title: manifest.description || null,
+            license: manifest.policy?.license || null,
+            classification: manifest.policy?.classification || null,
+            created_at: manifest.provenance?.createdAt || new Date().toISOString(),
+            manifest_json: JSON.stringify(manifest)
+          });
+        } catch (error) {
+          // Log error but don't fail the submission since this is for testing
+          console.warn('Failed to store manifest in database:', error);
+        }
+      }
+
+      // 5) Return wallet-ready outputs (BRC-100 compatible shape)
       const outputs = [{ scriptHex, satoshis: 0 }];
       const outBytes = opReturnOutputSize(blob.length);
 
