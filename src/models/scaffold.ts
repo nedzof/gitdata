@@ -25,6 +25,7 @@ import type { Router, Request, Response } from 'express';
 import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
 import { createHash } from 'crypto';
+import { getParents, getManifest } from '../db';
 
 // ---------------- Env / Config ----------------
 
@@ -256,6 +257,63 @@ function buildRawTxWithOpReturn(scriptHex: string): string {
   return toHex(tx);
 }
 
+// ---------------- Lineage Tree Builder ----------------
+
+function buildLineageTree(db: Database.Database, versionId: string): any[] {
+  const visited = new Set<string>();
+  const lineageChain: any[] = [];
+
+  function traverseLineage(currentVersionId: string, depth = 0): void {
+    if (visited.has(currentVersionId) || depth > 10) return; // Prevent cycles and infinite recursion
+    visited.add(currentVersionId);
+
+    // Get parents of current version
+    const parents = getParents(db, currentVersionId);
+
+    // If this version has parents, traverse them first (depth-first)
+    for (const parentId of parents) {
+      traverseLineage(parentId, depth + 1);
+    }
+
+    // Get manifest details for current version
+    const manifest = getManifest(db, currentVersionId);
+    if (manifest) {
+      try {
+        const manifestData = JSON.parse(manifest.manifest_json || '{}');
+        const itemType = manifestData.type || 'unknown';
+
+        lineageChain.push({
+          versionId: currentVersionId,
+          type: itemType,
+          contentHash: manifest.content_hash || null,
+          name: manifest.title || manifestData.name || null,
+          description: manifestData.description || null,
+          createdAt: manifest.created_at || null
+        });
+      } catch (e) {
+        // Fallback if manifest JSON is invalid
+        lineageChain.push({
+          versionId: currentVersionId,
+          type: 'unknown',
+          contentHash: manifest.content_hash || null,
+          name: manifest.title || null,
+          description: null,
+          createdAt: manifest.created_at || null
+        });
+      }
+    }
+  }
+
+  traverseLineage(versionId);
+
+  // Remove duplicates while preserving order
+  const uniqueLineage = lineageChain.filter((item, index, arr) =>
+    arr.findIndex(other => other.versionId === item.versionId) === index
+  );
+
+  return uniqueLineage;
+}
+
 // ---------------- Router ----------------
 
 export function modelsRouter(db: Database.Database): Router {
@@ -335,79 +393,15 @@ export function modelsRouter(db: Database.Database): Router {
     });
   });
 
-  // GET /:id/lineage (proxy to /bundle with demo data)
+  // GET /:id/lineage (query actual lineage from database)
   router.get('/:id/lineage', async (req: Request, res: Response) => {
     try {
       const id = String(req.params.id);
       const r = getModel(db, id);
       if (!r) return json(res, 404, { error: 'not-found' });
 
-      // Demo lineage data based on model
-      let lineageData = [];
-
-      if (r.framework === 'TensorFlow' && r.tags_json?.includes('bert')) {
-        // BERT NLP model lineage
-        lineageData = [
-          {
-            versionId: 'raw_wikipedia_corpus_2024',
-            type: 'raw-data',
-            contentHash: 'e1f2a3b4c5d6789012345678901234567890abcdef1234567890abcdef123456'
-          },
-          {
-            versionId: 'preprocessed_text_corpus_v2',
-            type: 'processed-data',
-            contentHash: 'd2e3f4a5b6c789012345678901234567890abcdef1234567890abcdef123456e'
-          },
-          {
-            versionId: 'bert_tokenizer_training_index',
-            type: 'training-index',
-            contentHash: 'c3d4e5f6a7b89012345678901234567890abcdef1234567890abcdef123456d'
-          },
-          {
-            versionId: r.model_version_id,
-            type: 'model-artifact',
-            contentHash: r.model_hash
-          }
-        ];
-      } else if (r.framework === 'PyTorch' && r.tags_json?.includes('resnet')) {
-        // ResNet computer vision model lineage
-        lineageData = [
-          {
-            versionId: 'imagenet_raw_dataset_2024',
-            type: 'raw-data',
-            contentHash: 'f4e5d6c7b8a901234567890123456789abcdef01234567890abcdef123456ef'
-          },
-          {
-            versionId: 'imagenet_preprocessed_augmented',
-            type: 'processed-data',
-            contentHash: 'e5f6a7b8c9d012345678901234567890abcdef1234567890abcdef123456fe'
-          },
-          {
-            versionId: 'imagenet_training_2024_v3',
-            type: 'training-index',
-            contentHash: 'd6e7f8a9b0c123456789012345678901abcdef234567890abcdef123456ed'
-          },
-          {
-            versionId: r.model_version_id,
-            type: 'model-artifact',
-            contentHash: r.model_hash
-          }
-        ];
-      } else {
-        // Generic model lineage
-        lineageData = [
-          {
-            versionId: 'generic_training_dataset_v1',
-            type: 'training-index',
-            contentHash: 'a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456'
-          },
-          {
-            versionId: r.model_version_id,
-            type: 'model-artifact',
-            contentHash: r.model_hash
-          }
-        ];
-      }
+      // Build actual lineage tree from database
+      const lineageData = buildLineageTree(db, r.model_version_id);
 
       return json(res, 200, lineageData);
     } catch (e: any) {

@@ -34,18 +34,33 @@
       checkingReady[versionId] = true;
       checkingReady = { ...checkingReady };
 
-      // Check /ready endpoint (this would be a real API call)
+      // Check /ready endpoint with proper error handling
       const response = await fetch(`/ready?versionId=${versionId}`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
       const result = await response.json();
 
-      // Update dataset with ready status
+      // Update dataset with ready status and refresh the lineage data
       datasets = datasets.map(d =>
         d.versionId === versionId
-          ? { ...d, ready: result.ready, readyReason: result.reason }
+          ? { ...d, ready: result.ready, readyReason: result.reason || result.message }
           : d
       );
+
+      // Force a reload of datasets to get updated lineage information
+      await loadDatasets();
+
     } catch (e) {
       console.error('Error checking ready status:', e);
+      // Update with error status
+      datasets = datasets.map(d =>
+        d.versionId === versionId
+          ? { ...d, ready: false, readyReason: `Error: ${e.message}` }
+          : d
+      );
     } finally {
       checkingReady[versionId] = false;
       checkingReady = { ...checkingReady };

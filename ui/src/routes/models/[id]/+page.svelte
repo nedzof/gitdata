@@ -34,14 +34,17 @@
         return;
       }
 
-      // Load lineage
+      // Load lineage from database
       try {
         const lineageResponse = await fetch(`/api/models/${encodeURIComponent(modelId)}/lineage`);
         if (lineageResponse.ok) {
           lineage = await lineageResponse.json();
+        } else {
+          console.warn(`Lineage request failed: ${lineageResponse.status} ${lineageResponse.statusText}`);
         }
       } catch (e) {
         console.warn('Failed to load lineage:', e);
+        lineage = []; // Reset to empty array on error
       }
 
     } catch (e) {
@@ -62,6 +65,21 @@
       readyStatus = { error: e.message };
     } finally {
       loadingReady = false;
+    }
+  }
+
+  async function refreshLineage() {
+    if (!browser || !modelId) return;
+
+    try {
+      const lineageResponse = await fetch(`/api/models/${encodeURIComponent(modelId)}/lineage`);
+      if (lineageResponse.ok) {
+        lineage = await lineageResponse.json();
+      } else {
+        console.error(`Failed to refresh lineage: ${lineageResponse.status} ${lineageResponse.statusText}`);
+      }
+    } catch (e) {
+      console.error('Error refreshing lineage:', e);
     }
   }
 
@@ -183,18 +201,31 @@
           </div>
         {/if}
 
-        {#if lineage && lineage.length > 0}
-          <div class="detail-section lineage-section">
-            <h2>Model Lineage</h2>
-            <p class="section-description">Cryptographic trace of training data and model provenance</p>
+        <!-- Lineage Section - Always show -->
+        <div class="detail-section lineage-section">
+          <div class="lineage-header">
+            <div>
+              <h2>Model Lineage</h2>
+              <p class="section-description">Cryptographic trace of training data and model provenance</p>
+            </div>
+            <button on:click={refreshLineage} class="refresh-btn">
+              🔄 Refresh Lineage
+            </button>
+          </div>
+
+          {#if lineage && lineage.length > 0}
             <div class="lineage-tree">
               {#each lineage as item, index}
                 <div class="lineage-item">
                   <div class="lineage-icon">
-                    {#if item.type === 'training-index'}
+                    {#if item.type === 'training-index' || item.type === 'trainingIndex'}
                       📊
-                    {:else if item.type === 'model-artifact'}
+                    {:else if item.type === 'model-artifact' || item.type === 'modelArtifact'}
                       🤖
+                    {:else if item.type === 'raw-data'}
+                      📁
+                    {:else if item.type === 'processed-data'}
+                      🔄
                     {:else}
                       📄
                     {/if}
@@ -202,12 +233,15 @@
                   <div class="lineage-content">
                     <div class="lineage-title">
                       <a href="/explorer/version/{encodeURIComponent(item.versionId)}" class="link">
-                        {item.versionId}
+                        {item.name || item.versionId}
                       </a>
                     </div>
                     <div class="lineage-type">{item.type}</div>
                     {#if item.contentHash}
                       <div class="lineage-hash">{item.contentHash.substring(0, 16)}...</div>
+                    {/if}
+                    {#if item.description}
+                      <div class="lineage-description">{item.description}</div>
                     {/if}
                   </div>
                 </div>
@@ -216,8 +250,19 @@
                 {/if}
               {/each}
             </div>
-          </div>
-        {/if}
+          {:else}
+            <div class="no-lineage">
+              <div class="text-6xl mb-4 opacity-50">🔗</div>
+              <h3 class="text-lg font-semibold text-white mb-2">No Lineage Data Found</h3>
+              <p class="text-white/80 mb-4">
+                This model doesn't have lineage information in the database yet.
+              </p>
+              <button on:click={refreshLineage} class="btn-secondary">
+                🔄 Check for Lineage Data
+              </button>
+            </div>
+          {/if}
+        </div>
       </div>
     </div>
   {/if}
@@ -417,6 +462,28 @@
     grid-column: 1 / -1;
   }
 
+  .lineage-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+  }
+
+  .refresh-btn {
+    background: #1f6feb;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .refresh-btn:hover {
+    background: #1a5cc8;
+  }
+
   .lineage-tree {
     display: flex;
     flex-direction: column;
@@ -461,9 +528,38 @@
     color: #6e7681;
   }
 
+  .lineage-description {
+    color: #8b949e;
+    font-size: 12px;
+    margin-top: 4px;
+    font-style: italic;
+  }
+
   .lineage-arrow {
     color: #6e7681;
     font-size: 20px;
+  }
+
+  .no-lineage {
+    text-align: center;
+    padding: 40px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+  }
+
+  .btn-secondary {
+    background: #373e47;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+
+  .btn-secondary:hover {
+    background: #424a53;
   }
 
   @media (max-width: 768px) {
