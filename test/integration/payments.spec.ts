@@ -2,38 +2,46 @@ import { describe, test, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
-import { initSchema } from '../../src/db';
+import { initSchema, getTestDatabase, upsertManifest, insertReceipt } from '../../src/db';
 import { runPaymentsMigrations, paymentsRouter } from '../../src/payments';
 
 describe('D21 Payments Integration Tests', () => {
   let app: express.Application;
   let db: Database.Database;
 
-  beforeEach(() => {
-    // Fresh in-memory database for each test
-    db = new Database(':memory:');
-    initSchema(db);
+  beforeEach(async () => {
+    // Use test database setup
+    await initSchema();
+    db = getTestDatabase();
     runPaymentsMigrations(db);
 
     // Create test app
     app = express();
     app.use(express.json({ limit: '1mb' }));
-    app.use(paymentsRouter(db));
+    app.use(paymentsRouter());
 
     // Setup test data: producer, manifest, receipt
     db.prepare(`INSERT INTO producers (producer_id, name, identity_key, payout_script_hex, created_at)
                VALUES (?, ?, ?, ?, ?)`).run('prod-1', 'Test Producer', 'test-key', '76a914deadbeef88ac', Date.now());
 
-    db.prepare(`INSERT INTO manifests (version_id, manifest_hash, content_hash, dataset_id, producer_id, manifest_json)
-               VALUES (?, ?, ?, ?, ?, ?)`).run(
-      'ver-1', 'hash1', 'content1', 'dataset-1', 'prod-1',
-      JSON.stringify({ type: 'datasetVersionManifest', datasetId: 'dataset-1' })
-    );
+    await upsertManifest({
+      version_id: 'ver-1',
+      manifest_hash: 'hash1',
+      content_hash: 'content1',
+      dataset_id: 'dataset-1',
+      producer_id: 'prod-1',
+      manifest_json: JSON.stringify({ type: 'datasetVersionManifest', datasetId: 'dataset-1' })
+    });
 
-    db.prepare(`INSERT INTO receipts (receipt_id, version_id, quantity, amount_sat, status, created_at, expires_at, bytes_used, last_seen)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      'receipt-1', 'ver-1', 1, 5000, 'pending', Date.now(), Date.now() + 3600000, 0, null
-    );
+    await insertReceipt({
+      receipt_id: 'receipt-1',
+      version_id: 'ver-1',
+      quantity: 1,
+      amount_sat: 5000,
+      status: 'pending',
+      created_at: Date.now(),
+      expires_at: Date.now() + 3600000
+    });
   });
 
   test('POST /payments/quote should create deterministic payment template', async () => {

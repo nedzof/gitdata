@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
-import { initSchema } from '../../src/db';
+import { initSchema, getTestDatabase } from '../../src/db';
 import { runIngestMigrations, ingestRouter, startIngestWorker, upsertSource } from '../../src/ingest';
 import { createStorageEventsMigration } from '../../src/storage/lifecycle';
 import { runPaymentsMigrations } from '../../src/payments';
@@ -13,9 +13,60 @@ describe('D23 Real-Time Event Ingestion & Certification Tests', () => {
   let stopWorker: (() => void) | undefined;
 
   beforeEach(async () => {
-    // Fresh in-memory database
+    // Use test database setup
+    await initSchema();
+
+    // Create fresh database for this test
     db = new Database(':memory:');
-    initSchema(db);
+
+    // Initialize base schema in test database
+    const initSQL = `
+      CREATE TABLE IF NOT EXISTS manifests (
+        version_id TEXT PRIMARY KEY,
+        manifest_hash TEXT NOT NULL,
+        content_hash TEXT,
+        title TEXT,
+        license TEXT,
+        classification TEXT,
+        created_at TEXT,
+        manifest_json TEXT NOT NULL,
+        dataset_id TEXT,
+        producer_id TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS producers (
+        producer_id TEXT PRIMARY KEY,
+        name TEXT,
+        website TEXT,
+        identity_key TEXT,
+        payout_script_hex TEXT,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS receipts (
+        receipt_id TEXT PRIMARY KEY,
+        version_id TEXT,
+        quantity INTEGER NOT NULL,
+        content_hash TEXT,
+        amount_sat INTEGER NOT NULL,
+        status TEXT DEFAULT 'pending',
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        bytes_used INTEGER DEFAULT 0,
+        last_seen INTEGER,
+        payment_txid TEXT,
+        paid_at INTEGER,
+        payment_outputs_json TEXT,
+        fee_sat INTEGER,
+        quote_template_hash TEXT,
+        quote_expires_at INTEGER,
+        unit_price_sat INTEGER
+      );
+    `;
+
+    db.exec(initSQL);
+
+    // Run migrations
     runPaymentsMigrations(db);
     createStorageEventsMigration(db);
     runIngestMigrations(db);

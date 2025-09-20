@@ -36,6 +36,7 @@ import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
 import { createHash } from 'crypto';
 import { EventEmitter } from 'events';
+import { getTestDatabase, isTestEnvironment } from '../db/index.js';
 // Note: External webhook certification will be implemented when webhook infrastructure is available
 
 // ---------------- Config / ENV ----------------
@@ -77,9 +78,15 @@ function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 // ---------------- Migrations ----------------
 
-export function runIngestMigrations(db: Database.Database) {
+export function runIngestMigrations(db?: Database.Database) {
+  if (!db && !isTestEnvironment()) {
+    console.log('[ingest] Using PostgreSQL hybrid database - migrations handled in schema');
+    return;
+  }
+
+  const database = db || getTestDatabase();
   // Ingest sources with enhanced metadata
-  db.prepare(`
+  database.prepare(`
     CREATE TABLE IF NOT EXISTS ingest_sources (
       source_id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -98,7 +105,7 @@ export function runIngestMigrations(db: Database.Database) {
   `).run();
 
   // Enhanced ingest events with lineage
-  db.prepare(`
+  database.prepare(`
     CREATE TABLE IF NOT EXISTS ingest_events (
       event_id TEXT PRIMARY KEY,
       source_id TEXT,
@@ -121,14 +128,14 @@ export function runIngestMigrations(db: Database.Database) {
   `).run();
 
   // Create indexes for performance
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_source ON ingest_events(source_id)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_status ON ingest_events(status)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_created ON ingest_events(created_at)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_content_hash ON ingest_events(content_hash)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_external_id ON ingest_events(external_id)`).run();
+  database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_source ON ingest_events(source_id)`).run();
+  database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_status ON ingest_events(status)`).run();
+  database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_created ON ingest_events(created_at)`).run();
+  database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_content_hash ON ingest_events(content_hash)`).run();
+  database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_external_id ON ingest_events(external_id)`).run();
 
   // Dedicated ingest jobs queue
-  db.prepare(`
+  database.prepare(`
     CREATE TABLE IF NOT EXISTS ingest_jobs (
       job_id TEXT PRIMARY KEY,
       event_id TEXT NOT NULL,
@@ -645,12 +652,19 @@ function broadcastEvent(type: string, data: any) {
 
 // ---------------- Router ----------------
 
-export function ingestRouter(db: Database.Database): Router {
+export function ingestRouter(testDb?: Database.Database): Router {
   const router = makeRouter();
+
+  // Get appropriate database
+  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
 
   // POST /ingest/events - Batch event ingestion
   router.post('/ingest/events', async (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return json(res, 501, { error: 'not-implemented', message: 'Ingest not yet implemented for PostgreSQL' });
+      }
+
       const sourceId = req.body?.sourceId ? String(req.body.sourceId) : null;
       const events = Array.isArray(req.body?.events) ? req.body.events : null;
 
@@ -710,6 +724,9 @@ export function ingestRouter(db: Database.Database): Router {
   // GET /ingest/feed - List events with filtering
   router.get('/ingest/feed', (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return json(res, 501, { error: 'not-implemented', message: 'Ingest feed not yet implemented for PostgreSQL' });
+      }
       const sourceId = req.query.sourceId ? String(req.query.sourceId) : undefined;
       const status = req.query.status ? String(req.query.status) : undefined;
       const limit = Math.min(Number(req.query.limit) || 50, 1000);
@@ -744,6 +761,9 @@ export function ingestRouter(db: Database.Database): Router {
   // GET /ingest/events/:id - Event details
   router.get('/ingest/events/:id', (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return json(res, 501, { error: 'not-implemented', message: 'Event details not yet implemented for PostgreSQL' });
+      }
       const ev = getEvent(db, String(req.params.id));
       if (!ev) {
         return json(res, 404, { error: 'not-found' });
@@ -822,6 +842,9 @@ export function ingestRouter(db: Database.Database): Router {
   // GET /ingest/sources - List sources
   router.get('/ingest/sources', (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return json(res, 501, { error: 'not-implemented', message: 'Sources listing not yet implemented for PostgreSQL' });
+      }
       const sources = db.prepare(`
         SELECT source_id, name, description, source_type, trust_weight,
                rate_limit_per_min, enabled, last_heartbeat, created_at, updated_at
@@ -838,6 +861,9 @@ export function ingestRouter(db: Database.Database): Router {
   // POST /ingest/sources - Create/update source
   router.post('/ingest/sources', (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return json(res, 501, { error: 'not-implemented', message: 'Source management not yet implemented for PostgreSQL' });
+      }
       const sourceData: Partial<IngestSource> = {
         source_id: req.body.sourceId,
         name: req.body.name,
@@ -868,7 +894,13 @@ export function ingestRouter(db: Database.Database): Router {
 
 // ---------------- Worker ----------------
 
-export function startIngestWorker(db: Database.Database): (() => void) {
+export function startIngestWorker(db?: Database.Database): (() => void) {
+  const database = db || (isTestEnvironment() ? getTestDatabase() : null);
+
+  if (!database) {
+    console.log('[ingest] Ingest worker not started - PostgreSQL implementation not available');
+    return () => {}; // Return no-op cleanup function
+  }
   let isProcessing = false;
   let stopped = false;
 
@@ -878,23 +910,23 @@ export function startIngestWorker(db: Database.Database): (() => void) {
 
     try {
       // Check if database is still open
-      if (!db.open) {
+      if (!database.open) {
         return;
       }
 
-      const job = claimNextIngestJob(db);
+      const job = claimNextIngestJob(database);
       if (!job) return;
 
-      const ev = getEvent(db, job.event_id);
+      const ev = getEvent(database, job.event_id);
       if (!ev) {
-        setIngestJobResult(db, job.job_id, 'failed', undefined, 'event-not-found');
+        setIngestJobResult(database, job.job_id, 'failed', undefined, 'event-not-found');
         return;
       }
 
-      await processEvent(db, ev, job);
+      await processEvent(database, ev, job);
 
     } catch (e: any) {
-      if (!stopped && db.open) {
+      if (!stopped && database.open) {
         console.error('Ingest worker error:', e);
       }
     } finally {

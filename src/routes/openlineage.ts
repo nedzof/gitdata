@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { openDb } from '../db/index.js';
 import {
   queryLineage,
   getOLDataset,
@@ -10,7 +9,6 @@ import {
 } from '../db/index.js';
 
 const router = Router();
-const db = openDb();
 
 // Query lineage endpoint - main visualization API
 router.get('/lineage', async (req, res) => {
@@ -34,7 +32,7 @@ router.get('/lineage', async (req, res) => {
 
     const [, namespace, name] = nodeMatch;
 
-    const result = queryLineage(db, {
+    const result = await queryLineage({
       node: `dataset:${namespace}:${name}`,
       depth,
       direction
@@ -100,7 +98,7 @@ router.get('/nodes/dataset/:namespace/:name', async (req, res) => {
   try {
     const { namespace, name } = req.params;
 
-    const dataset = getOLDataset(db, namespace, name);
+    const dataset = await getOLDataset(namespace, name);
     if (!dataset) {
       return res.status(404).json({ error: 'Dataset not found' });
     }
@@ -125,7 +123,7 @@ router.get('/runs/:runId', async (req, res) => {
   try {
     const { runId } = req.params;
 
-    const run = getOLRun(db, runId);
+    const run = await getOLRun(runId);
     if (!run) {
       return res.status(404).json({ error: 'Run not found' });
     }
@@ -155,7 +153,7 @@ router.get('/jobs/:namespace/:name', async (req, res) => {
   try {
     const { namespace, name } = req.params;
 
-    const job = getOLJob(db, namespace, name);
+    const job = await getOLJob(namespace, name);
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
@@ -186,7 +184,7 @@ router.get('/search', async (req, res) => {
 
     const { q, limit } = schema.parse(req.query);
 
-    const results = searchOLDatasets(db, q, limit);
+    const results = await searchOLDatasets('default', q);
 
     res.json({
       query: q,
@@ -212,7 +210,7 @@ router.get('/search', async (req, res) => {
 router.get('/health', async (req, res) => {
   try {
     // Test database connectivity
-    const testResult = queryLineage(db, {
+    const testResult = await queryLineage({
       node: 'dataset:overlay:test:test',
       depth: 1,
       direction: 'both'

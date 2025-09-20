@@ -1,6 +1,5 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
 import { getDeclarationByVersion, getManifest, getParents } from '../db';
 import { verifyEnvelopeAgainstHeaders } from '../spv/verify-envelope';
 import { getHeadersSnapshot } from '../spv/headers-cache';
@@ -25,7 +24,7 @@ function ensureValidator() {
 type NodeOut = { versionId: string; manifestHash: string; txo: string };
 type EdgeOut = { child: string; parent: string };
 
-async function collectLineage(db: Database.Database, root: string, depth = BUNDLE_MAX_DEPTH) {
+async function collectLineage(root: string, depth = BUNDLE_MAX_DEPTH) {
   const nodes: NodeOut[] = [];
   const edges: EdgeOut[] = [];
   const manifestsArr: any[] = [];
@@ -39,8 +38,8 @@ async function collectLineage(db: Database.Database, root: string, depth = BUNDL
     if (visited.has(v)) continue;
     visited.add(v);
 
-    const decl = getDeclarationByVersion(db, v);
-    const man = getManifest(db, v);
+    const decl = await getDeclarationByVersion(v);
+    const man = await getManifest(v);
     if (!man) throw new Error(`missing-manifest:${v}`);
 
     const vout = decl?.opret_vout ?? 0;
@@ -57,7 +56,7 @@ async function collectLineage(db: Database.Database, root: string, depth = BUNDL
     }
 
     if (d < depth) {
-      const parents = getParents(db, v);
+      const parents = await getParents(v);
       for (const p of parents) {
         edges.push({ child: v, parent: p });
         if (!visited.has(p)) stack.push({ v: p, d: d + 1 });
@@ -88,7 +87,7 @@ async function recomputeConfsAndEnforce(
   return { ok: true };
 }
 
-export function bundleRouter(db: Database.Database): Router {
+export function bundleRouter(): Router {
   const router = makeRouter();
 
   ensureValidator();
@@ -106,7 +105,7 @@ export function bundleRouter(db: Database.Database): Router {
       const key = bundlesKey(versionId, depth);
 
       // 1) Try cache
-      const cached = bundlesGet(key);
+      const cached = await bundlesGet(key);
       if (cached) {
         cacheHit();
         // Use a shallow copy so we don't mutate the cache body
@@ -116,7 +115,7 @@ export function bundleRouter(db: Database.Database): Router {
         observeProofLatency(Date.now() - t0);
         if (!re.ok) {
           // If policy now fails (e.g., reorg or threshold), invalidate cache and fall through to rebuild
-          bundlesInvalidate(key);
+          await bundlesInvalidate(key);
         } else {
           if (VALIDATE_BUNDLE && validateBundleFn) {
             const vb = validateBundleFn(body);
@@ -130,7 +129,7 @@ export function bundleRouter(db: Database.Database): Router {
       }
 
       // 2) Build fresh
-      const { nodes, edges, manifestsArr, proofsArr } = await collectLineage(db, versionId, depth);
+      const { nodes, edges, manifestsArr, proofsArr } = await collectLineage(versionId, depth);
 
       // Verify & compute confirmations with current headers
       const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
@@ -160,7 +159,7 @@ export function bundleRouter(db: Database.Database): Router {
       }
 
       // 3) Cache (structure only). confirmations dynamic on future reads.
-      bundlesSet(key, bundle, true);
+      await bundlesSet(key, bundle, true);
       res.setHeader('x-cache', 'miss');
       return res.status(200).json(bundle);
     } catch (e: any) {

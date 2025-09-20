@@ -26,6 +26,13 @@ import type { Router, Request, Response } from 'express';
 import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
 import { createHash } from 'crypto';
+import {
+  getReceipt as getReceiptFromDb,
+  insertReceipt,
+  getTestDatabase,
+  isTestEnvironment,
+  getHybridDatabase
+} from '../db/index.js';
 
 // ------------ ENV / Config helpers ------------
 
@@ -67,44 +74,52 @@ function ensureColumn(db: Database.Database, table: string, column: string, ddlT
   }
 }
 
-export function runPaymentsMigrations(db: Database.Database) {
-  // receipts: add payment fields if not present
-  try {
-    ensureColumn(db, 'receipts', 'payment_txid', 'TEXT');
-    ensureColumn(db, 'receipts', 'paid_at', 'INTEGER');
-    ensureColumn(db, 'receipts', 'payment_outputs_json', 'TEXT');
-    ensureColumn(db, 'receipts', 'fee_sat', 'INTEGER');
-    ensureColumn(db, 'receipts', 'quote_template_hash', 'TEXT');
-    ensureColumn(db, 'receipts', 'quote_expires_at', 'INTEGER');
-    ensureColumn(db, 'receipts', 'unit_price_sat', 'INTEGER');
-  } catch (e) {
-    console.warn('[payments.migration] receipts table missing; ensure base schema exists before running payments migrations.');
-  }
+export function runPaymentsMigrations(db?: Database.Database) {
+  // Handle hybrid database vs test database
+  if (isTestEnvironment() || db) {
+    const database = db || getTestDatabase();
 
-  // producers: ensure payout_script_hex
-  try {
-    ensureColumn(db, 'producers', 'payout_script_hex', 'TEXT');
-  } catch (e) {
-    console.warn('[payments.migration] producers table missing or unmanaged in this scaffold.');
-  }
+    // receipts: add payment fields if not present
+    try {
+      ensureColumn(database, 'receipts', 'payment_txid', 'TEXT');
+      ensureColumn(database, 'receipts', 'paid_at', 'INTEGER');
+      ensureColumn(database, 'receipts', 'payment_outputs_json', 'TEXT');
+      ensureColumn(database, 'receipts', 'fee_sat', 'INTEGER');
+      ensureColumn(database, 'receipts', 'quote_template_hash', 'TEXT');
+      ensureColumn(database, 'receipts', 'quote_expires_at', 'INTEGER');
+      ensureColumn(database, 'receipts', 'unit_price_sat', 'INTEGER');
+    } catch (e) {
+      console.warn('[payments.migration] receipts table missing; ensure base schema exists before running payments migrations.');
+    }
 
-  // Create payment_events table for D21 (separate from existing revenue_events)
-  try {
-    db.prepare(`
-      CREATE TABLE IF NOT EXISTS payment_events (
-        event_id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,            -- payment-quoted | payment-submitted | payment-confirmed | refund
-        receipt_id TEXT,
-        txid TEXT,
-        details_json TEXT,
-        created_at INTEGER NOT NULL
-      )
-    `).run();
+    // producers: ensure payout_script_hex
+    try {
+      ensureColumn(database, 'producers', 'payout_script_hex', 'TEXT');
+    } catch (e) {
+      console.warn('[payments.migration] producers table missing or unmanaged in this scaffold.');
+    }
 
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_payment_events_type ON payment_events(type)`).run();
-    db.prepare(`CREATE INDEX IF NOT EXISTS idx_payment_events_receipt ON payment_events(receipt_id)`).run();
-  } catch (e) {
-    console.warn('[payments.migration] payment_events table creation failed:', e);
+    // Create payment_events table for D21 (separate from existing revenue_events)
+    try {
+      database.prepare(`
+        CREATE TABLE IF NOT EXISTS payment_events (
+          event_id TEXT PRIMARY KEY,
+          type TEXT NOT NULL,            -- payment-quoted | payment-submitted | payment-confirmed | refund
+          receipt_id TEXT,
+          txid TEXT,
+          details_json TEXT,
+          created_at INTEGER NOT NULL
+        )
+      `).run();
+
+      database.prepare(`CREATE INDEX IF NOT EXISTS idx_payment_events_type ON payment_events(type)`).run();
+      database.prepare(`CREATE INDEX IF NOT EXISTS idx_payment_events_receipt ON payment_events(receipt_id)`).run();
+    } catch (e) {
+      console.warn('[payments.migration] payment_events table creation failed:', e);
+    }
+  } else {
+    // For production PostgreSQL, migrations are handled in schema.sql
+    console.log('[payments.migration] Using PostgreSQL hybrid database - migrations handled in schema');
   }
 }
 
@@ -130,39 +145,76 @@ type PaymentProducerRow = {
   payout_script_hex?: string | null;
 };
 
-function getReceipt(db: Database.Database, receiptId: string): PaymentReceiptRow | undefined {
+async function getReceipt(receiptId: string): Promise<PaymentReceiptRow | undefined> {
   try {
-    return db.prepare('SELECT * FROM receipts WHERE receipt_id = ?').get(receiptId) as any;
+    if (isTestEnvironment()) {
+      const db = getTestDatabase();
+      return db.prepare('SELECT * FROM receipts WHERE receipt_id = ?').get(receiptId) as any;
+    } else {
+      const receipt = await getReceiptFromDb(receiptId);
+      return receipt as any;
+    }
   } catch { return undefined; }
 }
 
-function setReceiptQuote(db: Database.Database, receiptId: string, templateHash: string, expiresAt: number) {
-  db.prepare(`UPDATE receipts SET quote_template_hash=?, quote_expires_at=? WHERE receipt_id=?`)
-    .run(templateHash, expiresAt, receiptId);
+function setReceiptQuote(receiptId: string, templateHash: string, expiresAt: number) {
+  if (isTestEnvironment()) {
+    const db = getTestDatabase();
+    db.prepare(`UPDATE receipts SET quote_template_hash=?, quote_expires_at=? WHERE receipt_id=?`)
+      .run(templateHash, expiresAt, receiptId);
+  } else {
+    // TODO: Implement PostgreSQL update for receipt quote
+    console.warn('[payments] setReceiptQuote not yet implemented for PostgreSQL');
+  }
 }
 
-function setReceiptPaid(db: Database.Database, receiptId: string, txid: string, feeSat: number, outputs: any[]) {
-  db.prepare(`UPDATE receipts SET status='paid', payment_txid=?, fee_sat=?, paid_at=?, payment_outputs_json=? WHERE receipt_id=?`)
-    .run(txid, feeSat || 0, nowSec(), JSON.stringify(outputs || []), receiptId);
+function setReceiptPaid(receiptId: string, txid: string, feeSat: number, outputs: any[]) {
+  if (isTestEnvironment()) {
+    const db = getTestDatabase();
+    db.prepare(`UPDATE receipts SET status='paid', payment_txid=?, fee_sat=?, paid_at=?, payment_outputs_json=? WHERE receipt_id=?`)
+      .run(txid, feeSat || 0, nowSec(), JSON.stringify(outputs || []), receiptId);
+  } else {
+    // TODO: Implement PostgreSQL update for receipt payment
+    console.warn('[payments] setReceiptPaid not yet implemented for PostgreSQL');
+  }
 }
 
-function setReceiptConfirmed(db: Database.Database, receiptId: string) {
-  db.prepare(`UPDATE receipts SET status='confirmed' WHERE receipt_id=?`).run(receiptId);
+function setReceiptConfirmed(receiptId: string) {
+  if (isTestEnvironment()) {
+    const db = getTestDatabase();
+    db.prepare(`UPDATE receipts SET status='confirmed' WHERE receipt_id=?`).run(receiptId);
+  } else {
+    // TODO: Implement PostgreSQL update for receipt confirmation
+    console.warn('[payments] setReceiptConfirmed not yet implemented for PostgreSQL');
+  }
 }
 
-function logPaymentEvent(db: Database.Database, type: string, receiptId: string | null, txid: string | null, details: any) {
+function logPaymentEvent(type: string, receiptId: string | null, txid: string | null, details: any) {
   const id = 'pay_' + Math.random().toString(16).slice(2) + Date.now().toString(16);
-  db.prepare(`INSERT INTO payment_events(event_id, type, receipt_id, txid, details_json, created_at) VALUES (?,?,?,?,?,?)`)
-    .run(id, type, receiptId, txid, JSON.stringify(details || {}), nowSec());
+  if (isTestEnvironment()) {
+    const db = getTestDatabase();
+    db.prepare(`INSERT INTO payment_events(event_id, type, receipt_id, txid, details_json, created_at) VALUES (?,?,?,?,?,?)`)
+      .run(id, type, receiptId, txid, JSON.stringify(details || {}), nowSec());
+  } else {
+    // TODO: Implement PostgreSQL insert for payment events
+    console.warn('[payments] logPaymentEvent not yet implemented for PostgreSQL');
+  }
 }
 
-function getProducerByVersion(db: Database.Database, versionId: string): PaymentProducerRow | undefined {
+async function getProducerByVersion(versionId: string): Promise<PaymentProducerRow | undefined> {
   // Find producer by joining manifests to producers via producer_id
   try {
-    const row = db.prepare(`SELECT p.* FROM producers p
-      JOIN manifests m ON m.producer_id = p.producer_id
-      WHERE m.version_id = ? LIMIT 1`).get(versionId) as any;
-    return row;
+    if (isTestEnvironment()) {
+      const db = getTestDatabase();
+      const row = db.prepare(`SELECT p.* FROM producers p
+        JOIN manifests m ON m.producer_id = p.producer_id
+        WHERE m.version_id = ? LIMIT 1`).get(versionId) as any;
+      return row;
+    } else {
+      // TODO: Implement PostgreSQL producer lookup by version
+      console.warn('[payments] getProducerByVersion not yet implemented for PostgreSQL');
+      return undefined;
+    }
   } catch { return undefined; }
 }
 
@@ -170,7 +222,7 @@ function getProducerByVersion(db: Database.Database, versionId: string): Payment
 
 type PaymentOutput = { scriptHex: string; satoshis: number };
 
-function buildPaymentTemplate(db: Database.Database, receipt: PaymentReceiptRow) {
+async function buildPaymentTemplate(receipt: PaymentReceiptRow) {
   if (!receipt || !receipt.version_id) throw new Error('receipt-invalid');
 
   // Use existing amount_sat from receipt (this is the total amount due)
@@ -187,7 +239,7 @@ function buildPaymentTemplate(db: Database.Database, receipt: PaymentReceiptRow)
   const scripts: PayoutScripts = safeParse<PayoutScripts>(config.PAY_SCRIPTS_JSON, { overlay: '' });
 
   // resolve producer payout script
-  const producer = getProducerByVersion(db, receipt.version_id);
+  const producer = await getProducerByVersion(receipt.version_id);
   const producerScript = producer?.payout_script_hex || '';
 
   // allocation
@@ -269,24 +321,24 @@ function sha256dHex(hex: string): string {
 
 // ------------ Express Router (/payments) ------------
 
-export function paymentsRouter(db: Database.Database): Router {
+export function paymentsRouter(): Router {
   const router = makeRouter();
 
   // POST /payments/quote { receiptId }
-  router.post('/payments/quote', (req: Request, res: Response) => {
+  router.post('/payments/quote', async (req: Request, res: Response) => {
     try {
       const receiptId = String(req.body?.receiptId || '');
       if (!receiptId) return json(res, 400, { error: 'bad-request', hint: 'receiptId required' });
 
-      const r = getReceipt(db, receiptId);
+      const r = await getReceipt(receiptId);
       if (!r) return json(res, 404, { error: 'not-found', hint: 'unknown receiptId' });
       if (r.status && r.status !== 'pending') {
         return json(res, 409, { error: 'invalid-state', hint: `expected pending, got ${r.status}` });
       }
 
-      const tpl = buildPaymentTemplate(db, r);
-      setReceiptQuote(db, receiptId, tpl.templateHash, tpl.expiresAt);
-      logPaymentEvent(db, 'payment-quoted', receiptId, null, { templateHash: tpl.templateHash, expiresAt: tpl.expiresAt });
+      const tpl = await buildPaymentTemplate(r);
+      setReceiptQuote(receiptId, tpl.templateHash, tpl.expiresAt);
+      logPaymentEvent('payment-quoted', receiptId, null, { templateHash: tpl.templateHash, expiresAt: tpl.expiresAt });
 
       return json(res, 200, {
         versionId: r.version_id,
@@ -308,7 +360,7 @@ export function paymentsRouter(db: Database.Database): Router {
       const rawTxHex = String(req.body?.rawTxHex || '');
       if (!receiptId || !rawTxHex) return json(res, 400, { error: 'bad-request', hint: 'receiptId, rawTxHex required' });
 
-      const r = getReceipt(db, receiptId);
+      const r = await getReceipt(receiptId);
       if (!r) return json(res, 404, { error: 'not-found' });
 
       if (r.payment_txid) {
@@ -320,7 +372,7 @@ export function paymentsRouter(db: Database.Database): Router {
         return json(res, 410, { error: 'quote-expired' });
       }
 
-      const tpl = buildPaymentTemplate(db, r);
+      const tpl = await buildPaymentTemplate(r);
       const reqTxid = sha256dHex(rawTxHex);
 
       // Template validation
@@ -336,8 +388,8 @@ export function paymentsRouter(db: Database.Database): Router {
       const b = await broadcastTx(rawTxHex, providers, mode);
 
       // Persist payment fields
-      setReceiptPaid(db, receiptId, b.txid, 0, tpl.outputs);
-      logPaymentEvent(db, 'payment-submitted', receiptId, b.txid, { provider: b.provider, mapi: b.mapi, mode });
+      setReceiptPaid(receiptId, b.txid, 0, tpl.outputs);
+      logPaymentEvent('payment-submitted', receiptId, b.txid, { provider: b.provider, mapi: b.mapi, mode });
 
       return json(res, 200, { status: 'accepted', txid: b.txid, mapi: b.mapi });
     } catch (e: any) {
@@ -346,9 +398,9 @@ export function paymentsRouter(db: Database.Database): Router {
   });
 
   // GET /payments/:receiptId
-  router.get('/payments/:receiptId', (req: Request, res: Response) => {
+  router.get('/payments/:receiptId', async (req: Request, res: Response) => {
     try {
-      const r = getReceipt(db, String(req.params.receiptId));
+      const r = await getReceipt(String(req.params.receiptId));
       if (!r) return json(res, 404, { error: 'not-found' });
 
       const out = {
@@ -379,21 +431,27 @@ export function paymentsRouter(db: Database.Database): Router {
 
 // ------------ Reconcile job (SPV attach + status flip) ------------
 
-export async function reconcilePayments(db: Database.Database) {
+export async function reconcilePayments() {
   // Select receipts with status='paid' to check confirmations
-  const rows = db.prepare(`SELECT receipt_id, payment_txid FROM receipts WHERE status='paid' AND payment_txid IS NOT NULL`).all() as any[];
-  for (const row of rows) {
-    const txid = String(row.payment_txid);
-    try {
-      const confs = await verifyTxSPV(txid);
-      const config = getEnvConfig();
-      if (confs >= config.POLICY_MIN_CONFS) {
-        setReceiptConfirmed(db, row.receipt_id);
-        logPaymentEvent(db, 'payment-confirmed', row.receipt_id, txid, { confs });
+  if (isTestEnvironment()) {
+    const db = getTestDatabase();
+    const rows = db.prepare(`SELECT receipt_id, payment_txid FROM receipts WHERE status='paid' AND payment_txid IS NOT NULL`).all() as any[];
+    for (const row of rows) {
+      const txid = String(row.payment_txid);
+      try {
+        const confs = await verifyTxSPV(txid);
+        const config = getEnvConfig();
+        if (confs >= config.POLICY_MIN_CONFS) {
+          setReceiptConfirmed(row.receipt_id);
+          logPaymentEvent('payment-confirmed', row.receipt_id, txid, { confs });
+        }
+      } catch (e: any) {
+        // keep as paid; reconcile will try again later
       }
-    } catch (e: any) {
-      // keep as paid; reconcile will try again later
     }
+  } else {
+    // TODO: Implement PostgreSQL reconciliation
+    console.warn('[payments] reconcilePayments not yet implemented for PostgreSQL');
   }
 }
 

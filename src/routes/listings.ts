@@ -1,15 +1,14 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
 import { searchManifests, getManifest } from '../db';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
-export function listingsRouter(db: Database.Database): Router {
+export function listingsRouter(): Router {
   const router = makeRouter();
 
   // GET /?q=&datasetId=&producerId=&limit=&offset=
-  router.get('/', (req: Request, res: Response) => {
+  router.get('/', async (req: Request, res: Response) => {
     try {
       const q = req.query.q ? String(req.query.q) : undefined;
       const datasetId = req.query.datasetId ? String(req.query.datasetId) : undefined;
@@ -17,8 +16,9 @@ export function listingsRouter(db: Database.Database): Router {
       const limit = Math.min(Number(req.query.limit || 50), 200);
       const offset = Math.max(Number(req.query.offset || 0), 0);
 
-      const rows = searchManifests(db, { q, datasetId, limit: limit + offset });
-      const items = rows.slice(offset).map(m => ({
+      // Use modern hybrid database with cache-aside pattern
+      const rows = await searchManifests({ q, datasetId, limit, offset });
+      const items = rows.map(m => ({
         versionId: m.version_id,
         name: m.title || null,
         description: null, // Could extract from manifest_json if needed
@@ -28,6 +28,9 @@ export function listingsRouter(db: Database.Database): Router {
         updatedAt: m.created_at || null
       }));
 
+      // Set cache headers for successful responses
+      res.setHeader('Cache-Control', 'public, max-age=120'); // 2 minutes
+
       return json(res, 200, { items, limit, offset });
     } catch (e: any) {
       return json(res, 500, { error: 'search-failed', message: String(e?.message || e) });
@@ -35,10 +38,12 @@ export function listingsRouter(db: Database.Database): Router {
   });
 
   // GET /:versionId
-  router.get('/:versionId', (req: Request, res: Response) => {
+  router.get('/:versionId', async (req: Request, res: Response) => {
     try {
       const versionId = String(req.params.versionId);
-      const manifest = getManifest(db, versionId);
+
+      // Use modern hybrid database with cache-aside pattern
+      const manifest = await getManifest(versionId);
 
       if (!manifest) {
         return json(res, 404, { error: 'not-found', hint: 'versionId not found' });
@@ -64,6 +69,9 @@ export function listingsRouter(db: Database.Database): Router {
         }
         // Note: price snippet would be added here with feature flag
       };
+
+      // Set cache headers for successful responses
+      res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes
 
       return json(res, 200, detail);
     } catch (e: any) {

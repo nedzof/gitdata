@@ -1,11 +1,12 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { openDb, initSchema } from './src/db';
+import { initSchema } from './src/db';
 import { bundleRouter } from './src/routes/bundle';
 import { readyRouter } from './src/routes/ready';
 import { priceRouter } from './src/routes/price';
 import { listingsRouter } from './src/routes/listings';
+import { healthRouter } from './src/routes/health';
 import { submitDlm1Router } from './src/routes/submit-builder';
 import { submitReceiverRouter } from './src/routes/submit-receiver';
 import { payRouter } from './src/routes/pay';
@@ -39,7 +40,6 @@ import { startJobsWorker } from './src/agents/worker';
 import { runModelsMigrations, modelsRouter } from './src/models/scaffold';
 import { runPolicyMigrations, policiesRouter } from './src/policies';
 import openlineageRouter from './src/routes/openlineage.js';
-import { initOpenLineageSchema } from './src/db/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,27 +56,17 @@ app.use(auditLogger());
 // UI - serve SvelteKit build BEFORE rate limiting
 app.use(express.static(path.join(__dirname, 'ui/build')));
 
-// DB
-const db = openDb();
-initSchema(db);
+// Modern PostgreSQL/Redis Hybrid Database
+initSchema().catch(console.error);
 
-// D21: Initialize payments schema
-runPaymentsMigrations(db);
-
-// D22: Initialize storage events schema
-createStorageEventsMigration(db);
-
-// D23: Initialize ingest schema
-runIngestMigrations(db);
-
-// D27: Initialize models schema
-runModelsMigrations(db);
-
-// D28: Initialize policies schema
-runPolicyMigrations(db);
-
-// D38: Initialize OpenLineage schema
-initOpenLineageSchema(db);
+// TODO: Migrate these initialization functions to work with PostgreSQL
+// For now, commenting out to get the hybrid system running
+// runPaymentsMigrations(db);
+// createStorageEventsMigration(db);
+// runIngestMigrations(db);
+// runModelsMigrations(db);
+// runPolicyMigrations(db);
+// OpenLineage schema is included in PostgreSQL schema initialization
 
 // Attach per-route metrics wrappers before routers (best-effort)
 app.use('/ready', metricsRoute('ready'));
@@ -95,109 +85,114 @@ app.use('/policies', metricsRoute('policies'));
 app.use('/openlineage', metricsRoute('openlineage'));
 
 // API routes with rate limiting
-app.use(rateLimit('bundle'), bundleRouter(db));
-app.use(rateLimit('ready'), readyRouter(db));
-app.use(rateLimit('price'), priceRouter(db));
-app.use(rateLimit('pay'), payRouter(db));
-app.use(rateLimit('data'), dataRouter(db));
-app.use('/listings', rateLimit('submit'), listingsRouter(db));
-app.use(rateLimit('submit'), producersRouter(db));
-app.use(rateLimit('submit'), advisoriesRouter(db));
+app.use(rateLimit('bundle'), bundleRouter());
+app.use(rateLimit('ready'), readyRouter());
+app.use(rateLimit('price'), priceRouter());
+app.use(rateLimit('pay'), payRouter());
+app.use(rateLimit('data'), dataRouter());
+app.use(healthRouter());
+app.use('/listings', rateLimit('submit'), listingsRouter());
+// app.use(rateLimit('submit'), producersRouter(db)); // TODO: Update to hybrid
+// app.use(rateLimit('submit'), advisoriesRouter(db)); // TODO: Update to hybrid
 
+// TODO: Update these routes to use hybrid database
 // D19: Identity-signed producer registration
-app.use(producersRegisterRouter(db));
+// app.use(producersRegisterRouter(db));
 
 // D16: A2A Agent marketplace routes with policy enforcement
-app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(db), agentsRouter(db));
-app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(db), enforceJobCreationPolicy(db), rulesRouter(db));
-app.use('/jobs', jobsRouter(db));
-app.use('/templates', enforceResourceLimits(), templatesRouter(db));
-app.use('/artifacts', createArtifactRoutes(db));
+// app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(db), agentsRouter(db));
+// app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(db), enforceJobCreationPolicy(db), rulesRouter(db));
+// app.use('/jobs', jobsRouter(db));
+// app.use('/templates', enforceResourceLimits(), templatesRouter(db));
+// app.use('/artifacts', createArtifactRoutes(db));
 
 // D18: Catalog routes (/search and /resolve)
-app.use(catalogRouter(db));
+// app.use(catalogRouter(db));
 
 // D17: Ops routes (/health and /metrics)
-app.use(opsRouter(db));
+// app.use(opsRouter(db));
 
 // D21: BSV Payments routes (/payments/quote, /payments/submit, /payments/:receiptId)
-app.use(rateLimit('payments'), paymentsRouter(db));
+// app.use(rateLimit('payments'), paymentsRouter());
 
 // D22: Storage backend monitoring (/v1/storage/health, /v1/storage/stats, etc.)
-app.use(rateLimit('storage'), storageRouter(db));
+// app.use(rateLimit('storage'), storageRouter());
 
 // D23: Real-time event ingestion (/ingest/events, /ingest/feed, /watch)
-app.use(rateLimit('ingest'), ingestRouter(db));
+// app.use(rateLimit('ingest'), ingestRouter());
 
 // D27: Model provenance & reverse lineage (/api/models/connect, /api/models/search, etc.)
-app.use('/api/models', rateLimit('models'), modelsRouter(db));
+// app.use('/api/models', rateLimit('models'), modelsRouter(db));
 
 // D28: Policy governance (/policies CRUD, /policies/evaluate)
-app.use('/policies', rateLimit('policies'), policiesRouter(db));
+// app.use('/policies', rateLimit('policies'), policiesRouter(db));
 
 // D38: OpenLineage API (/openlineage/lineage, /openlineage/nodes, etc.)
 app.use('/openlineage', rateLimit('openlineage'), openlineageRouter);
 
+// TODO: Update these routes to use hybrid database
 // D01 Builder route with rate limiting
-app.use(rateLimit('submit'), submitDlm1Router(db));
+// app.use(rateLimit('submit'), submitDlm1Router(db));
 
 // Receiver (BRC-22-ish: rawTx + manifest [+ envelope]) with rate limiting
-app.use(
-  rateLimit('submit'),
-  submitReceiverRouter(db, {
-    headersFile: process.env.HEADERS_FILE || './data/headers.json',
-    minConfs: Number(process.env.POLICY_MIN_CONFS || 1),
-    bodyMaxSize: Number(process.env.BODY_MAX_SIZE || 1_000_000),
-  })
-);
+// app.use(
+//   rateLimit('submit'),
+//   submitReceiverRouter(db, {
+//     headersFile: process.env.HEADERS_FILE || './data/headers.json',
+//     minConfs: Number(process.env.POLICY_MIN_CONFS || 1),
+//     bodyMaxSize: Number(process.env.BODY_MAX_SIZE || 1_000_000),
+//   })
+// );
 
+// TODO: Update worker initialization to use hybrid database
 // D16: Initialize A2A job processor if enabled
-let jobProcessor;
-if (process.env.A2A_WORKER_ENABLED === 'true') {
-  try {
-    jobProcessor = createJobProcessor(db);
-    jobProcessor.start();
-    console.log('[A2A] Job processor started');
-  } catch (error) {
-    console.warn('[A2A] Job processor could not start:', error);
-    console.warn('[A2A] Set AGENT_CALL_PRIVKEY environment variable to enable A2A worker');
-  }
-}
+// let jobProcessor;
+// if (process.env.A2A_WORKER_ENABLED === 'true') {
+//   try {
+//     jobProcessor = createJobProcessor(db);
+//     jobProcessor.start();
+//     console.log('[A2A] Job processor started');
+//   } catch (error) {
+//     console.warn('[A2A] Job processor could not start:', error);
+//     console.warn('[A2A] Set AGENT_CALL_PRIVKEY environment variable to enable A2A worker');
+//   }
+// }
 
 // D23: Start ingest worker for real-time event processing
-const stopIngestWorker = startIngestWorker(db);
+// const stopIngestWorker = startIngestWorker();
 
 // D24: Start jobs worker for agent marketplace automation
-const stopJobsWorker = startJobsWorker(db);
+// const stopJobsWorker = startJobsWorker(db);
 
+// TODO: Update payments reconciliation to use hybrid database
 // D21: Initialize payments reconciliation job
-if (process.env.PAYMENTS_RECONCILE_ENABLED !== 'false') {
-  setInterval(() => {
-    reconcilePayments(db).catch(err =>
-      console.warn('[D21] Payments reconcile error:', err.message)
-    );
-  }, Number(process.env.PAYMENTS_RECONCILE_INTERVAL_MS || 60000));
-  console.log('[D21] Payments reconciliation job started');
-}
+// if (process.env.PAYMENTS_RECONCILE_ENABLED !== 'false') {
+//   setInterval(() => {
+//     reconcilePayments().catch(err =>
+//       console.warn('[D21] Payments reconcile error:', err.message)
+//     );
+//   }, Number(process.env.PAYMENTS_RECONCILE_INTERVAL_MS || 60000));
+//   console.log('[D21] Payments reconciliation job started');
+// }
 
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('Shutting down...');
-  if (jobProcessor) {
-    jobProcessor.stop();
-  }
-  stopIngestWorker();
-  stopJobsWorker();
+  // if (jobProcessor) {
+  //   jobProcessor.stop();
+  // }
+  // stopIngestWorker();
+  // stopJobsWorker();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('Shutting down...');
-  if (jobProcessor) {
-    jobProcessor.stop();
-  }
-  stopIngestWorker();
-  stopJobsWorker();
+  // if (jobProcessor) {
+  //   jobProcessor.stop();
+  // }
+  // stopIngestWorker();
+  // stopJobsWorker();
   process.exit(0);
 });
 

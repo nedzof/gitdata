@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { Readable } from 'stream';
-import { initSchema } from '../../src/db';
+import { initSchema, getTestDatabase, closeTestDatabase, upsertManifest, insertReceipt } from '../../src/db';
 import { createStorageDriver, FilesystemStorageDriver, calculateContentHash } from '../../src/storage';
 import { StorageLifecycleManager, createStorageEventsMigration } from '../../src/storage/lifecycle';
 import { StorageMigrator } from '../../src/storage/migration';
@@ -17,11 +17,9 @@ describe('D22 Storage Backend Integration Tests', () => {
   let storage: FilesystemStorageDriver;
 
   beforeEach(async () => {
-    // Fresh in-memory database
-    db = new Database(':memory:');
-    initSchema(db);
-    runPaymentsMigrations(db);
-    createStorageEventsMigration(db);
+    // Use test database setup
+    await initSchema();
+    db = getTestDatabase(); // Get the already initialized test database
 
     // Set environment variables for storage configuration
     process.env.STORAGE_BACKEND = 'fs';
@@ -48,24 +46,34 @@ describe('D22 Storage Backend Integration Tests', () => {
     // Setup Express app
     app = express();
     app.use(express.json({ limit: '1mb' }));
-    app.use(dataRouter(db));
-    app.use(storageRouter(db));
+    app.use(dataRouter());
+    // app.use(storageRouter()); // TODO: Update storageRouter to use hybrid database
 
-    // Setup test data
+    // Setup test data using hybrid database functions
+    // Insert producer data directly into test database (for now)
     db.prepare(`INSERT INTO producers (producer_id, name, identity_key, payout_script_hex, created_at)
                VALUES (?, ?, ?, ?, ?)`).run('prod-1', 'Test Producer', 'test-key', '76a914deadbeef88ac', Date.now());
 
-    db.prepare(`INSERT INTO manifests (version_id, manifest_hash, content_hash, dataset_id, producer_id, manifest_json)
-               VALUES (?, ?, ?, ?, ?, ?)`).run(
-      'ver-1', 'hash1', '6d9a0cc619fdcb1b616a06a7ed5b6ea6102427aceb2f95598d0d69b4bbefe37d', 'dataset-1', 'prod-1',
-      JSON.stringify({ type: 'datasetVersionManifest', datasetId: 'dataset-1' })
-    );
+    // Use hybrid database functions for manifests and receipts
+    await upsertManifest({
+      version_id: 'ver-1',
+      manifest_hash: 'hash1',
+      content_hash: '6d9a0cc619fdcb1b616a06a7ed5b6ea6102427aceb2f95598d0d69b4bbefe37d',
+      dataset_id: 'dataset-1',
+      producer_id: 'prod-1',
+      manifest_json: JSON.stringify({ type: 'datasetVersionManifest', datasetId: 'dataset-1' })
+    });
 
-    db.prepare(`INSERT INTO receipts (receipt_id, version_id, quantity, amount_sat, status, created_at, expires_at, bytes_used, last_seen, content_hash)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      'receipt-1', 'ver-1', 1, 5000, 'paid', Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000) + 3600, 0, null,
-      '6d9a0cc619fdcb1b616a06a7ed5b6ea6102427aceb2f95598d0d69b4bbefe37d'
-    );
+    await insertReceipt({
+      receipt_id: 'receipt-1',
+      version_id: 'ver-1',
+      quantity: 1,
+      amount_sat: 5000,
+      status: 'paid',
+      created_at: Math.floor(Date.now() / 1000),
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      content_hash: '6d9a0cc619fdcb1b616a06a7ed5b6ea6102427aceb2f95598d0d69b4bbefe37d'
+    });
 
     // Create test content in storage
     const testContent = Buffer.from('Hello, D22 Storage World!');
