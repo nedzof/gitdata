@@ -352,6 +352,12 @@ export async function getReceipt(receiptId: string): Promise<ReceiptRow | null> 
   return await hybridDb.getReceipt(receiptId);
 }
 
+export async function getRecentReceipts(limit: number = 50, offset: number = 0): Promise<ReceiptRow[]> {
+  const { getHybridDatabase } = await import('./hybrid');
+  const hybridDb = getHybridDatabase();
+  return await hybridDb.getRecentReceipts(limit, offset);
+}
+
 export async function setReceiptStatus(receiptId: string, status: string): Promise<void> {
   const { getPostgreSQLClient } = await import('./postgresql');
   const pgClient = getPostgreSQLClient();

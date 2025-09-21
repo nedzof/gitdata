@@ -41,6 +41,7 @@ import { startJobsWorker } from './src/agents/worker';
 import { runModelsMigrations, modelsRouter } from './src/models/scaffold';
 import { runPolicyMigrations, policiesRouter } from './src/policies';
 import openlineageRouter from './src/routes/openlineage.js';
+import { walletRouter } from './src/routes/wallet';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -144,6 +145,9 @@ app.use(catalogRouter());
 // D38: OpenLineage API (/openlineage/lineage, /openlineage/nodes, etc.)
 app.use('/openlineage', rateLimit('openlineage'), openlineageRouter);
 
+// BRC100 Wallet Integration API (/wallet/purchases, /wallet/balance, /assets/:id/status, /notifications/*)
+app.use(rateLimit('wallet'), walletRouter());
+
 // D01 Builder route with rate limiting - Updated for D01A spec compliance
 app.use(rateLimit('submit'), submitDlm1Router());
 
@@ -237,7 +241,10 @@ app.get('*', (req, res, next) => {
       req.path.startsWith('/storage') ||
       req.path.startsWith('/ingest') ||
       req.path.startsWith('/policies') ||
-      req.path.startsWith('/openlineage')) {
+      req.path.startsWith('/openlineage') ||
+      req.path.startsWith('/wallet') ||
+      req.path.startsWith('/assets') ||
+      req.path.startsWith('/notifications')) {
     return next();
   }
 

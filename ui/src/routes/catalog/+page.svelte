@@ -7,6 +7,7 @@
   let loading = true;
   let searchQuery = '';
   let selectedType = 'all'; // 'all', 'data', 'ai'
+  let selectedLineage = 'all'; // 'all', 'roots', 'leafs', 'parents', 'children'
   let showPublishForm = false;
 
   // Publishing form data
@@ -31,12 +32,26 @@
 
       // Load available assets for parent selection from search endpoint
       try {
-        const searchResponse = await api.request('/search', {
+        let searchUrl = '/search';
+        const params = new URLSearchParams();
+
+        if (searchQuery) params.append('q', searchQuery);
+        if (selectedType !== 'all') params.append('type', selectedType);
+        if (selectedLineage !== 'all') params.append('lineage', selectedLineage);
+
+        if (params.toString()) {
+          searchUrl += '?' + params.toString();
+        }
+
+        const searchResponse = await api.request(searchUrl, {
           method: 'GET'
         });
-        availableAssets = searchResponse.results || [];
+
+        assets = searchResponse.items || [];
+        availableAssets = searchResponse.items || [];
       } catch (searchError) {
         console.log('Search endpoint not available yet, using empty list for parents');
+        assets = [];
         availableAssets = [];
       }
     } catch (error) {
@@ -49,21 +64,14 @@
   }
 
   function filteredAssets() {
-    let filtered = assets;
+    // Since filtering is now done server-side, just return the assets
+    // The client-side filtering is preserved for any additional local filtering if needed
+    return assets;
+  }
 
-    if (selectedType !== 'all') {
-      filtered = filtered.filter(asset => asset.type === selectedType);
-    }
-
-    if (searchQuery) {
-      filtered = filtered.filter(asset =>
-        asset.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        asset.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (asset.tags && asset.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())))
-      );
-    }
-
-    return filtered;
+  // Reactive statement to reload assets when filters change
+  $: if (searchQuery !== undefined || selectedType !== undefined || selectedLineage !== undefined) {
+    loadAssets();
   }
 
   async function handlePublish() {
@@ -254,24 +262,61 @@
       />
     </div>
     <div class="filter-buttons">
-      <button
-        on:click={() => selectedType = 'all'}
-        class="filter-btn {selectedType === 'all' ? 'active' : ''}"
-      >
-        All
-      </button>
-      <button
-        on:click={() => selectedType = 'data'}
-        class="filter-btn {selectedType === 'data' ? 'active' : ''}"
-      >
-        📊 Data
-      </button>
-      <button
-        on:click={() => selectedType = 'ai'}
-        class="filter-btn {selectedType === 'ai' ? 'active' : ''}"
-      >
-        🤖 AI
-      </button>
+      <div class="filter-group">
+        <label class="filter-label">Type:</label>
+        <button
+          on:click={() => selectedType = 'all'}
+          class="filter-btn {selectedType === 'all' ? 'active' : ''}"
+        >
+          All
+        </button>
+        <button
+          on:click={() => selectedType = 'data'}
+          class="filter-btn {selectedType === 'data' ? 'active' : ''}"
+        >
+          📊 Data
+        </button>
+        <button
+          on:click={() => selectedType = 'ai'}
+          class="filter-btn {selectedType === 'ai' ? 'active' : ''}"
+        >
+          🤖 AI
+        </button>
+      </div>
+
+      <div class="filter-group">
+        <label class="filter-label">Lineage:</label>
+        <button
+          on:click={() => selectedLineage = 'all'}
+          class="filter-btn {selectedLineage === 'all' ? 'active' : ''}"
+        >
+          All
+        </button>
+        <button
+          on:click={() => selectedLineage = 'roots'}
+          class="filter-btn {selectedLineage === 'roots' ? 'active' : ''}"
+        >
+          🌱 Roots
+        </button>
+        <button
+          on:click={() => selectedLineage = 'leafs'}
+          class="filter-btn {selectedLineage === 'leafs' ? 'active' : ''}"
+        >
+          🍃 Leafs
+        </button>
+        <button
+          on:click={() => selectedLineage = 'parents'}
+          class="filter-btn {selectedLineage === 'parents' ? 'active' : ''}"
+        >
+          👨‍👧‍👦 Parents
+        </button>
+        <button
+          on:click={() => selectedLineage = 'children'}
+          class="filter-btn {selectedLineage === 'children' ? 'active' : ''}"
+        >
+          👶 Children
+        </button>
+      </div>
     </div>
   </div>
 
@@ -313,9 +358,6 @@
             <div class="asset-actions">
               <a href="/analysis?id={asset.versionId}" class="asset-link">
                 View Lineage
-              </a>
-              <a href="/connect?asset={asset.versionId}" class="asset-link primary">
-                Connect
               </a>
             </div>
           </div>
@@ -453,7 +495,22 @@
 
   .filter-buttons {
     display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: center;
+  }
+
+  .filter-group {
+    display: flex;
     gap: 8px;
+    align-items: center;
+  }
+
+  .filter-label {
+    color: #8b949e;
+    font-size: 13px;
+    font-weight: 500;
+    margin-right: 8px;
   }
 
   .filter-btn {
@@ -624,15 +681,6 @@
     text-decoration: underline;
   }
 
-  .asset-link.primary {
-    background: #238636;
-    color: #ffffff;
-  }
-
-  .asset-link.primary:hover {
-    background: #2ea043;
-    text-decoration: none;
-  }
 
   /* Parent selection styles */
   .parent-selection {

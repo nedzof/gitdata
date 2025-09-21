@@ -310,6 +310,13 @@ export class HybridDatabase {
     );
   }
 
+  async getRecentReceipts(limit: number = 50, offset: number = 0): Promise<ReceiptRow[]> {
+    return await this.pg.queryAll<ReceiptRow>(
+      'SELECT * FROM receipts ORDER BY created_at DESC LIMIT $1 OFFSET $2',
+      [limit, offset]
+    );
+  }
+
   // OpenLineage integration with Redis
   async ingestOpenLineageEvent(event: OpenLineageEvent): Promise<boolean> {
     const payload = JSON.stringify(event);
