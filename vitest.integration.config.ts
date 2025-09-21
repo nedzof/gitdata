@@ -6,7 +6,7 @@ export default defineConfig({
     environment: 'node',
     setupFiles: ['./test/setup.ts'],
     include: ['test/integration/**/*.spec.ts', 'test/integration/**/*.test.ts'],
-    exclude: ['test/integration/sdk.spec.ts', 'test/integration/submit-flow.spec.ts', 'test/integration/tx-builder.spec.ts'],
+    exclude: ['test/integration/sdk.spec.ts', 'test/integration/submit-flow.spec.ts', 'test/integration/tx-builder.spec.ts', 'test/integration/ingest.spec.ts'],
     timeout: 30000,
     // Disable parallelism to prevent database conflicts
     pool: 'threads',

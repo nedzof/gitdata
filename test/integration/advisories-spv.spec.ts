@@ -36,6 +36,7 @@ describe('Advisories SPV Integration Test', () => {
   await pgClient.query('DELETE FROM advisory_targets');
   await pgClient.query('DELETE FROM advisories');
   await pgClient.query('DELETE FROM declarations');
+  await pgClient.query('DELETE FROM edges'); // Important: clear lineage relationships
   await pgClient.query('DELETE FROM manifests');
   await pgClient.query('DELETE FROM producers');
   await pgClient.query('DELETE FROM users');
