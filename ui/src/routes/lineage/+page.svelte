@@ -123,186 +123,128 @@
   {:else if error}
     <div class="error">{error}</div>
   {:else if lineageData}
-    <div class="layout">
-      <!-- Filters Panel -->
-      <div class="filters">
-        <h3>Filters</h3>
-
-        {#if filters.classification.size > 0 || filters.producer.size > 0 || filters.relationshipType.size > 0}
-          <div class="active-filters">
-            {#each [...filters.classification] as filter}
-              <span class="filter-tag" on:click={() => removeFilter('classification', filter)}>
-                {filter} ×
-              </span>
-            {/each}
-            {#each [...filters.producer] as filter}
-              <span class="filter-tag" on:click={() => removeFilter('producer', filter)}>
-                {filter} ×
-              </span>
-            {/each}
-            {#each [...filters.relationshipType] as filter}
-              <span class="filter-tag" on:click={() => removeFilter('relationshipType', filter)}>
-                {filter} ×
-              </span>
-            {/each}
-            <button class="clear-filters" on:click={clearFilters}>Clear all</button>
-          </div>
-        {/if}
+    <!-- Horizontal Filters -->
+    {#if filters.classification.size > 0 || filters.producer.size > 0 || filters.relationshipType.size > 0}
+      <div class="filters-horizontal">
+        <span class="filters-label">Active filters:</span>
+        <div class="active-filters">
+          {#each [...filters.classification] as filter}
+            <span class="filter-tag" on:click={() => removeFilter('classification', filter)}>
+              {filter} ×
+            </span>
+          {/each}
+          {#each [...filters.producer] as filter}
+            <span class="filter-tag" on:click={() => removeFilter('producer', filter)}>
+              {filter} ×
+            </span>
+          {/each}
+          {#each [...filters.relationshipType] as filter}
+            <span class="filter-tag" on:click={() => removeFilter('relationshipType', filter)}>
+              {filter} ×
+            </span>
+          {/each}
+          <button class="clear-filters" on:click={clearFilters}>Clear all</button>
+        </div>
       </div>
+    {/if}
+
+    <div class="layout">
 
       <!-- Main Content -->
       <div class="main">
-        <!-- Enhanced Visual Graph -->
+        <!-- Clean Visual Graph -->
         <div class="graph">
-          <svg width="100%" height="300" viewBox="0 0 800 300">
+          <svg width="100%" height="240" viewBox="0 0 800 240">
             <defs>
-              <!-- Gradients for nodes -->
-              <linearGradient id="nodeGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.2"/>
-                <stop offset="100%" style="stop-color:#000000;stop-opacity:0.1"/>
-              </linearGradient>
-
-              <!-- Animated arrow marker -->
-              <marker id="arrow" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="strokeWidth">
-                <path d="M0,0 L0,8 L12,4 z" fill="#58a6ff" opacity="0.8"/>
+              <!-- Simple arrow marker -->
+              <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L8,3 z" fill="#6b7280"/>
               </marker>
-
-              <!-- Drop shadow filter -->
-              <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
-                <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.3"/>
-              </filter>
-
-              <!-- Glow effect for current node -->
-              <filter id="glow">
-                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-                <feMerge>
-                  <feMergeNode in="coloredBlur"/>
-                  <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-              </filter>
             </defs>
 
-            <!-- Background pattern -->
-            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#30363d" stroke-width="0.5" opacity="0.3"/>
-            </pattern>
-            <rect width="100%" height="100%" fill="url(#grid)"/>
-
-            <!-- Flow lines with better styling -->
+            <!-- Simple flow lines -->
             {#each visibleUpstream as node, i}
-              <path
-                d="M 130 {62 + i * 40} Q 240 {62 + i * 40} 350 140"
-                stroke={getClassificationColor(node.classification)}
+              <line
+                x1="130"
+                y1={60 + i * 35}
+                x2="350"
+                y2="120"
+                stroke="#e5e7eb"
                 stroke-width="2"
-                fill="none"
-                opacity="0.6"
                 marker-end="url(#arrow)"
                 class="flow-line"
               />
             {/each}
 
             {#each visibleDownstream as node, i}
-              <path
-                d="M 450 140 Q 560 {62 + i * 40} 640 {62 + i * 40}"
-                stroke={getClassificationColor(node.classification)}
+              <line
+                x1="450"
+                y1="120"
+                x2="620"
+                y2={60 + i * 35}
+                stroke="#e5e7eb"
                 stroke-width="2"
-                fill="none"
-                opacity="0.6"
                 marker-end="url(#arrow)"
                 class="flow-line"
               />
             {/each}
 
-            <!-- Upstream nodes with enhanced styling -->
+            <!-- Upstream nodes -->
             {#each visibleUpstream as node, i}
-              <g class="node upstream" on:click={() => selectNode(node)} transform="translate(50, {50 + i * 40})">
+              <g class="node upstream" on:click={() => selectNode(node)} transform="translate(50, {50 + i * 35})">
                 <rect
                   width="80"
-                  height="25"
+                  height="20"
                   fill={getClassificationColor(node.classification)}
-                  rx="6"
-                  filter="url(#dropShadow)"
+                  rx="4"
                   class="node-bg"
                 />
-                <rect
-                  width="80"
-                  height="25"
-                  fill="url(#nodeGradient)"
-                  rx="6"
-                />
-                <text x="40" y="17" text-anchor="middle" fill="white" font-size="11" font-weight="500">
+                <text x="40" y="14" text-anchor="middle" fill="white" font-size="11" font-weight="500">
                   {node.title.slice(0, 9)}...
                 </text>
-                <!-- Status indicator -->
-                <circle cx="72" cy="8" r="3" fill="#58a6ff" opacity="0.8"/>
               </g>
             {/each}
 
-            <!-- Current node with special styling -->
-            <g class="node current" on:click={() => selectNode(lineageData.current)} transform="translate(350, 120)">
+            <!-- Current node -->
+            <g class="node current" on:click={() => selectNode(lineageData.current)} transform="translate(350, 105)">
               <rect
                 width="100"
-                height="40"
+                height="30"
                 fill={getClassificationColor(lineageData.current.classification)}
-                rx="8"
-                filter="url(#glow)"
+                rx="6"
+                stroke="#374151"
+                stroke-width="2"
                 class="current-node-bg"
               />
-              <rect
-                width="100"
-                height="40"
-                fill="url(#nodeGradient)"
-                rx="8"
-              />
-              <rect
-                width="100"
-                height="40"
-                stroke="#58a6ff"
-                stroke-width="2"
-                fill="none"
-                rx="8"
-                opacity="0.8"
-              />
-              <text x="50" y="25" text-anchor="middle" fill="white" font-size="13" font-weight="600">
+              <text x="50" y="20" text-anchor="middle" fill="white" font-size="12" font-weight="600">
                 {lineageData.current.title.slice(0, 11)}...
               </text>
-              <!-- Pulse indicator -->
-              <circle cx="85" cy="15" r="4" fill="#58a6ff" class="pulse"/>
             </g>
 
-            <!-- Downstream nodes with enhanced styling -->
+            <!-- Downstream nodes -->
             {#each visibleDownstream as node, i}
-              <g class="node downstream" on:click={() => selectNode(node)} transform="translate(650, {50 + i * 40})">
+              <g class="node downstream" on:click={() => selectNode(node)} transform="translate(670, {50 + i * 35})">
                 <rect
                   width="80"
-                  height="25"
+                  height="20"
                   fill={getClassificationColor(node.classification)}
-                  rx="6"
-                  filter="url(#dropShadow)"
+                  rx="4"
                   class="node-bg"
                 />
-                <rect
-                  width="80"
-                  height="25"
-                  fill="url(#nodeGradient)"
-                  rx="6"
-                />
-                <text x="40" y="17" text-anchor="middle" fill="white" font-size="11" font-weight="500">
+                <text x="40" y="14" text-anchor="middle" fill="white" font-size="11" font-weight="500">
                   {node.title.slice(0, 9)}...
                 </text>
-                <!-- Status indicator -->
-                <circle cx="72" cy="8" r="3" fill="#f85149" opacity="0.8"/>
               </g>
             {/each}
 
-            <!-- Flow direction labels -->
-            <text x="150" y="25" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600" opacity="0.7">
+            <!-- Simple labels -->
+            <text x="90" y="30" text-anchor="middle" fill="#6b7280" font-size="11" font-weight="500">
               Sources
             </text>
-            <text x="400" y="200" text-anchor="middle" fill="#238636" font-size="12" font-weight="600" opacity="0.7">
+            <text x="400" y="30" text-anchor="middle" fill="#6b7280" font-size="11" font-weight="500">
               Current
             </text>
-            <text x="650" y="25" text-anchor="middle" fill="#f85149" font-size="12" font-weight="600" opacity="0.7">
+            <text x="710" y="30" text-anchor="middle" fill="#6b7280" font-size="11" font-weight="500">
               Outputs
             </text>
           </svg>
@@ -385,8 +327,8 @@
 
       <!-- Detail Panel -->
       {#if selectedNode}
-        <div class="detail">
-          <h3>Details</h3>
+        <div class="detail-panel">
+          <h3>Dataset Details</h3>
           <div class="detail-content">
             <h4>{selectedNode.title}</h4>
             <div class="detail-grid">
@@ -451,125 +393,121 @@
     color: #8b949e;
   }
 
-  .layout {
-    display: grid;
-    grid-template-columns: 200px 1fr 300px;
-    gap: 20px;
-    height: calc(100vh - 120px);
+  /* Horizontal Filters */
+  .filters-horizontal {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding: 12px 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    flex-wrap: wrap;
   }
 
-  /* Filters Panel */
-  .filters {
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 16px;
-    height: fit-content;
-  }
-
-  .filters h3 {
-    margin: 0 0 12px 0;
-    font-size: 14px;
-    font-weight: 600;
+  .filters-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #64748b;
   }
 
   .active-filters {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
   }
 
   .filter-tag {
-    background: #58a6ff;
+    background: #3b82f6;
     color: white;
-    padding: 4px 8px;
-    border-radius: 12px;
-    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 12px;
     cursor: pointer;
-    display: inline-block;
+    font-weight: 500;
+    transition: background-color 0.2s;
+  }
+
+  .filter-tag:hover {
+    background: #2563eb;
   }
 
   .clear-filters {
-    background: #f85149;
+    background: #ef4444;
     color: white;
     border: none;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 12px;
     cursor: pointer;
-    margin-top: 8px;
+    font-weight: 500;
+    transition: background-color 0.2s;
   }
 
-  /* Main Content */
-  .main {
+  .clear-filters:hover {
+    background: #dc2626;
+  }
+
+  .layout {
     display: flex;
     flex-direction: column;
     gap: 20px;
   }
 
+  /* Main Content */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 20px;
+  }
+
   .graph {
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 16px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
   }
 
   .graph svg {
-    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
-    border-radius: 4px;
+    background: #f8fafc;
+    border-radius: 6px;
   }
 
   .node {
     cursor: pointer;
-    transition: transform 0.2s ease, opacity 0.2s ease;
+    transition: transform 0.15s ease;
   }
 
   .node:hover {
-    transform: scale(1.05);
+    transform: scale(1.03);
   }
 
   .node-bg {
-    transition: filter 0.2s ease;
+    transition: opacity 0.15s ease;
   }
 
   .node:hover .node-bg {
-    filter: brightness(1.2) url(#dropShadow);
-  }
-
-  .current-node-bg {
-    animation: currentPulse 3s ease-in-out infinite;
+    opacity: 0.9;
   }
 
   .flow-line {
-    transition: opacity 0.3s ease, stroke-width 0.3s ease;
+    transition: stroke-width 0.15s ease;
   }
 
   .flow-line:hover {
-    opacity: 0.9;
     stroke-width: 3;
   }
 
-  .pulse {
-    animation: pulse 2s ease-in-out infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 0.6; transform: scale(1); }
-    50% { opacity: 1; transform: scale(1.2); }
-  }
-
-  @keyframes currentPulse {
-    0%, 100% { filter: url(#glow) brightness(1); }
-    50% { filter: url(#glow) brightness(1.1); }
-  }
-
   .nodes {
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
     padding: 16px;
     overflow-y: auto;
-    max-height: 400px;
+    max-height: 500px;
   }
 
   .section {
@@ -577,39 +515,42 @@
   }
 
   .section h3 {
-    margin: 0 0 8px 0;
-    font-size: 14px;
+    margin: 0 0 12px 0;
+    font-size: 15px;
     font-weight: 600;
-    color: #8b949e;
+    color: #374151;
   }
 
   .node-card {
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 4px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
     padding: 12px;
     margin-bottom: 8px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.15s;
   }
 
   .node-card:hover {
-    border-color: #58a6ff;
+    border-color: #3b82f6;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
 
   .node-card.selected {
-    border-color: #58a6ff;
-    background: rgba(88, 166, 255, 0.1);
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.05);
   }
 
   .node-card.current {
-    border-color: #238636;
+    border-color: #10b981;
+    background: rgba(16, 185, 129, 0.05);
   }
 
   .node-title {
     font-weight: 600;
-    margin-bottom: 6px;
-    font-size: 13px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: #111827;
   }
 
   .node-meta {
@@ -619,75 +560,87 @@
   }
 
   .tag {
-    padding: 2px 6px;
-    border-radius: 8px;
-    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
     font-weight: 500;
     cursor: pointer;
     color: white;
+    transition: opacity 0.15s;
+  }
+
+  .tag:hover {
+    opacity: 0.8;
   }
 
   .tag.producer {
-    background: #6f42c1;
+    background: #8b5cf6;
   }
 
   .tag.relation {
-    background: #db6d28;
+    background: #f59e0b;
   }
 
   /* Detail Panel */
-  .detail {
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 16px;
+  .detail-panel {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 20px;
     height: fit-content;
   }
 
-  .detail h3 {
-    margin: 0 0 12px 0;
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  .detail h4 {
-    margin: 0 0 12px 0;
+  .detail-panel h3 {
+    margin: 0 0 16px 0;
     font-size: 16px;
     font-weight: 600;
+    color: #111827;
+  }
+
+  .detail-panel h4 {
+    margin: 0 0 12px 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #374151;
   }
 
   .detail-grid {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
   }
 
   .detail-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  .detail-item:last-child {
+    border-bottom: none;
   }
 
   .label {
-    font-size: 12px;
-    color: #8b949e;
+    font-size: 13px;
+    color: #64748b;
     font-weight: 500;
   }
 
   .value {
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
+    color: #374151;
   }
 
-  @media (max-width: 1200px) {
-    .layout {
+  @media (max-width: 1000px) {
+    .main {
       grid-template-columns: 1fr;
-      grid-template-rows: auto auto auto;
-      height: auto;
     }
 
-    .filters, .detail {
-      order: 3;
+    .detail-panel {
+      margin-top: 20px;
     }
   }
 </style>
