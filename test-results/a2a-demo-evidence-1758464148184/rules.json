@@ -1,0 +1,98 @@
+[
+  {
+    "ruleId": "rule_1758464148275_xxf3h6kth",
+    "name": "R_A",
+    "enabled": true,
+    "when": "{\"trigger\":\"manual\"}",
+    "find": "{\"source\":\"search\",\"query\":{\"q\":\"contract\",\"datasetId\":\"test-dataset\"},\"limit\":5}",
+    "actions": "[{\"action\":\"notify\",\"agentId\":\"agent_1758464148254_rdcpln7x5\"},{\"action\":\"contract.generate\"}]",
+    "originalBody": {
+      "name": "R_A",
+      "enabled": true,
+      "when": {
+        "trigger": "manual"
+      },
+      "find": {
+        "source": "search",
+        "query": {
+          "q": "contract",
+          "datasetId": "test-dataset"
+        },
+        "limit": 5
+      },
+      "actions": [
+        {
+          "action": "notify",
+          "agentId": "agent_1758464148254_rdcpln7x5"
+        },
+        {
+          "action": "contract.generate"
+        }
+      ]
+    }
+  },
+  {
+    "ruleId": "rule_1758464148282_zmjn11x6b",
+    "name": "R_B",
+    "enabled": true,
+    "when": "{\"trigger\":\"manual\"}",
+    "find": "{\"source\":\"search\",\"query\":{\"q\":\"intermediate\",\"datasetId\":\"test-dataset\"},\"limit\":5}",
+    "actions": "[{\"action\":\"notify\",\"agentId\":\"agent_1758464148267_zzr1epxge\"},{\"action\":\"contract.generate\"}]",
+    "originalBody": {
+      "name": "R_B",
+      "enabled": true,
+      "when": {
+        "trigger": "manual"
+      },
+      "find": {
+        "source": "search",
+        "query": {
+          "q": "intermediate",
+          "datasetId": "test-dataset"
+        },
+        "limit": 5
+      },
+      "actions": [
+        {
+          "action": "notify",
+          "agentId": "agent_1758464148267_zzr1epxge"
+        },
+        {
+          "action": "contract.generate"
+        }
+      ]
+    }
+  },
+  {
+    "ruleId": "rule_1758464148287_bbbv2s87t",
+    "name": "R_C",
+    "enabled": true,
+    "when": "{\"trigger\":\"manual\"}",
+    "find": "{\"source\":\"search\",\"query\":{\"q\":\"final\",\"datasetId\":\"test-dataset\"},\"limit\":5}",
+    "actions": "[{\"action\":\"notify\",\"agentId\":\"agent_1758464148271_gq8lkh3jm\"},{\"action\":\"contract.generate\"}]",
+    "originalBody": {
+      "name": "R_C",
+      "enabled": true,
+      "when": {
+        "trigger": "manual"
+      },
+      "find": {
+        "source": "search",
+        "query": {
+          "q": "final",
+          "datasetId": "test-dataset"
+        },
+        "limit": 5
+      },
+      "actions": [
+        {
+          "action": "notify",
+          "agentId": "agent_1758464148271_gq8lkh3jm"
+        },
+        {
+          "action": "contract.generate"
+        }
+      ]
+    }
+  }
+]

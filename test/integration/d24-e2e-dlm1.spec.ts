@@ -6,7 +6,7 @@ import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
 import { templatesRouter } from '../../src/routes/templates';
-import { createArtifactRoutes } from '../../src/agents/dlm1-publisher';
+import { artifactsRouter } from '../../src/routes/artifacts';
 import { bundleRouter } from '../../src/routes/bundle';
 import { submitDlm1Router } from '../../src/routes/submit-builder';
 import { opsRouter } from '../../src/routes/metrics';
@@ -29,7 +29,7 @@ beforeAll(async () => {
   app.use('/rules', rulesRouter());
   app.use('/jobs', jobsRouter());
   app.use('/templates', templatesRouter());
-  app.use('/artifacts', createArtifactRoutes());
+  app.use('/artifacts', artifactsRouter());
   app.use(submitDlm1Router());
   app.use(bundleRouter());
   app.use(opsRouter());
@@ -152,7 +152,7 @@ The consumer is granted the following rights: {{USAGE_RIGHTS}}
     const testVersionId = manifestSubmitResponse.body.versionId;
 
     // Set a price for the test data
-    setPrice(db, testVersionId, 1000);
+    await setPrice(testVersionId, 1000);
 
     // Step 4: Create a comprehensive automation rule
     const ruleResponse = await request(app)
@@ -213,7 +213,7 @@ The consumer is granted the following rights: {{USAGE_RIGHTS}}
         ]
       });
 
-    expect(ruleResponse.status).toBe(200);
+    expect(ruleResponse.status).toBe(201);
     const ruleId = ruleResponse.body.ruleId;
 
     // Step 5: Manually trigger the rule to test the workflow
@@ -234,7 +234,7 @@ The consumer is granted the following rights: {{USAGE_RIGHTS}}
     expect(jobs.length).toBeGreaterThan(0);
 
     // Find our job
-    const ourJob = jobs.find((job: any) => job.rule_id === ruleId);
+    const ourJob = jobs.find((job: any) => job.ruleId === ruleId);
     expect(ourJob).toBeDefined();
 
     // Job should have completed (or at least attempted) - allow running state too for timing

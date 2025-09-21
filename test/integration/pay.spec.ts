@@ -21,13 +21,14 @@ describe('Pay Integration Test', () => {
   const versionId = 'a'.repeat(64);
   const contentHash = 'c'.repeat(64);
 
-  // Clean up any existing data for this version and test version
+  // Clean up any existing data for this version and test version, including price rules
   const { getPostgreSQLClient } = await import('../../src/db/postgresql');
   const pgClient = getPostgreSQLClient();
   const testVersionId = 'b'.repeat(64);
   await pgClient.query('DELETE FROM receipts WHERE version_id = $1 OR version_id = $2', [versionId, testVersionId]);
+  await pgClient.query('DELETE FROM price_rules'); // Clear all price rules to avoid interference
   await pgClient.query('DELETE FROM manifests WHERE version_id = $1 OR version_id = $2', [versionId, testVersionId]);
-  await pgClient.query('DELETE FROM prices WHERE version_id = $1 OR version_id = $2', [versionId, testVersionId]);
+  await pgClient.query('DELETE FROM prices'); // Clear all price overrides to avoid interference
 
   // Insert manifest row (required) using PostgreSQL
   await upsertManifest({
@@ -60,7 +61,7 @@ describe('Pay Integration Test', () => {
   expect(rec.versionId).toBe(versionId);
   expect(rec.contentHash).toBe(contentHash);
   expect(rec.quantity).toBe(2);
-  expect(rec.amountSat).toBe(2468);
+  expect(rec.amountSat).toBe(2468); // Should be 1234 * 2 = 2468
   expect(rec.expiresAt).toBeGreaterThanOrEqual(t0);
   expect(rec.expiresAt).toBeLessThanOrEqual(t0 + 120 + 2);
 

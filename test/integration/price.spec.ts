@@ -22,9 +22,10 @@ describe('Price Integration Test', () => {
     const versionId = 'a'.repeat(64);
     const contentHash = 'c'.repeat(64);
 
-    // Clean up any existing data for this version
+    // Clean up any existing data for this version and any leftover data
     const { getPostgreSQLClient } = await import('../../src/db/postgresql');
     const pgClient = getPostgreSQLClient();
+    await pgClient.query('DELETE FROM price_rules WHERE version_id = $1', [versionId]);
     await pgClient.query('DELETE FROM prices WHERE version_id = $1', [versionId]);
     await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [versionId]);
 

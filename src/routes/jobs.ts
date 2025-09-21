@@ -1,6 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import { listJobs, listJobsByRule } from '../db';
+import * as db from '../db';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
@@ -15,9 +15,9 @@ export function jobsRouter(): Router {
 
       let jobs;
       if (ruleId) {
-        jobs = await listJobsByRule(ruleId, state);
+        jobs = await db.listJobsByRule(ruleId, state);
       } else {
-        jobs = await listJobs(state);
+        jobs = await db.listJobs(state);
       }
 
       const formattedJobs = jobs.map(job => ({

@@ -113,7 +113,7 @@ export function templatesRouter(): Router {
 
       const template = await getTemplate(templateId);
       if (!template) {
-        return json(res, 404, { error: 'template-not-found' });
+        return json(res, 404, { error: 'not-found' });
       }
 
       const result = await generateContract(template, variables);

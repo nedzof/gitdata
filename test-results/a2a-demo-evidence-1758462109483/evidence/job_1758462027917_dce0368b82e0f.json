@@ -1,0 +1,59 @@
+{
+  "actions": [
+    {
+      "action": "notify",
+      "agentId": "agent_1758462027886_0492275ha",
+      "status": 200,
+      "body": {
+        "ok": true
+      },
+      "payload": {
+        "jobId": "job_1758462027917_dce0368b82e0f",
+        "ruleId": "rule_1758462027901_1b7pbyik5",
+        "targetId": "v1_final_output",
+        "manifest": {
+          "version_id": "v1_final_output",
+          "manifest_hash": "hash_final_789",
+          "content_hash": null,
+          "title": null,
+          "license": null,
+          "classification": null,
+          "created_at": "2025-09-21T13:40:27.852Z",
+          "manifest_json": "{\"files\":[\"final1.json\",\"final2.json\"],\"description\":\"Final analysis output\"}",
+          "dataset_id": "test-dataset",
+          "producer_id": null,
+          "name": null,
+          "open": null
+        },
+        "timestamp": 1758462047
+      },
+      "timestamp": 1758462047
+    },
+    {
+      "action": "contract.generate",
+      "status": 200,
+      "contractId": "contract_1758462047119",
+      "timestamp": 1758462047
+    }
+  ],
+  "manifest": {
+    "version_id": "v1_final_output",
+    "manifest_hash": "hash_final_789",
+    "content_hash": null,
+    "title": null,
+    "license": null,
+    "classification": null,
+    "created_at": "2025-09-21T13:40:27.852Z",
+    "manifest_json": "{\"files\":[\"final1.json\",\"final2.json\"],\"description\":\"Final analysis output\"}",
+    "dataset_id": "test-dataset",
+    "producer_id": null,
+    "name": null,
+    "open": null
+  },
+  "searchQuery": {
+    "q": "final",
+    "datasetId": "test-dataset"
+  },
+  "completedAt": 1758462047,
+  "jobId": "job_1758462027917_dce0368b82e0f"
+}

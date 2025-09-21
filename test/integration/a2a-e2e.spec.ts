@@ -254,7 +254,7 @@ class A2AE2ETest {
       const response = await request(this.app).get('/jobs');
       expect(response.status).toBe(200);
 
-      const jobs = response.body.jobs || [];
+      const jobs = response.body.items || [];
       const pendingJobs = jobs.filter((job: any) =>
         job.state === 'queued' || job.state === 'running'
       );
@@ -303,7 +303,7 @@ class A2AE2ETest {
     const searchResponse = await request(this.app)
       .get('/agents/search?capability=contract.review&status=active');
     expect(searchResponse.status).toBe(200);
-    expect(searchResponse.body.agents.length).toBeGreaterThanOrEqual(1);
+    expect(searchResponse.body.items.length).toBeGreaterThanOrEqual(1);
 
     console.log('✅ Evidence validation passed');
   }

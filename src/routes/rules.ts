@@ -1,7 +1,7 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import { requireIdentity } from '../middleware/identity';
-import { createRule, getRule, listRules, updateRule, deleteRule } from '../db';
+import * as db from '../db';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
@@ -21,7 +21,7 @@ export function rulesRouter(): Router {
         return json(res, 400, { error: 'bad-request', hint: 'name, when, find, actions required' });
       }
 
-      const ruleId = await createRule({
+      const ruleId = await db.createRule({
         name,
         enabled: enabled !== false,
         when_json: toJsonOrString(when),
@@ -46,7 +46,7 @@ export function rulesRouter(): Router {
   router.get('/', async (req: Request, res: Response) => {
     try {
       const enabled = req.query.enabled === 'true' ? true : (req.query.enabled === 'false' ? false : undefined);
-      const rules = await listRules(enabled);
+      const rules = await db.listRules(enabled);
 
       const formattedRules = rules.map(rule => ({
         ruleId: rule.rule_id,
@@ -69,7 +69,7 @@ export function rulesRouter(): Router {
   router.get('/:id', async (req: Request, res: Response) => {
     try {
       const ruleId = req.params.id;
-      const rule = await getRule(ruleId);
+      const rule = await db.getRule(ruleId);
 
       if (!rule) {
         return json(res, 404, { error: 'not-found', message: `Rule ${ruleId} not found` });
@@ -94,11 +94,86 @@ export function rulesRouter(): Router {
   router.post('/:id/run', async (req: Request, res: Response) => {
     try {
       const ruleId = req.params.id;
-      // Mock rule execution
+
+      // Get the rule
+      const rule = await db.getRule(ruleId);
+      if (!rule || !rule.enabled) {
+        return json(res, 404, { error: 'not-found' });
+      }
+
+      // Parse the find criteria
+      const findCriteria = typeof rule.find_json === 'string' ? JSON.parse(rule.find_json) : rule.find_json;
+      const actionsCriteria = typeof rule.actions_json === 'string' ? JSON.parse(rule.actions_json) : rule.actions_json;
+
+      // Get PostgreSQL client for manifest search
+      const { getPostgreSQLClient } = await import('../db/postgresql');
+      const pgClient = getPostgreSQLClient();
+
+      let manifests = [];
+
+      // Execute search based on find criteria
+      if (findCriteria.source === 'search' && findCriteria.query) {
+        const { q, datasetId } = findCriteria.query;
+        const limit = findCriteria.limit || 10;
+
+        let searchQuery = 'SELECT * FROM manifests WHERE 1=1';
+        const params = [];
+        let paramCount = 0;
+
+        if (datasetId) {
+          paramCount++;
+          searchQuery += ` AND dataset_id = $${paramCount}`;
+          params.push(datasetId);
+        }
+
+        if (q) {
+          paramCount++;
+          searchQuery += ` AND (manifest_json::text ILIKE $${paramCount} OR title ILIKE $${paramCount})`;
+          params.push(`%${q}%`);
+        }
+
+        searchQuery += ` LIMIT $${paramCount + 1}`;
+        params.push(limit);
+
+        const searchResult = await pgClient.query(searchQuery, params);
+        manifests = searchResult.rows;
+      }
+
+      // Create jobs for matching manifests
+      let jobsEnqueued = 0;
+
+      for (const manifest of manifests) {
+        const jobId = `job_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+        // Insert job directly using PostgreSQL
+        const now = Math.floor(Date.now() / 1000);
+        await pgClient.query(`
+          INSERT INTO jobs (job_id, rule_id, target_id, state, attempts, next_run_at, created_at, updated_at, evidence_json)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [
+          jobId,
+          ruleId,
+          manifest.version_id,
+          'queued',
+          0,
+          now, // next_run_at (run immediately)
+          now, // created_at
+          now, // updated_at
+          JSON.stringify({
+            actions: actionsCriteria,
+            manifest: manifest,
+            searchQuery: findCriteria.query
+          })
+        ]);
+
+        jobsEnqueued++;
+      }
+
       return json(res, 200, {
         status: 'triggered',
         ruleId,
-        enqueued: 0 // No jobs actually enqueued in test mode
+        enqueued: jobsEnqueued,
+        manifestsFound: manifests.length
       });
     } catch (e:any) {
       return json(res, 500, { error: 'run-failed', message: String(e?.message || e) });
@@ -111,7 +186,7 @@ export function rulesRouter(): Router {
       const ruleId = req.params.id;
       const updates = req.body || {};
 
-      const updatedRule = await updateRule(ruleId, {
+      const updatedRule = await db.updateRule(ruleId, {
         enabled: updates.enabled,
         name: updates.name,
         when_json: updates.when ? toJsonOrString(updates.when) : undefined,
@@ -120,7 +195,7 @@ export function rulesRouter(): Router {
       });
 
       if (!updatedRule) {
-        return json(res, 404, { error: 'rule-not-found' });
+        return json(res, 404, { error: 'not-found' });
       }
 
       return json(res, 200, {
@@ -140,10 +215,10 @@ export function rulesRouter(): Router {
   router.delete('/:id', async (req: Request, res: Response) => {
     try {
       const ruleId = req.params.id;
-      const deleted = await deleteRule(ruleId);
+      const deleted = await db.deleteRule(ruleId);
 
       if (!deleted) {
-        return json(res, 404, { error: 'rule-not-found' });
+        return json(res, 404, { error: 'not-found' });
       }
 
       return json(res, 200, { status: 'deleted', ruleId });

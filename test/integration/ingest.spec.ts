@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { initSchema } from '../../src/db';
- //import { runIngestMigrations, ingestRouter, startIngestWorker, upsertSource } from '../../src/ingest';
+import { runIngestMigrations, ingestRouter, startIngestWorker, upsertSource } from '../../src/ingest';
 import { createStorageEventsMigration } from '../../src/storage/lifecycle';
 import { runPaymentsMigrations } from '../../src/payments';
 
@@ -14,13 +14,16 @@ describe('D23 Real-Time Event Ingestion & Certification Tests', () => {
     // Initialize PostgreSQL database
     await initSchema();
 
+    // Run ingest migrations
+    await runIngestMigrations();
+
     // Setup Express app
     app = express();
     app.use(express.json({ limit: '10mb' }));
-    // Note: ingestRouter is not implemented yet - this test is a placeholder
+    app.use('/', ingestRouter());
 
     // Setup test sources
-    upsertSource(db, {
+    await upsertSource(null, {
       source_id: 'test-source-1',
       name: 'Test Source 1',
       description: 'Primary test source',
@@ -46,7 +49,7 @@ describe('D23 Real-Time Event Ingestion & Certification Tests', () => {
       enabled: 1
     });
 
-    upsertSource(db, {
+    await upsertSource(null, {
       source_id: 'test-source-2',
       name: 'Test Source 2',
       description: 'Secondary test source',
@@ -63,15 +66,12 @@ describe('D23 Real-Time Event Ingestion & Certification Tests', () => {
     });
 
     // Start the worker
-    stopWorker = startIngestWorker(db);
+    stopWorker = startIngestWorker();
   });
 
   afterEach(() => {
     if (stopWorker) {
       stopWorker();
-    }
-    if (db && db.open) {
-      db.close();
     }
   });
 
@@ -122,7 +122,7 @@ describe('D23 Real-Time Event Ingestion & Certification Tests', () => {
 
     test('should reject events from disabled sources', async () => {
       // Disable the source
-      upsertSource(db, {
+      await upsertSource(null, {
         source_id: 'test-source-1',
         enabled: 0
       });

@@ -32,13 +32,15 @@ describe('Advisories SPV Integration Test', () => {
   const vid = 'a'.repeat(64);
   const contentHash = 'c'.repeat(64);
 
-  // Delete in correct order: dependencies first, then parent records
-  await pgClient.query('DELETE FROM advisory_targets WHERE version_id = $1', [vid]);
-  await pgClient.query('DELETE FROM advisory_targets WHERE producer_id LIKE $1', ['pr_%']);
+  // Comprehensive cleanup to prevent contamination from other tests
+  await pgClient.query('DELETE FROM advisory_targets');
   await pgClient.query('DELETE FROM advisories');
-  await pgClient.query('DELETE FROM declarations WHERE version_id = $1', [vid]);
-  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [vid]);
-  await pgClient.query('DELETE FROM producers WHERE identity_key = $1', ['02abc'.padEnd(66, 'a')]);
+  await pgClient.query('DELETE FROM declarations');
+  await pgClient.query('DELETE FROM manifests');
+  await pgClient.query('DELETE FROM producers');
+  await pgClient.query('DELETE FROM users');
+  await pgClient.query('DELETE FROM receipts');
+  await pgClient.query('DELETE FROM prices');
 
   // Insert producer + manifest
   const producerId = await upsertProducer({ identity_key: '02abc'.padEnd(66, 'a'), name: 'Acme', website: 'https://acme.example' });
@@ -95,7 +97,7 @@ describe('Advisories SPV Integration Test', () => {
   const rdy1 = await request(app).get(`/ready?versionId=${vid}`);
   console.log('Ready response:', rdy1.body);
   expect(rdy1.status).toBe(200);
-  expect(rdy1.body.ready).toBe(true);
+  expect(rdy1.body.ready).toBe(true); // Expected true since valid envelope is created
 
   // Test 2: Create BLOCK advisory, ready should fail
   console.log('Creating BLOCK advisory...');
@@ -121,7 +123,7 @@ describe('Advisories SPV Integration Test', () => {
 
   const rdy3 = await request(app).get(`/ready?versionId=${vid}`);
   expect(rdy3.status).toBe(200);
-  expect(rdy3.body.ready).toBe(true);
+  expect(rdy3.body.ready).toBe(true); // True again since advisory is expired and envelope exists
 
   // Test 4: Create producer-scoped BLOCK advisory
   console.log('Creating producer-scoped BLOCK advisory...');
@@ -146,7 +148,7 @@ describe('Advisories SPV Integration Test', () => {
 
   const rdy5 = await request(app).get(`/ready?versionId=${vid}`);
   expect(rdy5.status).toBe(200);
-  expect(rdy5.body.ready).toBe(true);
+  expect(rdy5.body.ready).toBe(true); // True because WARN advisories don't block and envelope exists
 
   });
 });

@@ -2,7 +2,7 @@ import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import { validateDlm1Manifest, initValidators } from '../validators';
 import { requireIdentity } from '../middleware/identity';
-import { createManifest } from '../db';
+import * as db from '../db';
 import {
   buildDlm1AnchorFromManifest,
   deriveManifestIds,
@@ -90,7 +90,7 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
       // 4) Store the manifest in the database for searching (if db is provided)
       if (db) {
         try {
-          createManifest(db, {
+          await db.upsertManifest({
             version_id: versionId,
             manifest_hash: manifestHash,
             dataset_id: manifest.datasetId || 'unknown',
@@ -99,7 +99,8 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
             license: manifest.policy?.license || null,
             classification: manifest.policy?.classification || null,
             created_at: manifest.provenance?.createdAt || new Date().toISOString(),
-            manifest_json: JSON.stringify(manifest)
+            manifest_json: JSON.stringify(manifest),
+            producer_id: null
           });
         } catch (error) {
           // Log error but don't fail the submission since this is for testing

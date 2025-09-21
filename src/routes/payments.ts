@@ -1,7 +1,7 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import crypto from 'crypto';
-import { getManifest, getPrice, insertReceipt, getReceipt } from '../db';
+import * as db from '../db';
 
 function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
@@ -40,7 +40,7 @@ export function paymentsRouter(): Router {
         return json(res, 400, { error: 'bad-request', hint: 'receiptId required' });
       }
 
-      const receipt = await getReceipt(receiptId);
+      const receipt = await db.getReceipt(receiptId);
       if (!receipt) {
         return json(res, 404, { error: 'not-found' });
       }
@@ -54,7 +54,7 @@ export function paymentsRouter(): Router {
       const pgClient = getPostgreSQLClient();
 
       // Get producer info from manifest
-      const manifest = await getManifest(receipt.version_id);
+      const manifest = await db.getManifest(receipt.version_id);
       if (!manifest || !manifest.producer_id) {
         return json(res, 404, { error: 'producer-not-found' });
       }
@@ -94,10 +94,10 @@ export function paymentsRouter(): Router {
         .update(JSON.stringify(templateData))
         .digest('hex');
 
-      // Update receipt with quote info and change status to 'quoted'
+      // Update receipt with quote info (keep status as pending)
       await pgClient.query(
-        'UPDATE receipts SET status = $1, quote_template_hash = $2, quote_expires_at = $3 WHERE receipt_id = $4',
-        ['quoted', templateHash, templateData.expiresAt, receiptId]
+        'UPDATE receipts SET quote_template_hash = $1, quote_expires_at = $2 WHERE receipt_id = $3',
+        [templateHash, templateData.expiresAt, receiptId]
       );
 
       // Log payment event
@@ -134,13 +134,13 @@ export function paymentsRouter(): Router {
         return json(res, 400, { error: 'bad-request' });
       }
 
-      const receipt = await getReceipt(receiptId);
+      const receipt = await db.getReceipt(receiptId);
       if (!receipt) {
         return json(res, 404, { error: 'not-found' });
       }
 
       // Check if already paid (idempotent)
-      if (receipt.status === 'paid') {
+      if (receipt.payment_txid) {
         return json(res, 200, {
           status: 'accepted',
           txid: receipt.payment_txid,
@@ -168,8 +168,8 @@ export function paymentsRouter(): Router {
       const pgClient = getPostgreSQLClient();
 
       await pgClient.query(
-        'UPDATE receipts SET status = $1, payment_txid = $2, paid_at = $3 WHERE receipt_id = $4',
-        ['paid', txid, Math.floor(Date.now() / 1000), receiptId]
+        'UPDATE receipts SET payment_txid = $1, paid_at = to_timestamp($2) WHERE receipt_id = $3',
+        [txid, Math.floor(Date.now() / 1000), receiptId]
       );
 
       // Log payment event
@@ -201,7 +201,7 @@ export function paymentsRouter(): Router {
   router.get('/:receiptId', async (req: Request, res: Response) => {
     try {
       const receiptId = req.params.receiptId;
-      const receipt = await getReceipt(receiptId);
+      const receipt = await db.getReceipt(receiptId);
 
       if (!receipt) {
         return json(res, 404, { error: 'not-found' });

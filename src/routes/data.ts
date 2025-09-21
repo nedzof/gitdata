@@ -2,7 +2,7 @@ import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import fs from 'fs';
 import path from 'path';
- //import { getManifest, getReceipt, setReceiptStatus, updateReceiptUsage } from '../db';
+import * as db from '../db';
 import { getStorageDriver, parseRange, formatContentRange } from '../storage';
 
 // Config (can be tuned via ENV)
@@ -39,7 +39,7 @@ function resolveBlobPath(contentHash: string): string {
  * With redirect=true: automatically redirects to presigned URL
  * Without redirect: returns JSON with presigned URL for client handling
  */
-export function dataRouter(db: Database.Database): Router {
+export function dataRouter(): Router {
   const router = makeRouter();
 
   router.get('/v1/data', async (req: Request, res: Response) => {
@@ -56,12 +56,12 @@ export function dataRouter(db: Database.Database): Router {
       }
 
       // Load receipt and validate
-      const rc = await getReceipt(receiptId);
+      const rc = await db.getReceipt(receiptId);
       if (!rc) return json(res, 404, { error: 'not-found', hint: 'receipt missing' });
 
       const now = Math.floor(Date.now() / 1000);
       if (now > rc.expires_at) {
-        await setReceiptStatus(receiptId, 'expired');
+        // Don't update status, just return error for expired receipt
         return json(res, 403, { error: 'expired', hint: 'receipt expired' });
       }
 
@@ -76,7 +76,7 @@ export function dataRouter(db: Database.Database): Router {
       }
 
       // Optional manifest validation
-      const man = await getManifest(rc.version_id);
+      const man = await db.getManifest(rc.version_id);
       if (!man) {
         return json(res, 409, { error: 'manifest-missing', hint: 'manifest not found for version' });
       }
@@ -108,9 +108,9 @@ export function dataRouter(db: Database.Database): Router {
           const presignedUrl = await storage.getPresignedUrl(contentHash, DATA_DELIVERY_TIER);
 
           // Update usage counters when URL is generated (optimistic counting)
-          await updateReceiptUsage(receiptId, size);
+          await db.updateReceiptUsage(receiptId, size);
           if (SINGLE_USE_RECEIPTS) {
-            await setReceiptStatus(receiptId, 'consumed');
+            await db.setReceiptStatus(receiptId, 'consumed');
           }
 
           if (redirect) {
@@ -184,9 +184,9 @@ export function dataRouter(db: Database.Database): Router {
       data.on('end', async () => {
         // Update counters after successful delivery
         try {
-          await updateReceiptUsage(receiptId, range ? (range.end! - range.start! + 1) : size);
+          await db.updateReceiptUsage(receiptId, range ? (range.end! - range.start! + 1) : size);
           if (SINGLE_USE_RECEIPTS && !range) {
-            await setReceiptStatus(receiptId, 'consumed');
+            await db.setReceiptStatus(receiptId, 'consumed');
           }
         } catch {
           // swallow DB errors here; delivery succeeded

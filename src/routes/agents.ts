@@ -1,6 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import { upsertAgent, getAgent, searchAgents, setAgentPing } from '../db';
+import * as db from '../db';
 import { requireIdentity } from '../middleware/identity';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
@@ -15,7 +15,7 @@ export function agentsRouter(): Router {
       if (!name || !webhookUrl || !Array.isArray(capabilities)) {
         return json(res, 400, { error: 'bad-request', hint: 'name, webhookUrl, capabilities[] required' });
       }
-      const agentId = await upsertAgent({
+      const agentId = await db.upsertAgent({
         name, webhook_url: webhookUrl, capabilities_json: JSON.stringify(capabilities),
         identity_key: (identityKey || req.identityKey || '').toLowerCase(),
         status: 'unknown'
@@ -31,7 +31,7 @@ export function agentsRouter(): Router {
     try {
       const q = req.query.q ? String(req.query.q) : undefined;
       const cap = req.query.capability ? String(req.query.capability) : undefined;
-      const items = (await searchAgents(q, cap, 50, 0)).map(a => ({
+      const items = (await db.searchAgents(q, cap, 50, 0)).map(a => ({
         agentId: a.agent_id, name: a.name,
         capabilities: JSON.parse(a.capabilities_json || '[]'),
         webhookUrl: a.webhook_url, status: a.status, lastPingAt: a.last_ping_at || null
@@ -46,7 +46,7 @@ export function agentsRouter(): Router {
   router.get('/:id', async (req: Request, res: Response) => {
     try {
       const agentId = req.params.id;
-      const agent = await getAgent(agentId);
+      const agent = await db.getAgent(agentId);
       if (!agent) {
         return json(res, 404, { error: 'not-found', message: `Agent ${agentId} not found` });
       }
@@ -65,11 +65,11 @@ export function agentsRouter(): Router {
   router.post('/:id/ping', async (req: Request, res: Response) => {
     try {
       const agentId = req.params.id;
-      const agent = await getAgent(agentId);
+      const agent = await db.getAgent(agentId);
       if (!agent) {
         return json(res, 404, { error: 'not-found', message: `Agent ${agentId} not found` });
       }
-      await setAgentPing(agentId, true);
+      await db.setAgentPing(agentId, true);
       return json(res, 200, { status: 'pinged', agentId });
     } catch (e:any) {
       return json(res, 500, { error: 'ping-failed', message: String(e?.message || e) });

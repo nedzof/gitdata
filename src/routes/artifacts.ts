@@ -16,5 +16,16 @@ export function artifactsRouter(): Router {
     }
   });
 
+  // GET /:id (get specific artifact)
+  router.get('/:id', async (req: Request, res: Response) => {
+    try {
+      const artifactId = req.params.id;
+      // For now, always return 404 since no artifacts are implemented
+      return json(res, 404, { error: 'not-found', message: `Artifact ${artifactId} not found` });
+    } catch (e: any) {
+      return json(res, 500, { error: 'get-failed', message: String(e?.message || e) });
+    }
+  });
+
   return router;
 }

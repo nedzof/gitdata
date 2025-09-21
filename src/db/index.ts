@@ -352,6 +352,18 @@ export async function getReceipt(receiptId: string): Promise<ReceiptRow | null> 
   return await hybridDb.getReceipt(receiptId);
 }
 
+export async function setReceiptStatus(receiptId: string, status: string): Promise<void> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query('UPDATE receipts SET status = $1 WHERE receipt_id = $2', [status, receiptId]);
+}
+
+export async function updateReceiptUsage(receiptId: string, bytesUsed: number): Promise<void> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query('UPDATE receipts SET bytes_used = $1, last_seen = $2 WHERE receipt_id = $3', [bytesUsed, Math.floor(Date.now() / 1000), receiptId]);
+}
+
 export async function ingestOpenLineageEvent(event: OpenLineageEvent): Promise<boolean> {
   const { getHybridDatabase } = await import('./hybrid');
   const hybridDb = getHybridDatabase();

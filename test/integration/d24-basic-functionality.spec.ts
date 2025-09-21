@@ -250,6 +250,11 @@ describe('D24 Basic Functionality Tests', () => {
     test('should handle job queue operations', async () => {
       const { app } = createTestApp();
 
+      // Clean up any existing jobs
+      const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+      const pgClient = getPostgreSQLClient();
+      await pgClient.query('DELETE FROM jobs');
+
       try {
         // Check initial jobs (should be empty)
         const initialJobsResponse = await request(app).get('/jobs');

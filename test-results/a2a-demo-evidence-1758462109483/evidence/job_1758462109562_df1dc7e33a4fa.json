@@ -1,0 +1,59 @@
+{
+  "actions": [
+    {
+      "action": "notify",
+      "agentId": "agent_1758462109532_7va3yncpn",
+      "status": 200,
+      "body": {
+        "ok": true
+      },
+      "payload": {
+        "jobId": "job_1758462109562_df1dc7e33a4fa",
+        "ruleId": "rule_1758462109549_u927kcvi1",
+        "targetId": "v1_contract_data",
+        "manifest": {
+          "version_id": "v1_contract_data",
+          "manifest_hash": "hash_contract_123",
+          "content_hash": null,
+          "title": null,
+          "license": null,
+          "classification": null,
+          "created_at": "2025-09-21T13:41:49.510Z",
+          "manifest_json": "{\"files\":[\"contract1.pdf\",\"contract2.pdf\"],\"description\":\"Contract data for testing\"}",
+          "dataset_id": "test-dataset",
+          "producer_id": null,
+          "name": null,
+          "open": null
+        },
+        "timestamp": 1758462110
+      },
+      "timestamp": 1758462110
+    },
+    {
+      "action": "contract.generate",
+      "status": 200,
+      "contractId": "contract_1758462110024",
+      "timestamp": 1758462110
+    }
+  ],
+  "manifest": {
+    "version_id": "v1_contract_data",
+    "manifest_hash": "hash_contract_123",
+    "content_hash": null,
+    "title": null,
+    "license": null,
+    "classification": null,
+    "created_at": "2025-09-21T13:41:49.510Z",
+    "manifest_json": "{\"files\":[\"contract1.pdf\",\"contract2.pdf\"],\"description\":\"Contract data for testing\"}",
+    "dataset_id": "test-dataset",
+    "producer_id": null,
+    "name": null,
+    "open": null
+  },
+  "searchQuery": {
+    "q": "contract",
+    "datasetId": "test-dataset"
+  },
+  "completedAt": 1758462110,
+  "jobId": "job_1758462109562_df1dc7e33a4fa"
+}

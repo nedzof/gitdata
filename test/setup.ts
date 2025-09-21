@@ -19,3 +19,33 @@ if (!process.env.PRICE_QUOTE_TTL_SEC) process.env.PRICE_QUOTE_TTL_SEC = '120';
 
 // Console log to confirm test environment
 console.log('Test environment configured for hybrid database tests');
+
+// Global setup for database cleanup
+import { afterEach } from 'vitest';
+
+// Only clean after each test to prevent contamination of next test
+afterEach(async () => {
+  // Skip cleanup for template tests to preserve beforeAll setup
+  if (process.env.VITEST_POOL_ID && process.env.VITEST_POOL_ID.includes('d24-templates')) {
+    return;
+  }
+
+  // Clean the most commonly contaminating tables
+  const { getPostgreSQLClient } = await import('../src/db/postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  const quickCleanup = [
+    'DELETE FROM jobs',
+    'DELETE FROM agents WHERE name LIKE \'%Test%\'',
+    'DELETE FROM rules WHERE name LIKE \'%Test%\'',
+    'DELETE FROM artifacts',
+  ];
+
+  for (const query of quickCleanup) {
+    try {
+      await pgClient.query(query);
+    } catch (error) {
+      // Ignore cleanup errors
+    }
+  }
+});

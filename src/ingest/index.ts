@@ -33,7 +33,7 @@
 
 import type { Router, Request, Response } from 'express';
 import { Router as makeRouter } from 'express';
- //import { createHash } from 'crypto';
+import { createHash } from 'crypto';
 import { EventEmitter } from 'events';
 import { getTestDatabase, isTestEnvironment, getDatabase } from '../db/index.js';
 // Note: External webhook certification will be implemented when webhook infrastructure is available
@@ -78,9 +78,9 @@ function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 // ---------------- Migrations ----------------
 
 export async function runIngestMigrations(db?: Database.Database) {
-  if (isTestEnvironment() || db) {
-    // In test mode, use SQLite compatibility
-    const database = db || getDatabase();
+  if (db) {
+    // SQLite compatibility for explicit database parameter
+    const database = db;
     database.prepare(`
       CREATE TABLE IF NOT EXISTS ingest_sources (
         source_id TEXT PRIMARY KEY,
@@ -793,15 +793,12 @@ function broadcastEvent(type: string, data: any) {
 export function ingestRouter(testDb?: Database.Database): Router {
   const router = makeRouter();
 
-  // Get appropriate database
-  const db = testDb || getDatabase();
+  // Get appropriate database - only for SQLite compatibility
+  const db = testDb;
 
   // POST /ingest/events - Batch event ingestion
   router.post('/ingest/events', async (req: Request, res: Response) => {
     try {
-      if (!db) {
-        return json(res, 501, { error: 'not-implemented', message: 'Ingest not yet implemented for PostgreSQL' });
-      }
 
       const sourceId = req.body?.sourceId ? String(req.body.sourceId) : null;
       const events = Array.isArray(req.body?.events) ? req.body.events : null;
@@ -813,7 +810,7 @@ export function ingestRouter(testDb?: Database.Database): Router {
       // Validate source if specified
       let source: IngestSource | undefined;
       if (sourceId) {
-        source = getSource(db, sourceId);
+        source = await getSource(null, sourceId);
         if (!source || !source.enabled) {
           return json(res, 404, { error: 'source-not-found-or-disabled' });
         }
@@ -825,11 +822,11 @@ export function ingestRouter(testDb?: Database.Database): Router {
       for (const [i, event] of events.entries()) {
         try {
           const externalId = event.id || event.eventId || null;
-          const eventId = insertEvent(db, sourceId, event, externalId);
+          const eventId = await insertEvent(null, sourceId, event, externalId);
           inserted.push(eventId);
 
           // Queue for processing
-          enqueueIngestJob(db, eventId, 'process', 0, 0);
+          await enqueueIngestJob(null, eventId, 'process', 0, 0);
 
         } catch (e: any) {
           errors.push(`event[${i}]: ${e.message}`);
@@ -860,19 +857,16 @@ export function ingestRouter(testDb?: Database.Database): Router {
   });
 
   // GET /ingest/feed - List events with filtering
-  router.get('/ingest/feed', (req: Request, res: Response) => {
+  router.get('/ingest/feed', async (req: Request, res: Response) => {
     try {
-      if (!db) {
-        return json(res, 501, { error: 'not-implemented', message: 'Ingest feed not yet implemented for PostgreSQL' });
-      }
       const sourceId = req.query.sourceId ? String(req.query.sourceId) : undefined;
       const status = req.query.status ? String(req.query.status) : undefined;
       const limit = Math.min(Number(req.query.limit) || 50, 1000);
       const offset = Number(req.query.offset) || 0;
       const since = req.query.since ? Number(req.query.since) : undefined;
 
-      const items = listEvents(db, { sourceId, status, limit, offset, since })
-        .map((r: IngestEvent) => ({
+      const events = await listEvents(null, { sourceId, status, limit, offset, since });
+      const items = events.map((r: IngestEvent) => ({
           eventId: r.event_id,
           sourceId: r.source_id || null,
           externalId: r.external_id || null,
@@ -897,12 +891,9 @@ export function ingestRouter(testDb?: Database.Database): Router {
   });
 
   // GET /ingest/events/:id - Event details
-  router.get('/ingest/events/:id', (req: Request, res: Response) => {
+  router.get('/ingest/events/:id', async (req: Request, res: Response) => {
     try {
-      if (!db) {
-        return json(res, 501, { error: 'not-implemented', message: 'Event details not yet implemented for PostgreSQL' });
-      }
-      const ev = getEvent(db, String(req.params.id));
+      const ev = await getEvent(null, String(req.params.id));
       if (!ev) {
         return json(res, 404, { error: 'not-found' });
       }
@@ -996,11 +987,8 @@ export function ingestRouter(testDb?: Database.Database): Router {
   });
 
   // POST /ingest/sources - Create/update source
-  router.post('/ingest/sources', (req: Request, res: Response) => {
+  router.post('/ingest/sources', async (req: Request, res: Response) => {
     try {
-      if (!db) {
-        return json(res, 501, { error: 'not-implemented', message: 'Source management not yet implemented for PostgreSQL' });
-      }
       const sourceData: Partial<IngestSource> = {
         source_id: req.body.sourceId,
         name: req.body.name,
@@ -1014,7 +1002,7 @@ export function ingestRouter(testDb?: Database.Database): Router {
         enabled: req.body.enabled ?? 1
       };
 
-      const sourceId = upsertSource(db, sourceData);
+      const sourceId = await upsertSource(null, sourceData);
 
       return json(res, 200, {
         status: 'ok',
@@ -1032,12 +1020,9 @@ export function ingestRouter(testDb?: Database.Database): Router {
 // ---------------- Worker ----------------
 
 export function startIngestWorker(db?: Database.Database): (() => void) {
-  const database = db || getDatabase();
+  // For PostgreSQL mode, we don't need a database instance
+  const database = db;
 
-  if (!database) {
-    console.log('[ingest] Ingest worker not started - database not available');
-    return () => {}; // Return no-op cleanup function
-  }
   let isProcessing = false;
   let stopped = false;
 
@@ -1046,24 +1031,19 @@ export function startIngestWorker(db?: Database.Database): (() => void) {
     isProcessing = true;
 
     try {
-      // Check if database is still open
-      if (!database.open) {
-        return;
-      }
-
-      const job = claimNextIngestJob(database);
+      const job = await claimNextIngestJob(null);
       if (!job) return;
 
-      const ev = getEvent(database, job.event_id);
+      const ev = await getEvent(null, job.event_id);
       if (!ev) {
-        setIngestJobResult(database, job.job_id, 'failed', undefined, 'event-not-found');
+        await setIngestJobResult(null, job.job_id, 'failed', undefined, 'event-not-found');
         return;
       }
 
       await processEvent(database, ev, job);
 
     } catch (e: any) {
-      if (!stopped && database.open) {
+      if (!stopped) {
         console.error('Ingest worker error:', e);
       }
     } finally {

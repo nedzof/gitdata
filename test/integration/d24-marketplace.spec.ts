@@ -47,10 +47,11 @@ beforeEach(async () => {
   // Clean up database between tests
   const { getPostgreSQLClient } = await import('../../src/db/postgresql');
   const pgClient = getPostgreSQLClient();
+  await pgClient.query('DELETE FROM jobs');
   await pgClient.query('DELETE FROM agents WHERE name LIKE $1', ['%Test%']);
   await pgClient.query('DELETE FROM agents WHERE name LIKE $1', ['%Lifecycle%']);
   await pgClient.query('DELETE FROM rules WHERE name LIKE $1', ['%Test%']);
-  await pgClient.query('DELETE FROM contract_templates WHERE name LIKE $1 OR name LIKE $2', ['%Test%', '%Data Processing%']);
+  await pgClient.query('DELETE FROM contract_templates');
 });
 
 afterAll(() => {
