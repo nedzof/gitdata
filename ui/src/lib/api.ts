@@ -1,9 +1,23 @@
 import { writable } from 'svelte/store';
+import { browser } from '$app/environment';
 
-export const baseUrl = writable('http://localhost:8788');
+// Dynamic base URL based on environment
+function getDefaultBaseUrl(): string {
+  if (browser) {
+    // In browser, check current location
+    const currentHost = window.location.host;
+    if (currentHost.includes('localhost:3000') || currentHost.includes('127.0.0.1:3000')) {
+      return 'http://localhost:8788';
+    }
+    return 'http://localhost:8788';
+  }
+  return 'http://localhost:8788';
+}
+
+export const baseUrl = writable(getDefaultBaseUrl());
 
 class APIClient {
-  private baseUrl: string = 'http://localhost:8788';
+  private baseUrl: string = getDefaultBaseUrl();
 
   constructor() {
     // Subscribe to baseUrl changes
@@ -12,8 +26,9 @@ class APIClient {
     });
   }
 
-  private async request(path: string, options: RequestInit = {}): Promise<any> {
+  async request(path: string, options: RequestInit = {}): Promise<any> {
     const url = `${this.baseUrl}${path}`;
+
     const config = {
       headers: {
         'Content-Type': 'application/json',

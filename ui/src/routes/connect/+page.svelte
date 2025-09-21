@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
-  import { api } from '$lib/api.js';
+  import { api } from '$lib/api';
 
   let activeTab = 'producers';
   let loading = false;

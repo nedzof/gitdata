@@ -1,5 +1,5 @@
 // API utility for making requests to the backend
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'http://localhost:8788';
 
 export const api = {
   async request(endpoint, options = {}) {

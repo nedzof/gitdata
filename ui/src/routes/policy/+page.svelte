@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
+  import { api } from '$lib/api';
 
   let activeTab = 'configurator';
   let loading = false;

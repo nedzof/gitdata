@@ -54,6 +54,18 @@ app.use(express.json({ limit: BODY_SIZE_LIMIT }));
 // D12: Audit logging for all requests
 app.use(auditLogger());
 
+// CORS headers for frontend development
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 // UI - serve SvelteKit build BEFORE rate limiting
 app.use(express.static(path.join(__dirname, 'ui/build')));
 
