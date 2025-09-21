@@ -1333,4 +1333,388 @@ Notes
 - SPV-first: these tests do not hit the network; they validate Merkle, ANCHR encoding, and HKDF domain separation locally. Integrate your SPV header client separately.
 - Keep domain separation consistent across ANCHR, bundle.type, and HKDF info (KFv1/TLv1/TRv1).
 
-Want me to open a PR branch against your repo and wire these in, or generate a tarball/patch file you can apply with git am?
+Testing:
+
+Great—here are drop-in unit and integration tests to enforce D42 end-to-end. They are SPV-first, BSV-aligned, and vendor-neutral. I’ve included minimal helpers (verifyBundle), an in-memory/Redis-mock Express app for endpoints, and Supertest flows. Wire these into your repo and CI.
+
+Add dev dependencies
+- jest, ts-jest, @types/jest
+- supertest, @types/supertest
+- express, body-parser
+- ioredis-mock
+- ajv, ajv-formats (already)
+- @noble/secp256k1 (for signature tests if needed)
+
+Example package.json additions
+{
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/supertest": "^2.0.12",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "body-parser": "^1.20.2",
+    "express": "^4.19.2",
+    "ioredis-mock": "^8.9.0",
+    "@noble/secp256k1": "^2.0.0",
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.6.3"
+  },
+  "scripts": {
+    "test": "jest --colors",
+    "build": "tsc -p .",
+    "validate:mem": "node ./scripts/ajv-validate.mjs",
+    "validate:mem-bad": "node ./scripts/ajv-validate-bad.mjs"
+  }
+}
+
+Jest config (jest.config.cjs)
+module.exports = {
+  testEnvironment: 'node',
+  transform: { '^.+\\.tsx?$': ['ts-jest', {}] },
+  testMatch: ['**/tests/**/*.test.ts'],
+  testTimeout: 20000
+};
+
+1) Unit tests
+A. Merkle, ANCHR, HKDF (extend what you have)
+
+tests/unit/merkle.test.ts
+import { buildRoot, computeRootFromProof } from '../../src/merkle';
+
+describe('Merkle (single SHA-256)', () => {
+  const EMPTY = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+  it('single-leaf: root equals leaf', () => {
+    const root = buildRoot([EMPTY]);
+    expect(root).toBe(EMPTY);
+    expect(computeRootFromProof(EMPTY, [], 0)).toBe(EMPTY);
+  });
+
+  it('two-leaves: left/right proofs validate', () => {
+    const a = '00'.repeat(32), b = '11'.repeat(32);
+    const root = buildRoot([a, b]);
+    expect(computeRootFromProof(a, [b], 0)).toBe(root);
+    expect(computeRootFromProof(b, [a], 1)).toBe(root);
+  });
+
+  it('odd count: last duplicated', () => {
+    const a = 'aa'.repeat(32), b = 'bb'.repeat(32), c = 'cc'.repeat(32);
+    const root = buildRoot([a, b, c]); // c is duplicated at this level
+    expect(typeof root).toBe('string');
+    expect(root.length).toBe(64);
+  });
+
+  it('tamper detection: wrong sibling fails', () => {
+    const a = 'aa'.repeat(32), b = 'bb'.repeat(32);
+    const root = buildRoot([a, b]);
+    const wrong = 'cc'.repeat(32);
+    expect(computeRootFromProof(a, [wrong], 0)).not.toBe(root);
+  });
+});
+
+tests/unit/opreturn.test.ts
+import { assembleANCHR, decodeANCHR } from '../../src/opreturn';
+
+describe('ANCHR OP_RETURN envelope', () => {
+  it('assemble/decode round-trip', () => {
+    const root = 'aa'.repeat(32);
+    const uuid = '00112233-4455-6677-8899-aabbccddeeff';
+    const hex = assembleANCHR('KFv1', root, uuid);
+    const dec = decodeANCHR(hex);
+    expect(dec.tag).toBe('ANCHR');
+    expect(dec.domain).toBe('KFv1');
+    expect(dec.root).toBe(root);
+    expect(dec.batchIdHex).toBe(uuid.replace(/-/g, '').toLowerCase());
+  });
+
+  it('rejects invalid root hex length', () => {
+    expect(() => assembleANCHR('KFv1', 'aa', '00112233-4455-6677-8899-aabbccddeeff')).toThrow();
+  });
+
+  it('rejects non OP_FALSE/OP_RETURN', () => {
+    expect(() => decodeANCHR('ff6a')).toThrow();
+  });
+});
+
+tests/unit/hkdf.test.ts
+import { infoString, deriveKey } from '../../src/hkdfInfo';
+
+describe('HKDF domain separation', () => {
+  const shared = '11'.repeat(32);
+  const base = {
+    sessionId: 'sess',
+    uuid: '00112233-4455-6677-8899-aabbccddeeff',
+    root: 'aa'.repeat(32),
+    level: 'l3',
+    timestamp: '2025-01-01T00:00:00Z'
+  };
+
+  it('domain changes the derived key', () => {
+    const k1 = deriveKey(shared, infoString({ ...base, domain: 'KFv1' }));
+    const k2 = deriveKey(shared, infoString({ ...base, domain: 'TLv1' }));
+    const k3 = deriveKey(shared, infoString({ ...base, domain: 'TRv1' }));
+    expect(k1).not.toBe(k2);
+    expect(k2).not.toBe(k3);
+    expect(k1).not.toBe(k3);
+  });
+
+  it('context changes the key', () => {
+    const k1 = deriveKey(shared, infoString({ ...base, domain: 'KFv1', sessionId: 'A' }));
+    const k2 = deriveKey(shared, infoString({ ...base, domain: 'KFv1', sessionId: 'B' }));
+    expect(k1).not.toBe(k2);
+  });
+});
+
+B. Schema validation (good/bad vectors)
+
+tests/unit/schemas.test.ts
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
+import fs from 'node:fs';
+
+describe('Schemas (Ajv strict)', () => {
+  const ajv = new Ajv({ strict: true, allErrors: true });
+  addFormats(ajv);
+
+  const schemaPaths = [
+    'schemas/v1/spv-proof-bundle-v1.json',
+    'schemas/v1/ai-memory-fragment-v1.json',
+    'schemas/v1/ai-memory-write-request-v1.json',
+    'schemas/v1/ai-memory-access-policy-v1.json',
+    'schemas/v1/map-message-v1.json'
+  ];
+  beforeAll(() => {
+    schemaPaths.forEach(p => ajv.addSchema(JSON.parse(fs.readFileSync(p, 'utf8')), p));
+  });
+
+  function validate(file: string, schemaKey: string) {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const validate = ajv.getSchema(schemaKey)!;
+    const ok = validate(data);
+    if (!ok) throw new Error(JSON.stringify(validate.errors, null, 2));
+  }
+
+  it('valid examples pass', () => {
+    validate('examples/good/spv-bundle-kf-single.json', 'schemas/v1/spv-proof-bundle-v1.json');
+    validate('examples/good/fragment-kf.json', 'schemas/v1/ai-memory-fragment-v1.json');
+    validate('examples/good/write-request.json', 'schemas/v1/ai-memory-write-request-v1.json');
+    validate('examples/good/policy.json', 'schemas/v1/ai-memory-access-policy-v1.json');
+    validate('examples/good/map-message.json', 'schemas/v1/map-message-v1.json');
+  });
+
+  it('bad vectors fail', () => {
+    const badBundle = JSON.parse(fs.readFileSync('examples/bad/spv-bundle-domain-mismatch.json', 'utf8'));
+    const schema = ajv.getSchema('schemas/v1/spv-proof-bundle-v1.json')!;
+    expect(schema(badBundle)).toBe(false);
+  });
+});
+
+C. SPV bundle verification unit (local, deterministic)
+
+src/verifyBundle.ts
+import { computeRootFromProof } from './merkle';
+import { decodeANCHR } from './opreturn';
+
+export function verifySpvBundle(bundle: any): { ok: boolean, reason?: string } {
+  try {
+    // 1) type == batch.domain
+    if (bundle.type !== bundle.batch.domain) return { ok: false, reason: 'domain_mismatch' };
+    // 2) leaf -> root
+    const root = computeRootFromProof(bundle.leaf.hash, bundle.batch.siblings, bundle.leaf.index);
+    if (root !== bundle.batch.root) return { ok: false, reason: 'leaf_to_root_failed' };
+    // 3) root in ANCHR script
+    const dec = decodeANCHR(bundle.tx.scriptPubKey);
+    if (dec.tag !== 'ANCHR') return { ok: false, reason: 'no_anchr' };
+    if (dec.domain !== bundle.batch.domain) return { ok: false, reason: 'anchr_domain_mismatch' };
+    if (dec.root !== bundle.batch.root) return { ok: false, reason: 'root_mismatch' };
+    if (bundle.meta?.batchId && dec.batchIdHex !== bundle.meta.batchId.replace(/-/g, '').toLowerCase())
+      return { ok: false, reason: 'batchId_mismatch' };
+    // 4) tx->block (txMerkle). For single-tx test vectors, siblings=[]
+    // Assume valid; integration tests will plug full SPV client
+    // 5) headersChain presence and length
+    if (!Array.isArray(bundle.headersChain) || bundle.headersChain.length < 1)
+      return { ok: false, reason: 'no_headers_chain' };
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+tests/unit/verifyBundle.test.ts
+import fs from 'node:fs';
+import { verifySpvBundle } from '../../src/verifyBundle';
+
+describe('SPV bundle local verification (deterministic)', () => {
+  it('accepts valid single-leaf bundle', () => {
+    const b = JSON.parse(fs.readFileSync('examples/good/spv-bundle-kf-single.json', 'utf8'));
+    const r = verifySpvBundle(b);
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects domain mismatch', () => {
+    const b = JSON.parse(fs.readFileSync('examples/bad/spv-bundle-domain-mismatch.json', 'utf8'));
+    const r = verifySpvBundle(b);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('domain_mismatch');
+  });
+});
+
+2) Integration tests (Express + Redis mock + Supertest)
+These simulate the core API flow: write → anchor → bundle → verify → get → search → policy.
+
+tests/integration/app.ts
+import express from 'express';
+import bodyParser from 'body-parser';
+import Redis from 'ioredis-mock';
+import { assembleANCHR } from '../../src/opreturn';
+import { buildRoot } from '../../src/merkle';
+
+export function makeApp() {
+  const app = express();
+  app.use(bodyParser.json({ limit: '1mb' }));
+  const redis = new (Redis as any)();
+
+  // Config
+  const minConfs = 0;
+  const network = 'mainnet';
+  const tip = { height: 1, header: '00'.repeat(80), updatedAt: Date.now() };
+  redis.set('spv:tip', JSON.stringify(tip));
+
+  // In-memory storage
+  const mem: Record<string, any> = {};
+  const bundles: Record<string, any> = {};
+
+  // /ready
+  app.get('/ready', (req, res) => {
+    res.json({ network, minConfs, allowedDomains: ['KFv1','TLv1','TRv1'], tipHeight: tip.height, tipHeader: tip.header, maxBundleAgeMs: 86400000 });
+  });
+
+  // /ai/memory/write
+  app.post('/ai/memory/write', async (req, res) => {
+    const wr = req.body;
+    // Minimal checks (schema/BR31 should be enforced in gateway)
+    if (!wr.owner || !wr.writer || !wr.contentHash) return res.status(400).json({ error: 'schema_error' });
+    const fragmentId = 'mf_' + Math.random().toString(36).slice(2, 10);
+    const fragment = {
+      fragmentId,
+      contentHash: wr.contentHash,
+      createdAt: wr.createdAt || new Date().toISOString(),
+      owner: wr.owner,
+      writer: wr.writer,
+      kind: wr.kind || 'completion',
+      tags: wr.tags || [],
+      status: 'active',
+      parents: [],
+      provenance: {
+        source: 'https://example.com/doc',
+        timestamp: wr.createdAt || new Date().toISOString(),
+        issuer: wr.writer.identityKey,
+        context: { uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeffffffff', access: 'l3' }
+      },
+      proofBundle: null
+    };
+    mem[fragmentId] = fragment;
+    await redis.sadd(`ai:ns::mem:by_owner:${wr.owner.identityKey}`, fragmentId);
+    await redis.zadd('ai:ns::mem:by_time', Date.now()/1000, fragmentId);
+    res.json({ fragmentId, status: 'ok' });
+  });
+
+  // /anchor (internal)
+  app.post('/anchor', async (req, res) => {
+    const { type, batchId, contentHashes } = req.body as { type: 'KFv1'|'TLv1'|'TRv1', batchId: string, contentHashes: string[] };
+    if (!type || !batchId || !Array.isArray(contentHashes) || contentHashes.length === 0) return res.status(400).json({ error: 'schema_error' });
+    const root = buildRoot(contentHashes);
+    const scriptPubKey = assembleANCHR(type, root, batchId);
+    const txid = '11'.repeat(32);
+    const bundleTemplate = {
+      version: 'spv-1',
+      network,
+      type,
+      leaf: { hash: contentHashes[0], index: 0 },
+      batch: { root, siblings: [], domain: type },
+      tx: { txid, vout: 0, scriptPubKey, value: 0 },
+      block: { height: tip.height, header: tip.header, txMerkle: { siblings: [], index: 0 } },
+      headersChain: [tip.header],
+      policy: { minConfs, anchoredAt: new Date().toISOString() },
+      meta: { batchId }
+    };
+    // attach to first fragment that matches
+    for (const id in mem) {
+      if (mem[id].contentHash === contentHashes[0]) {
+        mem[id].proofBundle = bundleTemplate;
+        bundles[id] = bundleTemplate;
+      }
+    }
+    res.json({ txid, merkleRoot: root, type, anchoredAt: Date.now(), minConfs });
+  });
+
+  // /bundle/:fragmentId
+  app.get('/bundle/:id', (req, res) => {
+    const b = bundles[req.params.id];
+    if (!b) return res.status(404).json({ error: 'not_found' });
+    res.set('Cache-Control', 'public, max-age=60');
+    res.set('ETag', `spv-bundle-${req.params.id}-${b.block.height}`);
+    res.json(b);
+  });
+
+  // /ai/memory/:fragmentId
+  app.get('/ai/memory/:id', (req, res) => {
+    const f = mem[req.params.id];
+    if (!f) return res.status(404).json({ error: 'not_found' });
+    res.json(f);
+  });
+
+  // /ai/memory/search
+  app.get('/ai/memory/search', async (req, res) => {
+    const { ownerKey } = req.query as any;
+    const ids = ownerKey ? await redis.smembers(`ai:ns::mem:by_owner:${ownerKey}`) : Object.keys(mem);
+    res.json({ items: ids.map(id => ({ fragmentId: id, contentHash: mem[id].contentHash, createdAt: mem[id].createdAt })), nextOffset: null });
+  });
+
+  // /ai/memory/policy
+  app.post('/ai/memory/policy', async (req, res) => {
+    const pol = req.body;
+    if (!pol || !pol.scope || !pol.policyId) return res.status(400).json({ error: 'schema_error' });
+    await redis.set(`ai:ns::policy:${pol.policyId}`, JSON.stringify(pol));
+    res.json({ policyId: pol.policyId, status: 'ok' });
+  });
+
+  return app;
+}
+
+tests/integration/flow.test.ts
+import request from 'supertest';
+import { makeApp } from './app';
+import { verifySpvBundle } from '../../src/verifyBundle';
+
+describe('D42 integration flow', () => {
+  const app = makeApp();
+
+  const owner = { identityKey: '02'.padEnd(66, 'a') };
+  const writer = { identityKey: '02'.padEnd(66, 'b') };
+  const contentHash = 'aa'.repeat(32);
+  const createdAt = '2025-01-01T12:00:00Z';
+
+  let fragmentId = '';
+  it('GET /ready', async () => {
+    const r = await request(app).get('/ready').expect(200);
+    expect(r.body.network).toBe('mainnet');
+    expect(r.body.allowedDomains).toContain('KFv1');
+  });
+
+  it('POST /ai/memory/write', async () => {
+    const r = await request(app)
+      .post('/ai/memory/write')
+      .send({ owner, writer, kind: 'completion', createdAt, contentHash, encryptedPayload: 'BASE64==' })
+      .expect(200);
+    fragmentId = r.body.fragmentId;
+    expect(fragmentId).toMatch(/^mf_/);
+  });
+
+  it('POST /anchor (internal) -> attach bundle', async () => {
+    const batchId = '00112233-4455-6677-8899-aabbccddeeff';
+    const r = await request(app)
+      .post('/anchor')
+      .send

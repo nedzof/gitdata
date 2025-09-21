@@ -3,8 +3,13 @@ import { Router as makeRouter } from 'express';
 import crypto from 'crypto';
 import { getManifest, getPrice, insertReceipt, getReceipt } from '../db';
 
-const PRICE_DEFAULT_SATS = Number(process.env.PRICE_DEFAULT_SATS || 5000);
-const RECEIPT_TTL_SEC = Number(process.env.RECEIPT_TTL_SEC || 1800); // 30 minutes
+// Read dynamically to support test environment variables
+function getPriceDefaultSats(): number {
+  return Number(process.env.PRICE_DEFAULT_SATS || 5000);
+}
+function getReceiptTtlSec(): number {
+  return Number(process.env.RECEIPT_TTL_SEC || 1800); // 30 minutes
+}
 
 function isHex64(s: string): boolean { return /^[0-9a-fA-F]{64}$/.test(s); }
 
@@ -35,10 +40,10 @@ export function payRouter(): Router {
         return json(res, 404, { error: 'not-found', hint: 'manifest missing' });
       }
 
-      const unit = (await getPrice(String(versionId).toLowerCase())) ?? PRICE_DEFAULT_SATS;
+      const unit = (await getPrice(String(versionId).toLowerCase())) ?? getPriceDefaultSats();
       const amount = unit * Number(quantity);
       const now = Math.floor(Date.now() / 1000);
-      const expiresAt = now + RECEIPT_TTL_SEC;
+      const expiresAt = now + getReceiptTtlSec();
 
       const receiptId = randomId('rcpt');
       await insertReceipt({

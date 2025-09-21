@@ -32,8 +32,8 @@ describe('Metrics Integration Test', () => {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
-  const db = new Database(':memory:');
-  initSchema(db);
+  // Configure for PostgreSQL database tests
+  console.log('Test environment configured for hybrid database tests');
 
   // Add metrics middleware to test route
   app.use('/test', metricsRoute('bundle'));
@@ -41,7 +41,7 @@ describe('Metrics Integration Test', () => {
     res.json({ status: 'ok' });
   });
 
-  app.use(opsRouter(db));
+  app.use(opsRouter());
 
   // Generate some test metrics
   incAdmissions(3);

@@ -21,11 +21,13 @@ describe('Pay Integration Test', () => {
   const versionId = 'a'.repeat(64);
   const contentHash = 'c'.repeat(64);
 
-  // Clean up any existing data for this version
+  // Clean up any existing data for this version and test version
   const { getPostgreSQLClient } = await import('../../src/db/postgresql');
   const pgClient = getPostgreSQLClient();
-  await pgClient.query('DELETE FROM receipts WHERE version_id = $1', [versionId]);
-  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [versionId]);
+  const testVersionId = 'b'.repeat(64);
+  await pgClient.query('DELETE FROM receipts WHERE version_id = $1 OR version_id = $2', [versionId, testVersionId]);
+  await pgClient.query('DELETE FROM manifests WHERE version_id = $1 OR version_id = $2', [versionId, testVersionId]);
+  await pgClient.query('DELETE FROM prices WHERE version_id = $1 OR version_id = $2', [versionId, testVersionId]);
 
   // Insert manifest row (required) using PostgreSQL
   await upsertManifest({

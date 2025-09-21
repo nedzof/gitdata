@@ -1,28 +1,35 @@
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
- //import { initSchema, upsertProducer, upsertManifest } from '../../src/db';
+import { upsertProducer, upsertManifest } from '../../src/db';
 import { producersRouter } from '../../src/routes/producers';
 
 describe('Producers Integration Test', () => {
   test('should handle producer registry and mapping', async () => {
+  // Configure for PostgreSQL database tests
+  console.log('Test environment configured for hybrid database tests');
   const app = express();
   app.use(express.json({ limit: '1mb' }));
-  const db = new Database(':memory:');
-  initSchema(db);
-  app.use(producersRouter(db));
+  app.use(producersRouter());
+
+  // Clean up any existing data
+  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  const identityKey = '02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const versionId = 'a'.repeat(64);
+  const datasetId = 'open-images-50k';
+  await pgClient.query('DELETE FROM producers WHERE identity_key = $1', [identityKey]);
+  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [versionId]);
 
   // Insert a producer
-  const producerId = upsertProducer(db, {
-    identity_key: '02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  const producerId = await upsertProducer({
+    identity_key: identityKey,
     name: 'Acme Data',
     website: 'https://acme.example'
   });
 
   // Map a manifest to datasetId + producer
-  const versionId = 'a'.repeat(64);
-  const datasetId = 'open-images-50k';
-  upsertManifest(db, {
+  await upsertManifest({
     version_id: versionId,
     manifest_hash: versionId,
     content_hash: 'c'.repeat(64),

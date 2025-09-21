@@ -1,21 +1,27 @@
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
- //import { initSchema, upsertManifest, replaceEdges } from '../../src/db';
+import { upsertManifest, replaceEdges } from '../../src/db';
 import { catalogRouter } from '../../src/routes/catalog';
 
 describe('Catalog Integration Test', () => {
   test('should handle search and resolve operations', async () => {
+    // Configure for PostgreSQL database tests
+    console.log('Test environment configured for hybrid database tests');
     const app = express();
     app.use(express.json({ limit: '1mb' }));
-    const db = new Database(':memory:');
-    initSchema(db);
-    app.use(catalogRouter(db));
+    app.use(catalogRouter());
 
     // Insert two versions for dataset "ds-x" with a parent relation
     const datasetId = 'ds-x';
     const vParent = 'b'.repeat(64);
     const vChild = 'a'.repeat(64);
+
+    // Clean up any existing data
+    const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    await pgClient.query('DELETE FROM manifests WHERE dataset_id = $1', [datasetId]);
+    await pgClient.query('DELETE FROM edges WHERE child_version_id = $1 OR parent_version_id = $1', [vChild]);
 
     const mParent = {
       type: 'datasetVersionManifest',
@@ -35,7 +41,7 @@ describe('Catalog Integration Test', () => {
     };
 
     // Upsert manifests (mimic fields stored in DB)
-    upsertManifest(db, {
+    await upsertManifest({
       version_id: vParent,
       manifest_hash: vParent,
       content_hash: mParent.content.contentHash,
@@ -47,7 +53,7 @@ describe('Catalog Integration Test', () => {
       dataset_id: datasetId,
       producer_id: null,
     });
-    upsertManifest(db, {
+    await upsertManifest({
       version_id: vChild,
       manifest_hash: vChild,
       content_hash: mChild.content.contentHash,

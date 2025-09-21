@@ -12,5 +12,10 @@ if (!process.env.PG_USER) process.env.PG_USER = 'postgres';
 if (!process.env.PG_PASSWORD) process.env.PG_PASSWORD = 'password';
 if (!process.env.REDIS_URL) process.env.REDIS_URL = 'redis://localhost:6379';
 
+// Set test-specific pricing and payment variables
+if (!process.env.PRICE_DEFAULT_SATS) process.env.PRICE_DEFAULT_SATS = '1234';
+if (!process.env.RECEIPT_TTL_SEC) process.env.RECEIPT_TTL_SEC = '120';
+if (!process.env.PRICE_QUOTE_TTL_SEC) process.env.PRICE_QUOTE_TTL_SEC = '120';
+
 // Console log to confirm test environment
 console.log('Test environment configured for hybrid database tests');

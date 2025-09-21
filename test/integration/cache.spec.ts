@@ -4,8 +4,7 @@ import os from 'os';
 import path from 'path';
 import express from 'express';
 import request from 'supertest';
- //
-import { initSchema, upsertManifest, upsertDeclaration, replaceEdges } from '../../src/db';
+import { upsertManifest, upsertDeclaration, replaceEdges } from '../../src/db';
 import { bundleRouter } from '../../src/routes/bundle';
 import { txidFromRawTx } from '../../src/spv/verify-envelope';
 import { invalidateHeadersSnapshot } from '../../src/spv/headers-cache';
@@ -40,12 +39,11 @@ describe('Cache Integration Test', () => {
   };
   fs.writeFileSync(headersPath, JSON.stringify(headers, null, 2));
 
-  // App + DB
+  // App with PostgreSQL
+  console.log('Test environment configured for hybrid database tests');
   const app = express();
   app.use(express.json({ limit: '1mb' }));
-  const db = new Database(':memory:');
-  initSchema(db);
-  app.use(bundleRouter(db));
+  app.use(bundleRouter());
 
   const vid = 'a'.repeat(64);
   const man = {
@@ -56,7 +54,13 @@ describe('Cache Integration Test', () => {
     policy: { license: 'cc-by-4.0', classification: 'public' }
   };
 
-  upsertManifest(db, {
+  // Clean up any existing data for this version
+  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [vid]);
+  await pgClient.query('DELETE FROM declarations WHERE version_id = $1', [vid]);
+
+  await upsertManifest({
     version_id: vid,
     manifest_hash: vid,
     content_hash: man.content.contentHash,
@@ -71,7 +75,7 @@ describe('Cache Integration Test', () => {
     proof: { txid, merkleRoot: root, path: [{ hash: sibling, position: 'right' }] },
     block: { blockHash, blockHeight: 100 }
   };
-  upsertDeclaration(db, {
+  await upsertDeclaration({
     version_id: vid,
     txid: 'd'.repeat(64),
     type: 'DLM1',

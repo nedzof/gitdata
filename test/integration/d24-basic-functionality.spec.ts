@@ -1,104 +1,36 @@
 import { test, expect, beforeEach, afterEach, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
- //import { initSchema, getTestDatabase } from '../../src/db';
 import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
 import { templatesRouter } from '../../src/routes/templates';
-import { createArtifactRoutes } from '../../src/agents/dlm1-publisher';
+import { artifactsRouter } from '../../src/routes/artifacts';
 import { startJobsWorker } from '../../src/agents/worker';
 
 // Create a fresh setup for each test to avoid rate limiting conflicts
 function createTestApp() {
-  // Create fresh database for this test
-  const db = new Database(':memory:');
-
-  // Initialize base schema in test database
-  const initSQL = `
-    CREATE TABLE IF NOT EXISTS agents (
-      agent_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      capabilities_json TEXT NOT NULL DEFAULT '[]',
-      webhook_url TEXT NOT NULL,
-      identity_key TEXT,
-      status TEXT DEFAULT 'unknown',
-      last_ping_at INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS rules (
-      rule_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      when_json TEXT NOT NULL,
-      find_json TEXT NOT NULL,
-      actions_json TEXT NOT NULL,
-      owner_producer_id TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS jobs (
-      job_id TEXT PRIMARY KEY,
-      rule_id TEXT NOT NULL,
-      target_id TEXT,
-      state TEXT NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      next_run_at INTEGER NOT NULL,
-      last_error TEXT,
-      evidence_json TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS contract_templates (
-      template_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT,
-      template_content TEXT NOT NULL,
-      template_type TEXT DEFAULT 'pdf',
-      variables_json TEXT,
-      owner_producer_id TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS artifacts (
-      artifact_id TEXT PRIMARY KEY,
-      job_id TEXT NOT NULL,
-      artifact_type TEXT NOT NULL,
-      content_hash TEXT NOT NULL,
-      file_path TEXT,
-      content_data BLOB,
-      version_id TEXT,
-      metadata_json TEXT,
-      created_at INTEGER NOT NULL,
-      published_at INTEGER
-    );
-  `;
-
-  db.exec(initSQL);
+  // Configure for PostgreSQL database tests
+  console.log('Test environment configured for hybrid database tests');
 
   const app = express();
   app.use(express.json());
 
   // Mount routes without policy enforcement for basic functionality tests
-  app.use('/agents', agentsRouter(db));
-  app.use('/rules', rulesRouter(db));
-  app.use('/jobs', jobsRouter(db));
-  app.use('/templates', templatesRouter(db));
-  app.use('/artifacts', createArtifactRoutes(db));
+  app.use('/agents', agentsRouter());
+  app.use('/rules', rulesRouter());
+  app.use('/jobs', jobsRouter());
+  app.use('/templates', templatesRouter());
+  app.use('/artifacts', artifactsRouter());
 
-  return { app, db };
+  return { app };
 }
 
 describe('D24 Basic Functionality Tests', () => {
 
   describe('Agent Registration and Management', () => {
     test('should register and retrieve agents', async () => {
-      const { app, db } = createTestApp();
+      const { app } = createTestApp();
 
       // Clean up any existing agents
       const { getPostgreSQLClient } = await import('../../src/db/postgresql');
@@ -137,12 +69,12 @@ describe('D24 Basic Functionality Tests', () => {
         expect(pingResponse.status).toBe(200);
         expect(pingResponse.body.status).toBe('pinged');
       } finally {
-        db.close();
+        // Database cleanup handled by PostgreSQL connection pool
       }
     });
 
     test('should validate agent registration fields', async () => {
-      const { app, db } = createTestApp();
+      const { app } = createTestApp();
 
       try {
         // Missing fields
@@ -156,14 +88,14 @@ describe('D24 Basic Functionality Tests', () => {
         expect(missingFieldsResponse.status).toBe(400);
         expect(missingFieldsResponse.body.error).toBe('bad-request');
       } finally {
-        db.close();
+        // Database cleanup handled by PostgreSQL connection pool
       }
     });
   });
 
   describe('Rule Management', () => {
     test('should create and manage rules', async () => {
-      const { app, db } = createTestApp();
+      const { app } = createTestApp();
 
       try {
         // First create an agent
@@ -225,14 +157,14 @@ describe('D24 Basic Functionality Tests', () => {
         const getDeletedRuleResponse = await request(app).get(`/rules/${ruleId}`);
         expect(getDeletedRuleResponse.status).toBe(404);
       } finally {
-        db.close();
+        // Database cleanup handled by PostgreSQL connection pool
       }
     });
   });
 
   describe('Template System', () => {
     test('should create templates and generate contracts', async () => {
-      const { app, db } = createTestApp();
+      const { app } = createTestApp();
 
       try {
         // Create a template
@@ -272,12 +204,12 @@ describe('D24 Basic Functionality Tests', () => {
         expect(listResponse.status).toBe(200);
         expect(listResponse.body.items.length).toBeGreaterThan(0);
       } finally {
-        db.close();
+        // Database cleanup handled by PostgreSQL connection pool
       }
     });
 
     test('should validate template variables', async () => {
-      const { app, db } = createTestApp();
+      const { app } = createTestApp();
 
       try {
         // Create template with required variables
@@ -309,14 +241,14 @@ describe('D24 Basic Functionality Tests', () => {
         expect(generateResponse.status).toBe(400);
         expect(generateResponse.body.error).toBe('generation-failed');
       } finally {
-        db.close();
+        // Database cleanup handled by PostgreSQL connection pool
       }
     });
   });
 
   describe('Jobs System', () => {
     test('should handle job queue operations', async () => {
-      const { app, db } = createTestApp();
+      const { app } = createTestApp();
 
       try {
         // Check initial jobs (should be empty)
@@ -334,14 +266,14 @@ describe('D24 Basic Functionality Tests', () => {
         const doneJobsResponse = await request(app).get('/jobs?state=done');
         expect(doneJobsResponse.status).toBe(200);
       } finally {
-        db.close();
+        // Database cleanup handled by PostgreSQL connection pool
       }
     });
   });
 
   describe('Artifacts System', () => {
     test('should manage artifacts', async () => {
-      const { app, db } = createTestApp();
+      const { app } = createTestApp();
 
       try {
         // List artifacts (should be empty initially)
@@ -362,19 +294,19 @@ describe('D24 Basic Functionality Tests', () => {
           .get('/artifacts?published=false');
         expect(unpublishedArtifactsResponse.status).toBe(200);
       } finally {
-        db.close();
+        // Database cleanup handled by PostgreSQL connection pool
       }
     });
   });
 
   describe('Integration Workflow', () => {
     test('should complete basic agent-rule-template workflow', async () => {
-      const { app, db } = createTestApp();
+      const { app } = createTestApp();
       let workerCleanup: any;
 
       try {
         // Start worker for this test
-        workerCleanup = startJobsWorker(db);
+        workerCleanup = startJobsWorker();
 
         // 1. Register agent
         const agentResponse = await request(app)
@@ -441,14 +373,14 @@ describe('D24 Basic Functionality Tests', () => {
 
       } finally {
         if (workerCleanup) workerCleanup();
-        db.close();
+        // Database cleanup handled by PostgreSQL connection pool
       }
     }, 10000);
   });
 
   describe('Error Handling', () => {
     test('should handle 404 errors gracefully', async () => {
-      const { app, db } = createTestApp();
+      const { app } = createTestApp();
 
       try {
         const responses = await Promise.all([
@@ -463,12 +395,12 @@ describe('D24 Basic Functionality Tests', () => {
           expect(response.body.error).toBe('not-found');
         });
       } finally {
-        db.close();
+        // Database cleanup handled by PostgreSQL connection pool
       }
     });
 
     test('should validate JSON parsing', async () => {
-      const { app, db } = createTestApp();
+      const { app } = createTestApp();
 
       try {
         const response = await request(app)
@@ -478,7 +410,7 @@ describe('D24 Basic Functionality Tests', () => {
 
         expect(response.status).toBe(400);
       } finally {
-        db.close();
+        // Database cleanup handled by PostgreSQL connection pool
       }
     });
   });

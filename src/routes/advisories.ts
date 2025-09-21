@@ -1,22 +1,15 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
- //import {
+import type { AdvisoryRow } from '../db';
+import {
   insertAdvisory,
   insertAdvisoryTargets,
-  listAdvisoriesForVersionActive,
-  listAdvisoriesForProducerActive,
-  getProducerIdForVersion,
-  isTestEnvironment,
-  getTestDatabase,
-  type AdvisoryRow,
 } from '../db';
 import { initAdvisoryValidator, validateAdvisory } from '../validators/advisory';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
-export function advisoriesRouter(testDb?: Database.Database): Router {
-  // Get appropriate database - use testDb for SQLite compatibility, otherwise use PostgreSQL
-  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
+export function advisoriesRouter(): Router {
   const router = makeRouter();
   initAdvisoryValidator();
 
@@ -64,15 +57,9 @@ export function advisoriesRouter(testDb?: Database.Database): Router {
       }
       if (tgtList.length === 0) return json(res, 400, { error: 'bad-request', hint: 'at least one target (versionIds or producerIds) required' });
 
-      if (db) {
-        // Use SQLite for test database
-        insertAdvisory(db, advRow);
-        insertAdvisoryTargets(db, advisoryId, tgtList);
-      } else {
-        // Use PostgreSQL for production
-        await insertAdvisory(advRow);
-        await insertAdvisoryTargets(advisoryId, tgtList);
-      }
+      // Use PostgreSQL only
+      await insertAdvisory(advRow);
+      await insertAdvisoryTargets(advisoryId, tgtList);
       return json(res, 200, { status: 'ok', advisoryId });
     } catch (e: any) {
       console.error('[advisories POST] Error details:', e);
@@ -91,37 +78,26 @@ export function advisoriesRouter(testDb?: Database.Database): Router {
     try {
       let list: AdvisoryRow[] = [];
 
-      if (db) {
-        // Use SQLite for test database
-        if (versionId) {
-          list = listAdvisoriesForVersionActive(db, versionId, now);
-          // Also check producer-scoped advisories for this version's producer
-          const pid = getProducerIdForVersion(db, versionId);
-          if (pid) list = list.concat(listAdvisoriesForProducerActive(db, pid, now));
-        }
-        if (producerId) list = list.concat(listAdvisoriesForProducerActive(db, producerId, now));
-      } else {
-        // Use PostgreSQL for production
-        const { listAdvisoriesForVersionActiveAsync, listAdvisoriesForProducerActiveAsync, getProducerIdForVersionAsync } = await import('../db');
+      // Use PostgreSQL only
+      const { listAdvisoriesForVersionActiveAsync, listAdvisoriesForProducerActiveAsync, getProducerIdForVersionAsync } = await import('../db');
 
-        if (versionId) {
-          console.log(`[advisories GET] Looking for advisories for versionId: ${versionId}, now: ${now}`);
-          list = await listAdvisoriesForVersionActiveAsync(versionId, now);
-          console.log(`[advisories GET] Found ${list.length} version-scoped advisories`);
+      if (versionId) {
+        console.log(`[advisories GET] Looking for advisories for versionId: ${versionId}, now: ${now}`);
+        list = await listAdvisoriesForVersionActiveAsync(versionId, now);
+        console.log(`[advisories GET] Found ${list.length} version-scoped advisories`);
 
-          // Also check producer-scoped advisories for this version's producer
-          const pid = await getProducerIdForVersionAsync(versionId);
-          console.log(`[advisories GET] Producer ID for version: ${pid}`);
-          if (pid) {
-            const producerAdvs = await listAdvisoriesForProducerActiveAsync(pid, now);
-            console.log(`[advisories GET] Found ${producerAdvs.length} producer-scoped advisories`);
-            list = list.concat(producerAdvs);
-          }
-        }
-        if (producerId) {
-          const producerAdvs = await listAdvisoriesForProducerActiveAsync(producerId, now);
+        // Also check producer-scoped advisories for this version's producer
+        const pid = await getProducerIdForVersionAsync(versionId);
+        console.log(`[advisories GET] Producer ID for version: ${pid}`);
+        if (pid) {
+          const producerAdvs = await listAdvisoriesForProducerActiveAsync(pid, now);
+          console.log(`[advisories GET] Found ${producerAdvs.length} producer-scoped advisories`);
           list = list.concat(producerAdvs);
         }
+      }
+      if (producerId) {
+        const producerAdvs = await listAdvisoriesForProducerActiveAsync(producerId, now);
+        list = list.concat(producerAdvs);
       }
 
       // De-dupe by advisory_id

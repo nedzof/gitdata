@@ -1,4 +1,4 @@
- //import { getTemplate } from '../db';
+import { getTemplate } from '../db';
 
 export interface TemplateVariable {
   name: string;
@@ -104,15 +104,53 @@ export function validateTemplateVariables(
   return { valid: errors.length === 0, errors };
 }
 
+// Overloaded function signatures
 export function generateContract(
-  db: Database.Database,
+  template: any,
+  variables: Record<string, any>
+): Promise<{ success: boolean; content?: string; error?: string; metadata?: any }>;
+export function generateContract(
+  db: any,
   templateId: string,
   variables: Record<string, any>
-): { success: boolean; content?: string; error?: string; metadata?: any } {
+): Promise<{ success: boolean; content?: string; error?: string; metadata?: any }>;
+
+// Implementation that handles both cases
+export async function generateContract(
+  templateOrDb: any,
+  templateIdOrVariables: string | Record<string, any>,
+  variablesOrUndefined?: Record<string, any>
+): Promise<{ success: boolean; content?: string; error?: string; metadata?: any }> {
   try {
-    const template = getTemplate(db, templateId);
-    if (!template) {
-      return { success: false, error: 'Template not found' };
+    let template: any;
+    let variables: Record<string, any>;
+
+    // Determine calling pattern
+    if (typeof templateIdOrVariables === 'string') {
+      // Called with (db, templateId, variables)
+      const db = templateOrDb;
+      const templateId = templateIdOrVariables;
+      variables = variablesOrUndefined || {};
+
+      if (db && typeof db.getTemplate === 'function') {
+        // Test database object with getTemplate method
+        template = await db.getTemplate(templateId);
+      } else {
+        // Use imported getTemplate function for PostgreSQL
+        template = await getTemplate(templateId);
+      }
+
+      if (!template) {
+        return { success: false, error: 'Template not found' };
+      }
+    } else {
+      // Called with (template, variables)
+      template = templateOrDb;
+      variables = templateIdOrVariables || {};
+
+      if (!template) {
+        return { success: false, error: 'Template not found' };
+      }
     }
 
     let schema: TemplateSchema = { variables: [] };

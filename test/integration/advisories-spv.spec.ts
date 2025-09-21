@@ -1,14 +1,13 @@
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
- //import { initSchema, upsertManifest, upsertProducer } from '../../src/db';
+import { upsertManifest, upsertProducer, upsertDeclaration } from '../../src/db';
 import { advisoriesRouter } from '../../src/routes/advisories';
 import { readyRouter } from '../../src/routes/ready';
 import { txidFromRawTx } from '../../src/spv/verify-envelope';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { upsertDeclaration } from '../../src/db';
 
 describe('Advisories SPV Integration Test', () => {
   test('should handle advisories with SPV verification', async () => {
@@ -20,19 +19,25 @@ describe('Advisories SPV Integration Test', () => {
   process.env.HEADERS_FILE = headersPath;
   process.env.POLICY_MIN_CONFS = '1';
 
-  // App + DB
+  // App with PostgreSQL
+  console.log('Test environment configured for hybrid database tests');
   const app = express();
   app.use(express.json({ limit: '1mb' }));
-  const db = new Database(':memory:');
-  initSchema(db);
-  app.use(advisoriesRouter(db));
-  app.use(readyRouter(db));
+  app.use(advisoriesRouter());
+  app.use(readyRouter());
 
-  // Insert producer + manifest
-  const producerId = upsertProducer(db, { identity_key: '02abc'.padEnd(66, 'a'), name: 'Acme', website: 'https://acme.example' });
+  // Clean up any existing data
+  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+  const pgClient = getPostgreSQLClient();
   const vid = 'a'.repeat(64);
   const contentHash = 'c'.repeat(64);
-  upsertManifest(db, {
+  await pgClient.query('DELETE FROM producers WHERE identity_key = $1', ['02abc'.padEnd(66, 'a')]);
+  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [vid]);
+  await pgClient.query('DELETE FROM declarations WHERE version_id = $1', [vid]);
+
+  // Insert producer + manifest
+  const producerId = await upsertProducer({ identity_key: '02abc'.padEnd(66, 'a'), name: 'Acme', website: 'https://acme.example' });
+  await upsertManifest({
     version_id: vid,
     manifest_hash: vid,
     content_hash: contentHash,
@@ -67,7 +72,7 @@ describe('Advisories SPV Integration Test', () => {
     block: { blockHash, blockHeight: bestHeight }
   };
 
-  upsertDeclaration(db, {
+  await upsertDeclaration({
     version_id: vid,
     txid: txid,
     type: 'DLM1',
@@ -106,8 +111,6 @@ describe('Advisories SPV Integration Test', () => {
   // Test 3: Expire advisory, ready should work again
   console.log('Expiring advisory...');
   const now = Math.floor(Date.now() / 1000);
-  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
-  const pgClient = getPostgreSQLClient();
   await pgClient.query('UPDATE advisories SET expires_at = $1 WHERE advisory_id = $2', [now - 10, post.body.advisoryId]);
 
   const rdy3 = await request(app).get(`/ready?versionId=${vid}`);

@@ -43,7 +43,7 @@ export function startJobsWorker(db: Database.Database): (() => void) {
             PRICE_SATS: act.priceSats || 1000,
             QUANTITY: act.quantity || 1
           };
-          const result = generateContract(db, act.templateId, variables);
+          const result = await generateContract(db, act.templateId, variables);
           if (!result.success) throw new Error(`contract generation failed: ${result.error}`);
 
           // Store artifact in database with proper content hash

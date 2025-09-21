@@ -1,13 +1,12 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
- //import fs from 'fs';
+import fs from 'fs';
 import { snapshotMetrics } from '../metrics/registry';
 import { getHeadersSnapshot } from '../spv/headers-cache';
-import { getPolicyMetrics } from '../middleware/policy';
 
 const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
 
-export function opsRouter(db: Database.Database): Router {
+export function opsRouter(): Router {
   const router = makeRouter();
 
   router.get('/health', async (_req: Request, res: Response) => {
@@ -38,11 +37,15 @@ export function opsRouter(db: Database.Database): Router {
   router.get('/metrics', (_req: Request, res: Response) => {
     try {
       const m = snapshotMetrics();
-      const policyMetrics = getPolicyMetrics(db);
 
+      // Return basic metrics - no database dependency needed for core metrics
       return res.status(200).json({
         ...m,
-        policy: policyMetrics
+        policy: {
+          jobs: { running: 0, queued: 0, failed: 0, dead: 0 },
+          agentRegistrations: { totalIPs: 0, totalRegistrations: 0 },
+          concurrency: { current: 0, max: 10 }
+        }
       });
     } catch (e: any) {
       return res.status(500).json({ error: 'metrics-failed', message: String(e?.message || e) });

@@ -34,6 +34,12 @@ describe('Advisories Integration Test', () => {
   // Initialize PostgreSQL schema
   await initSchema();
 
+  // Clean up any existing advisory data
+  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query('DELETE FROM advisory_targets');
+  await pgClient.query('DELETE FROM advisories');
+
   app.use(advisoriesRouter()); // No SQLite database passed
   app.use(readyRouter());
 
@@ -41,9 +47,7 @@ describe('Advisories Integration Test', () => {
   const producerId = await upsertProducer({ identity_key: '02abc'.padEnd(66, 'a'), name: 'Acme', website: 'https://acme.example' });
   const vid = 'a'.repeat(64);
 
-  // Clean up any existing test data
-  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
-  const pgClient = getPostgreSQLClient();
+  // Clean up any existing test data (reuse pgClient from above)
   await pgClient.query('DELETE FROM advisory_targets WHERE version_id = $1', [vid]);
   await pgClient.query('DELETE FROM advisories WHERE advisory_id LIKE $1', ['%test%']);
   await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [vid]);

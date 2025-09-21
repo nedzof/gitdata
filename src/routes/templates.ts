@@ -1,13 +1,12 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { createTemplate, getTemplate, listTemplates, updateTemplate, deleteTemplate, getTestDatabase, isTestEnvironment } from '../db';
+import { createTemplate, getTemplate, listTemplates, updateTemplate, deleteTemplate } from '../db';
 import { generateContract, EXAMPLE_CONTRACT_TEMPLATE, EXAMPLE_TEMPLATE_SCHEMA } from '../agents/templates';
 import { requireIdentity } from '../middleware/identity';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
-export function templatesRouter(testDb?: Database.Database): Router {
+export function templatesRouter(): Router {
   const router = makeRouter();
 
   // POST / (create template)
@@ -117,7 +116,7 @@ export function templatesRouter(testDb?: Database.Database): Router {
         return json(res, 404, { error: 'template-not-found' });
       }
 
-      const result = generateContract(template, variables);
+      const result = await generateContract(template, variables);
 
       if (!result.success) {
         return json(res, 400, { error: 'generation-failed', message: result.error });

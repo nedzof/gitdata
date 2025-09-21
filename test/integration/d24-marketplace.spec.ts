@@ -1,8 +1,7 @@
 import { test, expect, beforeAll, afterAll, beforeEach, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
- //import { initSchema, getTestDatabase } from '../../src/db';
-import { agentsRouter } from '../../src/routes/agents';
+ //import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
 import { templatesRouter } from '../../src/routes/templates';

@@ -31,6 +31,7 @@ export async function closeTestDatabase(): Promise<void> {
 export function getDatabase(): any {
   if (isTestEnvironment()) {
     // Return test database with SQLite compatibility
+    const { getTestDatabase } = require('./test-setup');
     return getTestDatabase();
   } else {
     const { getHybridDatabase } = require('./hybrid');

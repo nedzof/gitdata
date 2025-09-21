@@ -1,25 +1,23 @@
 import { test, expect, beforeAll, afterAll, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
- //import { initSchema, getTestDatabase } from '../../src/db';
 import { templatesRouter } from '../../src/routes/templates';
 import { generateContract, renderTemplate, validateTemplateVariables, EXAMPLE_TEMPLATE_SCHEMA } from '../../src/agents/templates';
 import { enforceResourceLimits } from '../../src/middleware/policy';
 
 let app: express.Application;
-let db: Database.Database;
 
 beforeAll(async () => {
-  await initSchema();
-  db = getTestDatabase();
+  // Configure for PostgreSQL database tests
+  console.log('Test environment configured for hybrid database tests');
 
   app = express();
   app.use(express.json());
-  app.use('/templates', enforceResourceLimits(), templatesRouter(db));
+  app.use('/templates', enforceResourceLimits(), templatesRouter());
 });
 
 afterAll(() => {
-  if (db && db.open) db.close();
+  // Database cleanup handled by PostgreSQL connection pool
 });
 
 describe('D24 Template System - Comprehensive Testing', () => {
@@ -397,9 +395,9 @@ Generated at: {{GENERATED_AT}}`,
   });
 
   describe('Template Integration with Database Layer', () => {
-    test('should generate contracts using database function', () => {
-      // Test the direct database function
-      const result = generateContract(db, 'nonexistent-template', {});
+    test('should generate contracts using database function', async () => {
+      // Test the direct database function with PostgreSQL - pass null as db to use PostgreSQL
+      const result = await generateContract(null, 'nonexistent-template', {});
       expect(result.success).toBe(false);
       expect(result.error).toBe('Template not found');
     });
