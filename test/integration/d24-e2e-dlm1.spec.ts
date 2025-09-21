@@ -64,7 +64,7 @@ describe('D24 End-to-End Workflow with DLM1 Publishing', () => {
         identityKey: 'test-key-e2e-dlm1'
       });
 
-    expect(agentResponse.status).toBe(200);
+    expect(agentResponse.status).toBe(201);
     const agentId = agentResponse.body.agentId;
 
     // Step 2: Create a contract template for agent automation
@@ -418,7 +418,7 @@ Total processing fee: {{TOTAL_FEE}} satoshis`,
         ]
       });
 
-    expect(complexRuleResponse.status).toBe(200);
+    expect(complexRuleResponse.status).toBe(201);
 
     // Trigger and wait
     await request(app).post(`/rules/${complexRuleResponse.body.ruleId}/run`);

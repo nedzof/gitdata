@@ -1,30 +1,31 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, getTestDatabase, upsertManifest, insertReceipt } from '../../src/db';
-import { runPaymentsMigrations, paymentsRouter } from '../../src/payments';
+import { initSchema, upsertManifest, insertReceipt } from '../../src/db';
+import { payRouter } from '../../src/routes/pay';
 
 describe('D21 Payments Integration Tests', () => {
   let app: express.Application;
-  let db: Database.Database;
 
   beforeEach(async () => {
-    // Use test database setup
+    // Initialize PostgreSQL database
     await initSchema();
-    db = getTestDatabase();
-    runPaymentsMigrations(db);
 
     // Create test app
     app = express();
     app.use(express.json({ limit: '1mb' }));
-    app.use(paymentsRouter());
+    app.use(payRouter());
 
     // Setup test data: producer, manifest, receipt
     const { getPostgreSQLClient } = await import('../../src/db/postgresql');
     const pgClient = getPostgreSQLClient();
-    await pgClient.query(`INSERT INTO producers (producer_id, name, identity_key, payout_script_hex, created_at)
-               VALUES ($1, $2, $3, $4, $5)`, ['prod-1', 'Test Producer', 'test-key', '76a914deadbeef88ac', Date.now()]);
+    // Clean up any existing test data
+    await pgClient.query('DELETE FROM receipts WHERE receipt_id = $1', ['receipt-1']);
+    await pgClient.query('DELETE FROM manifests WHERE version_id = $1', ['ver-1']);
+    await pgClient.query('DELETE FROM producers WHERE producer_id = $1', ['prod-1']);
+
+    await pgClient.query(`INSERT INTO producers (producer_id, display_name, identity_key, payout_script_hex, created_at)
+               VALUES ($1, $2, $3, $4, $5)`, ['prod-1', 'Test Producer', 'test-key', '76a914deadbeef88ac', new Date().toISOString()]);
 
     await upsertManifest({
       version_id: 'ver-1',
@@ -41,8 +42,8 @@ describe('D21 Payments Integration Tests', () => {
       quantity: 1,
       amount_sat: 5000,
       status: 'pending',
-      created_at: Date.now(),
-      expires_at: Date.now() + 3600000
+      created_at: Math.floor(Date.now() / 1000),
+      expires_at: Math.floor(Date.now() / 1000) + 3600
     });
   });
 

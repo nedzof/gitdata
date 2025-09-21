@@ -63,7 +63,7 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
       }
 
       // First 5 should succeed
-      const successful = results.filter(r => r.status === 200);
+      const successful = results.filter(r => r.status === 201);
       const rateLimited = results.filter(r => r.status === 429);
 
       expect(successful).toHaveLength(5);
@@ -147,7 +147,7 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
           expect(response.status).toBe(400);
           expect(response.body.error).toBe('invalid-webhook-url');
         } else {
-          expect(response.status).toBe(200);
+          expect(response.status).toBe(201);
         }
       }
     });
@@ -177,7 +177,7 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
           expect(response.status).toBe(400);
           expect(['invalid-capability', 'too-many-capabilities'].includes(response.body.error)).toBe(true);
         } else {
-          expect(response.status).toBe(200);
+          expect(response.status).toBe(201);
         }
       }
     });
@@ -234,7 +234,7 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
             expect(response.status).toBe(400);
             expect(response.body.error).toBe('invalid-webhook-url');
           } else {
-            expect(response.status).toBe(200);
+            expect(response.status).toBe(201);
           }
         }
       } finally {
@@ -271,7 +271,7 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
           actions: [{ action: 'notify', agentId }]
         });
 
-      expect(ruleResponse.status).toBe(200);
+      expect(ruleResponse.status).toBe(201);
 
       // Check that metrics are accessible
       const metricsResponse = await request(app).get('/policy-metrics');
@@ -302,7 +302,7 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
           actions: [{ action: 'notify', agentId: agentResponse.body.agentId }]
         });
 
-      expect(ruleResponse.status).toBe(200);
+      expect(ruleResponse.status).toBe(201);
 
       // The job creation policy is enforced on rule runs, not rule creation
       // This would need actual job queue testing to verify limits
@@ -368,7 +368,7 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
         if (testCase.capabilities === null || !testCase.name || !testCase.webhookUrl) {
           expect(response.status).toBe(400);
         } else {
-          expect(response.status).toBe(200);
+          expect(response.status).toBe(201);
         }
       }
     });
@@ -385,7 +385,7 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
         });
 
       // Should either succeed or fail gracefully
-      expect([200, 400, 413].includes(response.status)).toBe(true);
+      expect([201, 400, 413].includes(response.status)).toBe(true);
     });
   });
 
@@ -402,8 +402,8 @@ describe('D24 Policy Enforcement - Edge Cases & Security', () => {
       );
 
       const results = await Promise.all(concurrentRequests);
-      const successful = results.filter(r => r.status === 200);
-      const failed = results.filter(r => r.status !== 200);
+      const successful = results.filter(r => r.status === 201);
+      const failed = results.filter(r => r.status !== 201);
 
       // At least some should succeed, rate limiting should apply
       expect(successful.length).toBeGreaterThan(0);

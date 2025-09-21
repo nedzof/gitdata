@@ -1,6 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
- //import { validateDlm1Manifest, initValidators } from '../validators';
+import { validateDlm1Manifest, initValidators } from '../validators';
 import { requireIdentity } from '../middleware/identity';
 import { createManifest } from '../db';
 import {
@@ -46,7 +46,7 @@ function jsonError(res: Response, code: number, error: string, hint?: string, de
  *   "opReturnOutputBytes": <number>
  * }
  */
-export function submitDlm1Router(db?: Database.Database, opts?: { manifestSchemaPath?: string }): Router {
+export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router {
   if (opts?.manifestSchemaPath) {
     initValidators(opts.manifestSchemaPath);
   } else {

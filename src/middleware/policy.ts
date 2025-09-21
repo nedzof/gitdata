@@ -1,5 +1,4 @@
 import type { Request, Response, NextFunction } from 'express';
- //import { listJobs, getTestDatabase, isTestEnvironment } from '../db';
 
 // Policy configuration from environment
 const RULES_MAX_CONCURRENCY = Number(process.env.RULES_MAX_CONCURRENCY || 10);
@@ -8,6 +7,7 @@ const JOBS_MAX_PENDING_PER_RULE = Number(process.env.JOBS_MAX_PENDING_PER_RULE |
 
 // In-memory tracking for rate limits and concurrency
 const agentRegistrations = new Map<string, { count: number; lastReset: number }>();
+const currentConcurrency = { running: 0, queued: 0, failed: 0, dead: 0 };
 const runningJobs = new Map<string, number>(); // ruleId -> count
 
 // Reset agent registration counts every hour
@@ -30,7 +30,7 @@ function resetExpiredCounts() {
   }
 }
 
-export function enforceAgentRegistrationPolicy(testDb?: Database.Database) {
+export function enforceAgentRegistrationPolicy() {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
       // Skip rate limiting only if explicitly disabled (not in tests that want to test rate limiting)
@@ -80,19 +80,16 @@ export function enforceAgentRegistrationPolicy(testDb?: Database.Database) {
   };
 }
 
-export function enforceRuleConcurrency(testDb?: Database.Database) {
+export function enforceRuleConcurrency() {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
-      // Get appropriate database
-      const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
-
-      // Skip concurrency limits if no database available (PostgreSQL mode)
-      if (!db || (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits'])) {
+      // Skip concurrency limits if disabled (PostgreSQL mode uses in-memory tracking)
+      if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits']) {
         return next();
       }
 
-      // Check overall running jobs count
-      const runningJobsCount = listJobs(db, 'running').length;
+      // Check overall running jobs count using in-memory tracking
+      const runningJobsCount = currentConcurrency.running;
 
       if (runningJobsCount >= RULES_MAX_CONCURRENCY) {
         return res.status(503).json({
@@ -110,29 +107,26 @@ export function enforceRuleConcurrency(testDb?: Database.Database) {
   };
 }
 
-export function enforceJobCreationPolicy(testDb?: Database.Database) {
+export function enforceJobCreationPolicy() {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
-      // Get appropriate database
-      const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
-
-      // Skip job creation limits if no database available (PostgreSQL mode) or explicitly disabled
-      if (!db || (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits'])) {
+      // Skip job creation limits if explicitly disabled
+      if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits']) {
         return next();
       }
 
       const ruleId = req.params.id || req.body?.ruleId;
 
       if (ruleId) {
-        // Check pending jobs for this rule
-        const pendingJobs = listJobs(db, 'queued').filter(job => job.rule_id === ruleId);
+        // Check pending jobs for this rule using in-memory tracking
+        const pendingCount = runningJobs.get(ruleId) || 0;
 
-        if (pendingJobs.length >= JOBS_MAX_PENDING_PER_RULE) {
+        if (pendingCount >= JOBS_MAX_PENDING_PER_RULE) {
           return res.status(429).json({
             error: 'job-queue-limit-exceeded',
             message: `Maximum ${JOBS_MAX_PENDING_PER_RULE} pending jobs per rule`,
             ruleId,
-            pendingCount: pendingJobs.length
+            pendingCount
           });
         }
       }
@@ -276,32 +270,16 @@ export function resetPolicyState() {
 }
 
 // Policy metrics for monitoring
-export function getPolicyMetrics(testDb?: Database.Database) {
-  // Get appropriate database
-  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
-
-  if (!db) {
-    // Return empty metrics for PostgreSQL mode
-    return {
-      jobs: { running: 0, queued: 0, failed: 0, dead: 0 },
-      agentRegistrations: { totalIPs: 0, totalRegistrations: 0 },
-      concurrency: { current: 0, max: RULES_MAX_CONCURRENCY }
-    };
-  }
-
-  const runningJobs = listJobs(db, 'running').length;
-  const queuedJobs = listJobs(db, 'queued').length;
-  const failedJobs = listJobs(db, 'failed').length;
-  const deadJobs = listJobs(db, 'dead').length;
-
+export function getPolicyMetrics() {
+  // PostgreSQL mode uses in-memory tracking only
   return {
     jobs: {
-      running: runningJobs,
-      queued: queuedJobs,
-      failed: failedJobs,
-      dead: deadJobs,
+      running: currentConcurrency.running,
+      queued: currentConcurrency.queued,
+      failed: currentConcurrency.failed,
+      dead: currentConcurrency.dead,
       maxConcurrency: RULES_MAX_CONCURRENCY,
-      concurrencyUtilization: runningJobs / RULES_MAX_CONCURRENCY
+      concurrencyUtilization: currentConcurrency.running / RULES_MAX_CONCURRENCY
     },
     agents: {
       maxPerIP: AGENTS_MAX_PER_IP,

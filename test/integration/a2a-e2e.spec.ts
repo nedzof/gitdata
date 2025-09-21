@@ -13,12 +13,12 @@
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
- //import { getTestDatabase } from '../../src/db';
 import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
 import { createJobProcessor } from '../../src/worker/job-processor';
 import { generatePrivateKey, verifyBRC31Signature } from '../../src/brc31/signer';
+import { initSchema } from '../../src/db';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -41,7 +41,6 @@ interface TestEvidence {
 
 class A2AE2ETest {
   private app: express.Application;
-  private db: Database.Database;
   private jobProcessor: any;
   private server: any;
   private evidence: TestEvidence;
@@ -76,8 +75,8 @@ class A2AE2ETest {
     fs.mkdirSync(this.evidenceDir, { recursive: true });
     fs.mkdirSync(path.join(this.evidenceDir, 'evidence'), { recursive: true });
 
-    // Setup test database
-    this.db = getTestDatabase();
+    // Initialize PostgreSQL database
+    await initSchema();
 
     // Insert test data for search manifests
     const { getPostgreSQLClient } = await import('../../src/db/postgresql');
@@ -114,10 +113,10 @@ class A2AE2ETest {
     this.app = express();
     this.app.use(express.json());
 
-    // Mount A2A routes
-    this.app.use('/agents', agentsRouter(this.db));
-    this.app.use('/rules', rulesRouter(this.db));
-    this.app.use('/jobs', jobsRouter(this.db));
+    // Mount A2A routes - PostgreSQL only
+    this.app.use('/agents', agentsRouter());
+    this.app.use('/rules', rulesRouter());
+    this.app.use('/jobs', jobsRouter());
 
     // Mock webhook endpoint with BRC-31 verification
     this.app.post('/webhook', (req, res) => {
@@ -160,7 +159,7 @@ class A2AE2ETest {
     process.env.JOB_RETRY_MAX = '1';
     process.env.JOB_POLL_INTERVAL_MS = '500';
 
-    this.jobProcessor = createJobProcessor(this.db);
+    this.jobProcessor = createJobProcessor();
     this.jobProcessor.start();
 
     console.log('✅ A2A E2E test environment ready');

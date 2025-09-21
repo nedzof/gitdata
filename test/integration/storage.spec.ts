@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
  //import { Readable } from 'stream';
-import { initSchema, getTestDatabase, closeTestDatabase, upsertManifest, insertReceipt } from '../../src/db';
+import { initSchema, upsertManifest, insertReceipt } from '../../src/db';
 import { createStorageDriver, FilesystemStorageDriver, calculateContentHash } from '../../src/storage';
 import { StorageLifecycleManager, createStorageEventsMigration } from '../../src/storage/lifecycle';
 import { StorageMigrator } from '../../src/storage/migration';
@@ -12,13 +12,11 @@ import { runPaymentsMigrations } from '../../src/payments';
 
 describe('D22 Storage Backend Integration Tests', () => {
   let app: express.Application;
-  let db: Database.Database;
   let storage: FilesystemStorageDriver;
 
   beforeEach(async () => {
-    // Use test database setup
+    // Initialize PostgreSQL database
     await initSchema();
-    db = getTestDatabase(); // Get the already initialized test database
 
     // Set environment variables for storage configuration
     process.env.STORAGE_BACKEND = 'fs';
@@ -48,12 +46,17 @@ describe('D22 Storage Backend Integration Tests', () => {
     app.use(dataRouter());
     // app.use(storageRouter()); // TODO: Update storageRouter to use hybrid database
 
-    // Setup test data using hybrid database functions
-    // Insert producer data directly into PostgreSQL
+    // Setup test data using PostgreSQL
     const { getPostgreSQLClient } = await import('../../src/db/postgresql');
     const pgClient = getPostgreSQLClient();
-    await pgClient.query(`INSERT INTO producers (producer_id, name, identity_key, payout_script_hex, created_at)
-               VALUES ($1, $2, $3, $4, $5)`, ['prod-1', 'Test Producer', 'test-key', '76a914deadbeef88ac', Date.now()]);
+
+    // Clean up any existing test data
+    await pgClient.query('DELETE FROM receipts WHERE receipt_id = $1', ['receipt-1']);
+    await pgClient.query('DELETE FROM manifests WHERE version_id = $1', ['ver-1']);
+    await pgClient.query('DELETE FROM producers WHERE producer_id = $1', ['prod-1']);
+
+    await pgClient.query(`INSERT INTO producers (producer_id, display_name, identity_key, payout_script_hex, created_at)
+               VALUES ($1, $2, $3, $4, $5)`, ['prod-1', 'Test Producer', 'test-key', '76a914deadbeef88ac', new Date().toISOString()]);
 
     // Use hybrid database functions for manifests and receipts
     await upsertManifest({

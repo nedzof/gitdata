@@ -1,7 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
- //import { getManifest, setPrice } from '../db';
-import { upsertPriceRule, deletePriceRule, getBestUnitPrice } from '../db';
+import { getManifest, setPrice, upsertPriceRule, deletePriceRule, getBestUnitPrice } from '../db';
 import { requireIdentity } from '../middleware/identity';
 
 const PRICE_DEFAULT_SATS = Number(process.env.PRICE_DEFAULT_SATS || 5000);
@@ -10,7 +9,7 @@ const PRICE_QUOTE_TTL_SEC = Number(process.env.PRICE_QUOTE_TTL_SEC || 1800);
 function isHex64(s: string): boolean { return /^[0-9a-fA-F]{64}$/.test(s); }
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
-export function priceRouter(db?: Database.Database): Router {
+export function priceRouter(): Router {
   const router = makeRouter();
 
   // GET /price?versionId=&quantity=...
@@ -23,13 +22,12 @@ export function priceRouter(db?: Database.Database): Router {
     const man = await getManifest(versionId);
     if (!man) return json(res, 404, { error: 'not-found', hint: 'manifest missing' });
 
+    // Use PostgreSQL only
     let best: { satoshis: number; source: string; tier_from?: number };
-    if (db) {
-      // Use SQLite for test database
-      best = getBestUnitPrice(db, versionId, quantity, PRICE_DEFAULT_SATS);
-    } else {
-      // Use PostgreSQL for production
+    try {
       best = await getBestUnitPrice(versionId, quantity, PRICE_DEFAULT_SATS);
+    } catch (error) {
+      return json(res, 500, { error: 'database-error', hint: 'pricing system' });
     }
     const unit = best.satoshis;
     const total = unit * quantity;
