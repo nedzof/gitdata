@@ -14,13 +14,7 @@ Global technology choices (baseline)
     OpenLineage:
     Pure JSON events (v1) with custom facets (gitdataSpv, governance, memory)
     Ingest via local route (D41) and store adjacency in Redis + optional audit in Postgres
-    RDF/SPARQL (ontology):
-    Parser: sparqljs (AST enforcement)
-    RDF serialization/normalization: N3.js (RDF/JS compliant), n3-canon for N-Triples normalization
-    Object storage: S3-compatible (Hetzner), AWS SDK v3 (or MinIO client), CDN as per D22
-    CI/CD: GitHub Actions (multi-arch Docker images), Ajv validation for schemas/examples, unit/integration tests (Vitest/Jest)
-    Secrets/KMS: Hashicorp Vault or AWS KMS (preferred), fallback to env-injected keys in dev only
-
+  
 Warehouse vs Workbench (mental model)
 
     PostgreSQL = Warehouse: source of truth (committed facts), strong integrity, relational queries
