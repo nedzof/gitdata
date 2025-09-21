@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { api } from '$lib/api';
+  import { walletService } from '$lib/wallet';
 
   let activeTab = 'producers';
   let loading = false;
@@ -9,6 +10,17 @@
   // Producers
   let producers = [];
   let selectedProducer = null;
+
+  // BRC100 Wallet Integration
+  let walletData = {
+    purchases: [],
+    balance: 0,
+    totalSpent: 0
+  };
+  let purchaseFilters = {
+    status: 'all', // all, active, recalled, expired
+    producer: 'all'
+  };
 
   // Agents
   let agents = [];
@@ -21,6 +33,15 @@
 
   // Subscriptions
   let subscriptions = [];
+
+  // Notification preferences
+  let notificationConfig = {
+    webhookUrl: '',
+    emailNotifications: true,
+    recallAlerts: true,
+    newDataAlerts: true,
+    priceChangeAlerts: false
+  };
 
   // Asset connection (from catalog)
   let connectingAsset = null;
@@ -43,6 +64,8 @@
       if (activeTab === 'producers') {
         const response = await api.request('/producers');
         producers = response.producers || [];
+      } else if (activeTab === 'wallet') {
+        await loadWalletData();
       } else if (activeTab === 'agents') {
         const response = await api.request('/agents');
         agents = response.agents || [];
@@ -54,6 +77,57 @@
       console.error('Failed to load data:', error);
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadWalletData() {
+    try {
+      if (!walletService.isConnected()) {
+        console.warn('Wallet not connected, cannot load wallet data');
+        walletData = { purchases: [], balance: 0, totalSpent: 0 };
+        return;
+      }
+
+      // Load BRC100 wallet purchases and balance using real wallet methods
+      const [purchaseHistory, balanceInfo] = await Promise.all([
+        walletService.getPurchaseHistory().catch(() => []),
+        walletService.getAvailableBalance().catch(() => ({ balance: 0, outputs: [] }))
+      ]);
+
+      // Transform wallet actions to purchase format
+      walletData.purchases = purchaseHistory.map(action => ({
+        versionId: action.outputs?.find(o => o.tags?.includes('data-purchase'))?.tags?.find(t => t.startsWith('version:'))?.split(':')[1] || action.txid,
+        assetName: action.description || 'Unknown Asset',
+        description: action.description,
+        purchaseDate: new Date().toISOString(), // BRC-100 doesn't include timestamps in this format
+        amountSat: Math.abs(action.satoshis),
+        txid: action.txid,
+        status: action.status,
+        currentStatus: action.status === 'confirmed' ? 'active' : action.status,
+        recalled: false, // Will be checked separately
+        producerId: 'unknown',
+        producerName: 'Unknown Producer',
+        producerStatus: 'unknown'
+      }));
+
+      walletData.balance = balanceInfo.balance;
+      walletData.totalSpent = walletData.purchases.reduce((sum, p) => sum + p.amountSat, 0);
+
+      // Check for data recalls and producer status updates
+      for (let purchase of walletData.purchases) {
+        try {
+          const statusResponse = await api.request(`/assets/${purchase.versionId}/status`);
+          purchase.currentStatus = statusResponse.status;
+          purchase.recalled = statusResponse.recalled || false;
+          purchase.producerStatus = statusResponse.producerStatus || 'unknown';
+        } catch (error) {
+          console.warn(`Failed to check status for ${purchase.versionId}:`, error);
+          purchase.currentStatus = 'unknown';
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load wallet data:', error);
+      walletData = { purchases: [], balance: 0, totalSpent: 0 };
     }
   }
 
@@ -111,6 +185,63 @@
     }
   }
 
+  async function checkDataRecall(versionId) {
+    try {
+      const response = await api.request(`/assets/${versionId}/recall-status`);
+      return response;
+    } catch (error) {
+      console.error('Failed to check recall status:', error);
+      return { recalled: false, reason: null };
+    }
+  }
+
+  async function updateNotificationSettings() {
+    try {
+      await api.request('/notifications/settings', {
+        method: 'PUT',
+        body: notificationConfig
+      });
+      alert('Notification settings updated successfully!');
+    } catch (error) {
+      console.error('Failed to update notification settings:', error);
+      alert('Failed to update notification settings');
+    }
+  }
+
+  async function testWebhook() {
+    try {
+      await api.request('/notifications/test-webhook', {
+        method: 'POST',
+        body: { webhookUrl: notificationConfig.webhookUrl }
+      });
+      alert('Webhook test sent successfully!');
+    } catch (error) {
+      console.error('Failed to test webhook:', error);
+      alert('Webhook test failed');
+    }
+  }
+
+  function getFilteredPurchases() {
+    let filtered = walletData.purchases;
+
+    if (purchaseFilters.status !== 'all') {
+      filtered = filtered.filter(purchase => {
+        switch (purchaseFilters.status) {
+          case 'active': return !purchase.recalled && purchase.currentStatus === 'active';
+          case 'recalled': return purchase.recalled;
+          case 'expired': return purchase.currentStatus === 'expired';
+          default: return true;
+        }
+      });
+    }
+
+    if (purchaseFilters.producer !== 'all') {
+      filtered = filtered.filter(purchase => purchase.producerId === purchaseFilters.producer);
+    }
+
+    return filtered;
+  }
+
   function switchTab(tab) {
     activeTab = tab;
     loadData();
@@ -141,6 +272,12 @@
   <div class="tab-nav">
     <nav class="tab-buttons">
       <button
+        on:click={() => switchTab('wallet')}
+        class="tab-btn {activeTab === 'wallet' ? 'active' : ''}"
+      >
+        💰 My Wallet
+      </button>
+      <button
         on:click={() => switchTab('producers')}
         class="tab-btn {activeTab === 'producers' ? 'active' : ''}"
       >
@@ -165,6 +302,223 @@
     <div class="flex justify-center items-center py-12">
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
     </div>
+  {:else if activeTab === 'wallet'}
+    <!-- Wallet Tab -->
+    <div class="space-y-6">
+      {#if !walletService.isConnected()}
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+          <h2 class="text-xl font-semibold mb-4 text-yellow-800">Wallet Not Connected</h2>
+          <p class="text-yellow-700 mb-4">
+            Connect your BRC-100 compatible wallet to view purchase history and manage transactions.
+          </p>
+          <button
+            on:click={() => walletService.connect().catch(console.error)}
+            class="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-2 rounded-md transition-colors"
+          >
+            Connect Wallet
+          </button>
+        </div>
+      {:else}
+        <!-- Wallet Summary -->
+        <div class="bg-white border border-gray-200 rounded-lg p-6">
+          <h2 class="text-xl font-semibold mb-4">BRC100 Wallet Summary</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="text-center">
+            <div class="text-2xl font-bold text-green-600">{walletData.balance}</div>
+            <div class="text-sm text-gray-500">Available Balance (sats)</div>
+          </div>
+          <div class="text-center">
+            <div class="text-2xl font-bold text-blue-600">{walletData.purchases.length}</div>
+            <div class="text-sm text-gray-500">Total Purchases</div>
+          </div>
+          <div class="text-center">
+            <div class="text-2xl font-bold text-gray-600">{walletData.totalSpent}</div>
+            <div class="text-sm text-gray-500">Total Spent (sats)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notification Settings -->
+      <div class="bg-white border border-gray-200 rounded-lg p-6">
+        <h3 class="text-lg font-semibold mb-4">Notification Settings</h3>
+        <form on:submit|preventDefault={updateNotificationSettings} class="space-y-4">
+          <div>
+            <label for="webhook-url" class="block text-sm font-medium text-gray-700 mb-1">Webhook URL</label>
+            <div class="flex gap-2">
+              <input
+                id="webhook-url"
+                type="url"
+                bind:value={notificationConfig.webhookUrl}
+                placeholder="https://your-app.com/webhook"
+                class="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                on:click={testWebhook}
+                class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md transition-colors"
+              >
+                Test
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <label class="flex items-center">
+              <input
+                type="checkbox"
+                bind:checked={notificationConfig.recallAlerts}
+                class="mr-2"
+              />
+              Data Recall Alerts
+            </label>
+            <label class="flex items-center">
+              <input
+                type="checkbox"
+                bind:checked={notificationConfig.newDataAlerts}
+                class="mr-2"
+              />
+              New Data Alerts
+            </label>
+            <label class="flex items-center">
+              <input
+                type="checkbox"
+                bind:checked={notificationConfig.emailNotifications}
+                class="mr-2"
+              />
+              Email Notifications
+            </label>
+            <label class="flex items-center">
+              <input
+                type="checkbox"
+                bind:checked={notificationConfig.priceChangeAlerts}
+                class="mr-2"
+              />
+              Price Change Alerts
+            </label>
+          </div>
+
+          <button
+            type="submit"
+            class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-colors"
+          >
+            Update Settings
+          </button>
+        </form>
+      </div>
+
+      <!-- Purchase Filters -->
+      <div class="bg-white border border-gray-200 rounded-lg p-4">
+        <h3 class="text-lg font-semibold mb-3">Filter Purchases</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label for="status-filter" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select
+              id="status-filter"
+              bind:value={purchaseFilters.status}
+              class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="recalled">Recalled</option>
+              <option value="expired">Expired</option>
+            </select>
+          </div>
+          <div>
+            <label for="producer-filter" class="block text-sm font-medium text-gray-700 mb-1">Producer</label>
+            <select
+              id="producer-filter"
+              bind:value={purchaseFilters.producer}
+              class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Producers</option>
+              {#each [...new Set(walletData.purchases.map(p => p.producerId))] as producerId}
+                <option value={producerId}>{producerId}</option>
+              {/each}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Purchase History -->
+      <div class="space-y-4">
+        <h3 class="text-lg font-semibold">Purchase History</h3>
+        {#if getFilteredPurchases().length === 0}
+          <div class="text-center py-12">
+            <p class="text-gray-500">No purchases found</p>
+            <p class="text-gray-400 text-sm mt-2">Purchase data assets to see them here</p>
+          </div>
+        {:else}
+          {#each getFilteredPurchases() as purchase}
+            <div class="bg-white border border-gray-200 rounded-lg p-6">
+              <div class="flex justify-between items-start">
+                <div class="flex-1">
+                  <h4 class="font-semibold text-lg text-gray-900">{purchase.assetName || purchase.versionId}</h4>
+                  <p class="text-gray-600 mt-1">{purchase.description || 'No description available'}</p>
+
+                  <div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <span class="font-medium text-gray-500">Status:</span>
+                      <span class="ml-1 {purchase.recalled ? 'text-red-600' : purchase.currentStatus === 'active' ? 'text-green-600' : 'text-yellow-600'}">
+                        {purchase.recalled ? 'RECALLED' : purchase.currentStatus || 'Unknown'}
+                      </span>
+                    </div>
+                    <div>
+                      <span class="font-medium text-gray-500">Producer:</span>
+                      <span class="ml-1 {purchase.producerStatus === 'up' ? 'text-green-600' : 'text-red-600'}">
+                        {purchase.producerName || purchase.producerId}
+                      </span>
+                    </div>
+                    <div>
+                      <span class="font-medium text-gray-500">Purchased:</span>
+                      <span class="ml-1 text-gray-700">{new Date(purchase.purchaseDate).toLocaleDateString()}</span>
+                    </div>
+                    <div>
+                      <span class="font-medium text-gray-500">Cost:</span>
+                      <span class="ml-1 text-gray-700">{purchase.amountSat} sats</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex gap-2">
+                  <button
+                    on:click={() => window.open(`/analysis?id=${purchase.versionId}`, '_blank')}
+                    class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md transition-colors text-sm"
+                  >
+                    View Lineage
+                  </button>
+                  <button
+                    on:click={() => checkDataRecall(purchase.versionId)}
+                    class="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded-md transition-colors text-sm"
+                  >
+                    Check Status
+                  </button>
+                </div>
+              </div>
+
+              {#if purchase.recalled}
+                <div class="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                  <div class="flex items-center">
+                    <span class="text-red-600 font-medium">⚠️ Data Recalled</span>
+                  </div>
+                  {#if purchase.recallReason}
+                    <p class="text-red-700 text-sm mt-1">{purchase.recallReason}</p>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if purchase.producerStatus === 'down'}
+                <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                  <span class="text-yellow-700 font-medium">⚠️ Producer Offline</span>
+                  <p class="text-yellow-700 text-sm mt-1">This producer is currently unavailable</p>
+                </div>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+      </div>
+      {/if}
+    </div>
+
   {:else if activeTab === 'producers'}
     <!-- Producers Tab -->
     <div class="space-y-6">

@@ -2,9 +2,36 @@
   import '../app.css';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { onMount } from 'svelte';
+  import { walletService } from '$lib/wallet';
 
   let searchQuery = '';
   let walletConnected = false;
+  let walletPublicKey = '';
+  let walletLoading = false;
+  let walletError = '';
+
+  onMount(() => {
+    // Check if wallet is already connected
+    const connection = walletService.getConnection();
+    if (connection?.isConnected) {
+      walletConnected = true;
+      walletPublicKey = connection.publicKey || '';
+    }
+
+    // Listen for wallet connection changes
+    const unsubscribe = walletService.onConnectionChange((connected) => {
+      walletConnected = connected;
+      if (connected) {
+        walletPublicKey = walletService.getPublicKey() || '';
+        walletError = '';
+      } else {
+        walletPublicKey = '';
+      }
+    });
+
+    return unsubscribe;
+  });
 
   function handleGlobalSearch(event) {
     event.preventDefault();
@@ -13,9 +40,42 @@
     }
   }
 
-  function connectWallet() {
-    // Placeholder for wallet connection logic
-    walletConnected = !walletConnected;
+  async function connectWallet() {
+    if (walletConnected) {
+      // Disconnect wallet
+      try {
+        await walletService.disconnect();
+        walletConnected = false;
+        walletPublicKey = '';
+        walletError = '';
+      } catch (error) {
+        console.error('Failed to disconnect wallet:', error);
+        walletError = 'Failed to disconnect wallet';
+      }
+      return;
+    }
+
+    // Connect wallet
+    walletLoading = true;
+    walletError = '';
+
+    try {
+      const connection = await walletService.connect();
+      walletConnected = true;
+      walletPublicKey = connection.publicKey || '';
+      console.log('Wallet connected successfully');
+    } catch (error) {
+      console.error('Failed to connect wallet:', error);
+      walletError = error.message || 'Failed to connect wallet';
+      walletConnected = false;
+    } finally {
+      walletLoading = false;
+    }
+  }
+
+  function formatPublicKey(key) {
+    if (!key) return '';
+    return key.length > 12 ? `${key.slice(0, 6)}...${key.slice(-6)}` : key;
   }
 </script>
 
@@ -38,13 +98,30 @@
       </div>
 
       <div class="nav-right">
-        <button class="wallet-btn" class:connected={walletConnected} on:click={connectWallet}>
-          {#if walletConnected}
-            🟢 Connected
-          {:else}
-            🔗 Connect Wallet
+        <div class="wallet-container">
+          <button
+            class="wallet-btn"
+            class:connected={walletConnected}
+            class:loading={walletLoading}
+            class:error={walletError}
+            on:click={connectWallet}
+            disabled={walletLoading}
+          >
+            {#if walletLoading}
+              ⏳ Connecting...
+            {:else if walletConnected}
+              🟢 {formatPublicKey(walletPublicKey)}
+            {:else}
+              🔗 Connect Wallet
+            {/if}
+          </button>
+
+          {#if walletError}
+            <div class="wallet-error" title={walletError}>
+              ⚠️ {walletError.length > 30 ? walletError.slice(0, 30) + '...' : walletError}
+            </div>
           {/if}
-        </button>
+        </div>
       </div>
     </div>
   </header>
@@ -53,3 +130,97 @@
     <slot />
   </main>
 </div>
+
+<style>
+  .wallet-container {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .wallet-btn {
+    background: #1f6feb;
+    border: 1px solid #388bfd;
+    border-radius: 6px;
+    color: #ffffff;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    min-width: 140px;
+  }
+
+  .wallet-btn:hover {
+    background: #388bfd;
+    border-color: #58a6ff;
+  }
+
+  .wallet-btn.connected {
+    background: #238636;
+    border-color: #2ea043;
+  }
+
+  .wallet-btn.connected:hover {
+    background: #2ea043;
+    border-color: #46954a;
+  }
+
+  .wallet-btn.loading {
+    background: #6e7681;
+    border-color: #8b949e;
+    cursor: not-allowed;
+  }
+
+  .wallet-btn.loading:hover {
+    background: #6e7681;
+    border-color: #8b949e;
+  }
+
+  .wallet-btn.error {
+    background: #da3633;
+    border-color: #f85149;
+  }
+
+  .wallet-btn.error:hover {
+    background: #f85149;
+    border-color: #ff7b72;
+  }
+
+  .wallet-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
+  .wallet-error {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: #da3633;
+    color: #ffffff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-top: 4px;
+    z-index: 1000;
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .wallet-error::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    right: 16px;
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 4px solid #da3633;
+  }
+</style>
