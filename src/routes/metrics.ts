@@ -11,10 +11,13 @@ const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
 export function opsRouter(db: Database.Database): Router {
   const router = makeRouter();
 
-  router.get('/health', (_req: Request, res: Response) => {
+  router.get('/health', async (_req: Request, res: Response) => {
     try {
       // DB ping
-      const row = db.prepare('SELECT 1 AS ok').get() as any;
+      const { getPostgreSQLClient } = await import('../db/postgresql');
+      const pgClient = getPostgreSQLClient();
+      const result = await pgClient.query('SELECT 1 AS ok');
+      const row = result.rows[0] as any;
       if (!row || row.ok !== 1) {
         return res.status(500).json({ ok: false, reason: 'db' });
       }

@@ -8,6 +8,7 @@
 import type { Router, Request, Response } from 'express';
 import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
+import { getDatabase, isTestEnvironment } from '../db/index.js';
 
 // Environment configuration
 const POLICY_PREVIEW_ENABLE = process.env.POLICY_PREVIEW_ENABLE === 'true';
@@ -86,65 +87,117 @@ interface PolicyRow {
 }
 
 // Database migrations
-export function runPolicyMigrations(db: Database.Database) {
-  db.prepare(`
-    CREATE TABLE IF NOT EXISTS policies (
-      policy_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      policy_json TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `).run();
+export async function runPolicyMigrations(db?: Database.Database) {
+  if (isTestEnvironment() || db) {
+    const database = db || getDatabase();
+    database.prepare(`
+      CREATE TABLE IF NOT EXISTS policies (
+        policy_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        policy_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `).run();
 
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_policies_enabled ON policies(enabled)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_policies_created ON policies(created_at)`).run();
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_policies_enabled ON policies(enabled)`).run();
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_policies_created ON policies(created_at)`).run();
+  } else {
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS policies (
+        policy_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        policy_json TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      )
+    `);
+
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_policies_enabled ON policies(enabled)`);
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_policies_created ON policies(created_at)`);
+  }
 }
 
 // Database helpers
-function createPolicy(db: Database.Database, data: Partial<PolicyRow>): string {
+async function createPolicy(db: any, data: Partial<PolicyRow>): Promise<string> {
   const id = data.policy_id || `pol_${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`;
   const now = Math.floor(Date.now() / 1000);
 
-  db.prepare(`
-    INSERT INTO policies (policy_id, name, enabled, policy_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, data.name, data.enabled || 1, data.policy_json, now, now);
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(
+    `INSERT INTO policies (policy_id, name, enabled, policy_json, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [id, data.name, data.enabled || 1, data.policy_json, now, now]
+  );
 
   return id;
 }
 
-function getPolicy(db: Database.Database, id: string): PolicyRow | undefined {
-  return db.prepare(`SELECT * FROM policies WHERE policy_id = ?`).get(id) as PolicyRow | undefined;
+async function getPolicy(db: any, id: string): Promise<PolicyRow | undefined> {
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  const result = await pgClient.query(
+    `SELECT * FROM policies WHERE policy_id = $1`,
+    [id]
+  );
+  return result.rows[0] as PolicyRow | undefined;
 }
 
-function listPolicies(db: Database.Database, enabled?: boolean, limit = 50, offset = 0): PolicyRow[] {
-  const where = enabled !== undefined ? 'WHERE enabled = ?' : '';
-  const params = enabled !== undefined ? [enabled ? 1 : 0, limit, offset] : [limit, offset];
+async function listPolicies(db: any, enabled?: boolean, limit = 50, offset = 0): Promise<PolicyRow[]> {
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
 
-  return db.prepare(`
-    SELECT * FROM policies ${where}
-    ORDER BY created_at DESC
-    LIMIT ? OFFSET ?
-  `).all(...params) as PolicyRow[];
+  if (enabled !== undefined) {
+    const result = await pgClient.query(
+      `SELECT * FROM policies WHERE enabled = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [enabled ? 1 : 0, limit, offset]
+    );
+    return result.rows as PolicyRow[];
+  } else {
+    const result = await pgClient.query(
+      `SELECT * FROM policies
+       ORDER BY created_at DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+    return result.rows as PolicyRow[];
+  }
 }
 
-function updatePolicy(db: Database.Database, id: string, updates: Partial<PolicyRow>) {
+async function updatePolicy(db: any, id: string, updates: Partial<PolicyRow>) {
   const now = Math.floor(Date.now() / 1000);
-  const fields = Object.keys(updates).filter(k => k !== 'policy_id' && k !== 'created_at')
-    .map(k => `${k} = ?`).join(', ');
-  const values = Object.keys(updates).filter(k => k !== 'policy_id' && k !== 'created_at')
-    .map(k => updates[k as keyof PolicyRow]);
+
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  const fields = Object.keys(updates).filter(k => k !== 'policy_id' && k !== 'created_at');
+  const setClause = fields.map((k, i) => `${k} = $${i + 1}`).join(', ');
+  const values = fields.map(k => updates[k as keyof PolicyRow]);
 
   values.push(now); // updated_at
   values.push(id);  // WHERE policy_id
 
-  db.prepare(`UPDATE policies SET ${fields}, updated_at = ? WHERE policy_id = ?`).run(...values);
+  await pgClient.query(
+    `UPDATE policies SET ${setClause}, updated_at = $${values.length - 1} WHERE policy_id = $${values.length}`,
+    values
+  );
 }
 
-function deletePolicy(db: Database.Database, id: string) {
-  db.prepare(`DELETE FROM policies WHERE policy_id = ?`).run(id);
+async function deletePolicy(db: any, id: string) {
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(
+    `DELETE FROM policies WHERE policy_id = $1`,
+    [id]
+  );
 }
 
 // Policy evaluation logic
@@ -471,11 +524,11 @@ const DEFAULT_POLICIES = {
 };
 
 // Bootstrap default policies
-function bootstrapDefaultPolicies(db: Database.Database) {
-  const existing = listPolicies(db, true, 1, 0);
+async function bootstrapDefaultPolicies(db: any) {
+  const existing = await listPolicies(db, true, 1, 0);
   if (existing.length === 0) {
     for (const [id, config] of Object.entries(DEFAULT_POLICIES)) {
-      createPolicy(db, {
+      await createPolicy(db, {
         policy_id: id,
         name: config.name,
         enabled: 1,
@@ -486,14 +539,14 @@ function bootstrapDefaultPolicies(db: Database.Database) {
 }
 
 // Router implementation
-export function policiesRouter(db: Database.Database): Router {
+export function policiesRouter(db: any): Router {
   const router = makeRouter();
 
-  // Bootstrap on first use
-  bootstrapDefaultPolicies(db);
+  // Bootstrap on first use (async - don't wait)
+  bootstrapDefaultPolicies(db).catch(console.warn);
 
   // POST /policies (create policy)
-  router.post('/', (req: Request, res: Response) => {
+  router.post('/', async (req: Request, res: Response) => {
     try {
       const { name, enabled = true, policy } = req.body;
 
@@ -514,7 +567,7 @@ export function policiesRouter(db: Database.Database): Router {
         });
       }
 
-      const policyId = createPolicy(db, {
+      const policyId = await createPolicy(db, {
         name,
         enabled: enabled ? 1 : 0,
         policy_json: JSON.stringify(policy)
@@ -530,12 +583,12 @@ export function policiesRouter(db: Database.Database): Router {
   });
 
   // GET /policies (list policies)
-  router.get('/', (req: Request, res: Response) => {
+  router.get('/', async (req: Request, res: Response) => {
     const enabled = req.query.enabled === 'true' ? true : req.query.enabled === 'false' ? false : undefined;
     const limit = Number(req.query.limit) || 50;
     const offset = Number(req.query.offset) || 0;
 
-    const policies = listPolicies(db, enabled, limit, offset);
+    const policies = await listPolicies(db, enabled, limit, offset);
     const items = policies.map(p => ({
       policyId: p.policy_id,
       name: p.name,
@@ -549,8 +602,8 @@ export function policiesRouter(db: Database.Database): Router {
   });
 
   // GET /policies/:id (get policy)
-  router.get('/:id', (req: Request, res: Response) => {
-    const policy = getPolicy(db, req.params.id);
+  router.get('/:id', async (req: Request, res: Response) => {
+    const policy = await getPolicy(db, req.params.id);
     if (!policy) {
       return res.status(404).json({ error: 'not-found' });
     }
@@ -566,9 +619,9 @@ export function policiesRouter(db: Database.Database): Router {
   });
 
   // PATCH /policies/:id (update policy)
-  router.patch('/:id', (req: Request, res: Response) => {
+  router.patch('/:id', async (req: Request, res: Response) => {
     try {
-      const existing = getPolicy(db, req.params.id);
+      const existing = await getPolicy(db, req.params.id);
       if (!existing) {
         return res.status(404).json({ error: 'not-found' });
       }
@@ -587,7 +640,7 @@ export function policiesRouter(db: Database.Database): Router {
         }
       }
 
-      updatePolicy(db, req.params.id, updates);
+      await updatePolicy(db, req.params.id, updates);
       res.json({ status: 'ok' });
     } catch (error) {
       res.status(500).json({
@@ -598,8 +651,8 @@ export function policiesRouter(db: Database.Database): Router {
   });
 
   // DELETE /policies/:id (delete policy)
-  router.delete('/:id', (req: Request, res: Response) => {
-    deletePolicy(db, req.params.id);
+  router.delete('/:id', async (req: Request, res: Response) => {
+    await deletePolicy(db, req.params.id);
     res.json({ status: 'ok' });
   });
 
@@ -618,7 +671,7 @@ export function policiesRouter(db: Database.Database): Router {
       let policyToEvaluate: PolicyJSON;
 
       if (policyId) {
-        const policyRow = getPolicy(db, policyId);
+        const policyRow = await getPolicy(db, policyId);
         if (!policyRow || !policyRow.enabled) {
           return res.status(404).json({ error: 'policy-not-found' });
         }

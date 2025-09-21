@@ -88,7 +88,7 @@ export function storageRouter(): Router {
   const router = makeRouter();
 
   // Get appropriate database
-  const db = isTestEnvironment() ? getTestDatabase() : null;
+  const db = getDatabase();
 
   // Ensure storage events table exists (only for test environment)
   if (db) {
@@ -175,16 +175,17 @@ export function storageRouter(): Router {
         lifecycleStats = await lifecycle.getStorageStats();
 
         // Calculate performance metrics from recent events
-        const perfQuery = db.prepare(`
-          SELECT
-            COUNT(CASE WHEN created_at > ? AND event_type = 'access' THEN 1 END) as recent_requests,
-            COUNT(CASE WHEN created_at > ? AND status = 'error' THEN 1 END) as recent_errors
-          FROM storage_events
-          WHERE created_at > ?
-        `);
-
         const oneHourAgo = Date.now() - 60 * 60 * 1000;
-        perfData = perfQuery.get(oneHourAgo, oneHourAgo, oneHourAgo) as any;
+        const { getPostgreSQLClient } = await import('../db/postgresql');
+        const pgClient = getPostgreSQLClient();
+        const result = await pgClient.query(`
+          SELECT
+            COUNT(CASE WHEN created_at > $1 AND event_type = 'access' THEN 1 END) as recent_requests,
+            COUNT(CASE WHEN created_at > $2 AND status = 'error' THEN 1 END) as recent_errors
+          FROM storage_events
+          WHERE created_at > $3
+        `, [oneHourAgo, oneHourAgo, oneHourAgo]);
+        perfData = result.rows[0] as any;
       } else {
         // For production PostgreSQL, provide default/mock stats
         console.warn('[storage] Storage stats not yet implemented for PostgreSQL');
@@ -256,24 +257,26 @@ export function storageRouter(): Router {
       let metrics: any[] = [];
 
       if (db) {
-        const metricsQuery = db.prepare(`
+        const { getPostgreSQLClient } = await import('../db/postgresql');
+        const pgClient = getPostgreSQLClient();
+        const result = await pgClient.query(`
           SELECT
             event_type,
             from_tier,
             to_tier,
             status,
             COUNT(*) as count,
-            AVG(CASE WHEN json_valid(error_message) THEN
-              json_extract(error_message, '$.latencyMs')
+            AVG(CASE WHEN error_message::text ~ '^\\{.*\\}$' THEN
+              (error_message::json->>'latencyMs')::numeric
             END) as avg_latency_ms,
             SUM(estimated_savings) as total_savings
           FROM storage_events
-          WHERE created_at > ?
+          WHERE created_at > $1
           GROUP BY event_type, from_tier, to_tier, status
           ORDER BY created_at DESC
-        `);
+        `, [cutoff]);
 
-        metrics = metricsQuery.all(cutoff) as any[];
+        metrics = result.rows as any[];
       } else {
         // For production PostgreSQL, provide mock performance data
         console.warn('[storage] Performance metrics not yet implemented for PostgreSQL');
@@ -391,14 +394,16 @@ export function storageRouter(): Router {
       // Perform the move
       await storage.moveObject(contentHash, fromTier, toTier);
 
-      // Log the manual tiering event (only in test environment)
+      // Log the manual tiering event
       if (db) {
-        db.prepare(`
+        const { getPostgreSQLClient } = await import('../db/postgresql');
+        const pgClient = getPostgreSQLClient();
+        await pgClient.query(`
           INSERT INTO storage_events (
             event_type, content_hash, from_tier, to_tier,
             reason, status, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [
           'manual-tiering',
           contentHash,
           fromTier,
@@ -406,7 +411,7 @@ export function storageRouter(): Router {
           'manual-operation',
           'success',
           Date.now()
-        );
+        ]);
       } else {
         console.log('[storage] Manual tiering event logged (PostgreSQL logging not implemented)');
       }

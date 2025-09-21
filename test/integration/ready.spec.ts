@@ -154,7 +154,9 @@ describe('/ready endpoint comprehensive tests', () => {
 
     // 4) Missing envelope on parent -> ready false
     // Remove parent's proof envelope by setting it to null
-    db.prepare('UPDATE declarations SET proof_json = NULL WHERE version_id = ?').run(vidParent);
+    const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    await pgClient.query('UPDATE declarations SET proof_json = NULL WHERE version_id = $1', [vidParent]);
     const r4 = await request(app).get(`/ready?versionId=${vidChild}`);
     expect(r4.status).toBe(200);
     expect(r4.body.ready).toBe(false);

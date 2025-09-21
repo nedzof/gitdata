@@ -8,22 +8,17 @@ import { requireIdentity } from '../middleware/identity';
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
 export function templatesRouter(testDb?: Database.Database): Router {
-  // Get appropriate database
-  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
   const router = makeRouter();
 
   // POST / (create template)
-  router.post('/', requireIdentity(false), (req: Request, res: Response) => {
+  router.post('/', requireIdentity(false), async (req: Request, res: Response) => {
     try {
-      if (!db) {
-        return json(res, 501, { error: 'not-implemented', message: 'Templates not yet implemented for PostgreSQL' });
-      }
       const { name, description, content, type = 'pdf', variables } = req.body || {};
       if (!name || !content) {
         return json(res, 400, { error: 'bad-request', hint: 'name and content required' });
       }
 
-      const id = createTemplate(db, {
+      const id = await createTemplate({
         name,
         description,
         template_content: content,
@@ -38,44 +33,52 @@ export function templatesRouter(testDb?: Database.Database): Router {
   });
 
   // GET / (list templates)
-  router.get('/', (req: Request, res: Response) => {
-    const ownerId = req.query.owner ? String(req.query.owner) : undefined;
-    // Fix: listTemplates doesn't take ownerId parameter, call with correct parameters
-    const items = listTemplates(db, 100, 0).map(t => ({
-      templateId: t.template_id,
-      name: t.name,
-      description: t.description,
-      type: t.template_type,
-      variables: t.variables_json ? JSON.parse(t.variables_json) : null,
-      createdAt: t.created_at,
+  router.get('/', async (req: Request, res: Response) => {
+    try {
+      const ownerId = req.query.owner ? String(req.query.owner) : undefined;
+      const templates = await listTemplates(100, 0);
+      const items = templates.map(t => ({
+        templateId: t.template_id,
+        name: t.name,
+        description: t.description,
+        type: t.template_type,
+        variables: t.variables_json ? JSON.parse(t.variables_json) : null,
+        createdAt: t.created_at,
       updatedAt: t.updated_at
     }));
     // TODO: Filter by ownerId if needed
-    return json(res, 200, { items });
+      return json(res, 200, { items });
+    } catch (e: any) {
+      return json(res, 500, { error: 'list-templates-failed', message: String(e?.message || e) });
+    }
   });
 
   // GET /:id (get template)
-  router.get('/:id', (req: Request, res: Response) => {
-    const t = getTemplate(db, String(req.params.id));
-    if (!t) return json(res, 404, { error: 'not-found' });
+  router.get('/:id', async (req: Request, res: Response) => {
+    try {
+      const t = await getTemplate(String(req.params.id));
+      if (!t) return json(res, 404, { error: 'not-found' });
 
-    return json(res, 200, {
-      templateId: t.template_id,
-      name: t.name,
-      description: t.description,
-      content: t.template_content,
-      type: t.template_type,
-      variables: t.variables_json ? JSON.parse(t.variables_json) : null,
-      createdAt: t.created_at,
-      updatedAt: t.updated_at
-    });
+      return json(res, 200, {
+        templateId: t.template_id,
+        name: t.name,
+        description: t.description,
+        content: t.template_content,
+        type: t.template_type,
+        variables: t.variables_json ? JSON.parse(t.variables_json) : null,
+        createdAt: t.created_at,
+        updatedAt: t.updated_at
+      });
+    } catch (e: any) {
+      return json(res, 500, { error: 'get-template-failed', message: String(e?.message || e) });
+    }
   });
 
   // PATCH /:id (update template)
-  router.patch('/:id', requireIdentity(false), (req: Request, res: Response) => {
+  router.patch('/:id', requireIdentity(false), async (req: Request, res: Response) => {
     try {
       const id = String(req.params.id);
-      const t = getTemplate(db, id);
+      const t = await getTemplate(id);
       if (!t) return json(res, 404, { error: 'not-found' });
 
       const patch: any = {};
@@ -85,7 +88,7 @@ export function templatesRouter(testDb?: Database.Database): Router {
       if (typeof req.body?.type === 'string') patch.template_type = req.body.type;
       if (req.body?.variables) patch.variables_json = JSON.stringify(req.body.variables);
 
-      updateTemplate(db, id, patch);
+      await updateTemplate(id, patch);
       return json(res, 200, { status: 'ok' });
     } catch (e: any) {
       return json(res, 500, { error: 'update-template-failed', message: String(e?.message || e) });
@@ -93,18 +96,28 @@ export function templatesRouter(testDb?: Database.Database): Router {
   });
 
   // DELETE /:id
-  router.delete('/:id', requireIdentity(false), (req: Request, res: Response) => {
-    deleteTemplate(db, String(req.params.id));
-    return json(res, 200, { status: 'ok' });
+  router.delete('/:id', requireIdentity(false), async (req: Request, res: Response) => {
+    try {
+      const deleted = await deleteTemplate(String(req.params.id));
+      if (!deleted) return json(res, 404, { error: 'not-found' });
+      return json(res, 200, { status: 'ok' });
+    } catch (e: any) {
+      return json(res, 500, { error: 'delete-template-failed', message: String(e?.message || e) });
+    }
   });
 
   // POST /:id/generate (generate contract from template)
-  router.post('/:id/generate', requireIdentity(false), (req: Request, res: Response) => {
+  router.post('/:id/generate', requireIdentity(false), async (req: Request, res: Response) => {
     try {
       const templateId = String(req.params.id);
       const variables = req.body?.variables || {};
 
-      const result = generateContract(db, templateId, variables);
+      const template = await getTemplate(templateId);
+      if (!template) {
+        return json(res, 404, { error: 'template-not-found' });
+      }
+
+      const result = generateContract(template, variables);
 
       if (!result.success) {
         return json(res, 400, { error: 'generation-failed', message: result.error });
@@ -121,14 +134,14 @@ export function templatesRouter(testDb?: Database.Database): Router {
   });
 
   // POST /bootstrap (create example template)
-  router.post('/bootstrap', requireIdentity(false), (req: Request, res: Response) => {
+  router.post('/bootstrap', requireIdentity(false), async (req: Request, res: Response) => {
     try {
-      const existingTemplates = listTemplates(db, undefined, 1, 0);
+      const existingTemplates = await listTemplates(1, 0);
       if (existingTemplates.length > 0) {
         return json(res, 400, { error: 'templates-exist', hint: 'Bootstrap only works on empty systems' });
       }
 
-      const id = createTemplate(db, {
+      const id = await createTemplate({
         name: 'Data Processing Agreement',
         description: 'Standard template for data processing agreements',
         template_content: EXAMPLE_CONTRACT_TEMPLATE,

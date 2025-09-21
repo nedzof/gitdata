@@ -1,23 +1,42 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { listJobs, getTestDatabase, isTestEnvironment } from '../db';
+import { listJobs, listJobsByRule } from '../db';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
-export function jobsRouter(testDb?: Database.Database): Router {
-  // Get appropriate database
-  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
+export function jobsRouter(): Router {
   const router = makeRouter();
 
-  // GET /?state=queued|running|done|failed|dead
-  router.get('/', (req: Request, res: Response) => {
-    if (!db) {
-      return json(res, 501, { error: 'not-implemented', message: 'Jobs not yet implemented for PostgreSQL' });
+  // GET / (list jobs)
+  router.get('/', async (req: Request, res: Response) => {
+    try {
+      const state = req.query.state ? String(req.query.state) : undefined;
+      const ruleId = req.query.ruleId ? String(req.query.ruleId) : undefined;
+
+      let jobs;
+      if (ruleId) {
+        jobs = await listJobsByRule(ruleId, state);
+      } else {
+        jobs = await listJobs(state);
+      }
+
+      const formattedJobs = jobs.map(job => ({
+        jobId: job.job_id,
+        ruleId: job.rule_id,
+        targetId: job.target_id,
+        state: job.state,
+        attempts: job.attempts,
+        nextRunAt: job.next_run_at,
+        lastError: job.last_error,
+        evidence: job.evidence_json ? JSON.parse(job.evidence_json) : null,
+        createdAt: job.created_at,
+        updatedAt: job.updated_at
+      }));
+
+      return json(res, 200, { jobs: formattedJobs });
+    } catch (e:any) {
+      return json(res, 500, { error: 'list-failed', message: String(e?.message || e) });
     }
-    const state = req.query.state ? String(req.query.state) : undefined;
-    const items = listJobs(db, state, 100, 0);
-    return json(res, 200, { items });
   });
 
   return router;

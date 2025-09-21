@@ -104,7 +104,10 @@ try {
     console.log('✓ Valid event processed successfully');
 
     // Check that event was stored
-    const eventCount = db.prepare('SELECT COUNT(*) as count FROM ol_events').get().count;
+    const { getPostgreSQLClient } = await import('./src/db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    const eventResult = await pgClient.query('SELECT COUNT(*) as count FROM ol_events');
+    const eventCount = eventResult.rows[0].count;
     console.log(`✓ Event stored in database (${eventCount} total events)`);
   } else {
     console.log('✗ Valid event processing failed');
@@ -184,8 +187,12 @@ try {
 console.log('');
 
 // Test Summary
-const finalEventCount = db.prepare('SELECT COUNT(*) as count FROM ol_events').get().count;
-const finalDlqCount = db.prepare('SELECT COUNT(*) as count FROM ol_dlq').get().count;
+const { getPostgreSQLClient } = await import('./src/db/postgresql');
+const pgClient = getPostgreSQLClient();
+const finalEventResult = await pgClient.query('SELECT COUNT(*) as count FROM ol_events');
+const finalDlqResult = await pgClient.query('SELECT COUNT(*) as count FROM ol_dlq');
+const finalEventCount = finalEventResult.rows[0].count;
+const finalDlqCount = finalDlqResult.rows[0].count;
 
 console.log('=== Test Summary ===');
 console.log(`Events successfully processed: ${finalEventCount}`);

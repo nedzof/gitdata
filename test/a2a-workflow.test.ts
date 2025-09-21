@@ -10,7 +10,8 @@
  * 5. Verify completion
  */
 
-import { openDb, initSchema } from '../src/db';
+import { initSchema, resetTestDatabase } from '../src/db/test-setup';
+import { getPostgreSQLClient } from '../src/db/postgresql';
 import { agentsRouter } from '../src/routes/agents';
 import { rulesRouter } from '../src/routes/rules';
 import { jobsRouter } from '../src/routes/jobs';
@@ -25,7 +26,7 @@ const AGENT_WEBHOOK_URL = `http://localhost:${TEST_PORT}/webhook`;
 
 describe('A2A Workflow Integration', () => {
   let app: express.Application;
-  let db: any;
+  let hybridDb: any;
   let jobProcessor: any;
   let server: any;
   let agentId: string;
@@ -33,17 +34,22 @@ describe('A2A Workflow Integration', () => {
 
   beforeAll(async () => {
     // Setup test database
-    db = openDb(':memory:');
-    initSchema(db);
+    hybridDb = await initSchema();
+
+    // Clean up any existing test data from PostgreSQL
+    const pgClient = getPostgreSQLClient();
+    await pgClient.query('DELETE FROM jobs WHERE 1=1');
+    await pgClient.query('DELETE FROM rules WHERE 1=1');
+    await pgClient.query('DELETE FROM agents WHERE 1=1');
 
     // Setup test Express app
     app = express();
     app.use(express.json());
 
     // Mount A2A routes
-    app.use('/agents', agentsRouter(db));
-    app.use('/rules', rulesRouter(db));
-    app.use('/jobs', jobsRouter(db));
+    app.use('/agents', agentsRouter());
+    app.use('/rules', rulesRouter());
+    app.use('/jobs', jobsRouter());
 
     // Mock webhook endpoint
     app.post('/webhook', (req, res) => {
@@ -61,7 +67,7 @@ describe('A2A Workflow Integration', () => {
     process.env.JOB_RETRY_MAX = '1';
     process.env.JOB_POLL_INTERVAL_MS = '500';
 
-    jobProcessor = createJobProcessor(db);
+    jobProcessor = createJobProcessor();
     jobProcessor.start();
   });
 
@@ -72,9 +78,7 @@ describe('A2A Workflow Integration', () => {
     if (server) {
       server.close();
     }
-    if (db) {
-      db.close();
-    }
+    // No need to close hybridDb as it's managed by the hybrid database system
   });
 
   test('1. Register Agent', async () => {

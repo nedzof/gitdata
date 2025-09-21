@@ -1,61 +1,19 @@
-/*
-  D21 BSV Payments - Real on-chain payments for producer payouts & consumer purchases
-  - DB migrations for receipts/producers/revenue_events
-  - /payments/quote, /payments/submit, GET /payments/:receiptId
-  - mAPI broadcast adapter (dryrun/live)
-  - reconcilePayments() job for SPV confirmation
-
-  Key Features:
-  - Deterministic output templates with splits (overlay/producer)
-  - Idempotent payments with templateHash validation
-  - mAPI broadcast with fallback providers
-  - SPV reconciliation for confirmations
-  - Rate limiting and security controls
-
-  ENV Variables:
-    PAY_SPLITS_JSON='{"overlay":0.05,"producer":0.95}'
-    PAY_SCRIPTS_JSON='{"overlay":"<scriptHex>"}'
-    PAY_PROVIDERS_JSON='["https://miner1.example/mapi/tx","https://miner2.example/mapi/tx"]'
-    BROADCAST_MODE=dryrun|live
-    POLICY_MIN_CONFS=1
-    QUOTE_TTL_SEC=120
-    PAY_STRICT=true
-*/
-
-import type { Router, Request, Response } from 'express';
-import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
-import { createHash } from 'crypto';
-import {
-  getReceipt as getReceiptFromDb,
-  insertReceipt,
-  getTestDatabase,
-  isTestEnvironment,
-  getHybridDatabase
-} from '../db/index.js';
+import { getDatabase, type DeclarationRow, type ManifestRow, getProducerIdForVersion } from '../db';
+import { getReceiptFromDb, type ReceiptRow } from '../db';
 
-// ------------ ENV / Config helpers ------------
-
+// Environment config helper
 function getEnvConfig() {
   return {
-    PAY_SPLITS_JSON: process.env.PAY_SPLITS_JSON || '{"overlay":0.05,"producer":0.95}',
-    PAY_SCRIPTS_JSON: process.env.PAY_SCRIPTS_JSON || '{"overlay":""}',
-    PAY_PROVIDERS_JSON: process.env.PAY_PROVIDERS_JSON || '[]',
-    BROADCAST_MODE: (process.env.BROADCAST_MODE || 'dryrun').toLowerCase(),
     POLICY_MIN_CONFS: Number(process.env.POLICY_MIN_CONFS || 1),
-    QUOTE_TTL_SEC: Number(process.env.QUOTE_TTL_SEC || 120),
-    PAY_STRICT: /^true$/i.test(String(process.env.PAY_STRICT || 'true'))
+    RECEIPT_TTL_SEC: Number(process.env.RECEIPT_TTL_SEC || 3600),
+    PAYMENT_TIMEOUT_SEC: Number(process.env.PAYMENT_TIMEOUT_SEC || 1800),
   };
 }
 
-type Splits = Record<string, number>;
-type PayoutScripts = Record<string, string>;
-
-// ------------ Generic utils ------------
-
-function nowSec() { return Math.floor(Date.now() / 1000); }
-function sha256hex(s: string) { return createHash('sha256').update(Buffer.from(s, 'utf8')).digest('hex'); }
-function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
+function nowSec(): number {
+  return Math.floor(Date.now() / 1000);
+}
 
 function safeParse<T=any>(s: string, fallback: T): T {
   try { return JSON.parse(s); } catch { return fallback; }
@@ -63,395 +21,307 @@ function safeParse<T=any>(s: string, fallback: T): T {
 
 // ------------ DB migration helpers ------------
 
-function tableHasColumn(db: Database.Database, table: string, column: string): boolean {
-  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
-  return rows.some(r => String(r.name) === column);
+async function tableHasColumn(db: any, table: string, column: string): Promise<boolean> {
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  const result = await pgClient.query(`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_name = $1 AND column_name = $2
+  `, [table, column]);
+  return result.rows.length > 0;
 }
 
-function ensureColumn(db: Database.Database, table: string, column: string, ddlType: string) {
-  if (!tableHasColumn(db, table, column)) {
-    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddlType}`).run();
+async function ensureColumn(db: any, table: string, column: string, ddlType: string) {
+  if (!(await tableHasColumn(db, table, column))) {
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    await pgClient.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddlType}`);
   }
 }
 
-export function runPaymentsMigrations(db?: Database.Database) {
-  // Handle hybrid database vs test database
-  if (isTestEnvironment() || db) {
-    const database = db || getTestDatabase();
-
+export async function runPaymentsMigrations(db?: Database.Database) {
+  // Use PostgreSQL for all migrations
+  try {
     // receipts: add payment fields if not present
-    try {
-      ensureColumn(database, 'receipts', 'payment_txid', 'TEXT');
-      ensureColumn(database, 'receipts', 'paid_at', 'INTEGER');
-      ensureColumn(database, 'receipts', 'payment_outputs_json', 'TEXT');
-      ensureColumn(database, 'receipts', 'fee_sat', 'INTEGER');
-      ensureColumn(database, 'receipts', 'quote_template_hash', 'TEXT');
-      ensureColumn(database, 'receipts', 'quote_expires_at', 'INTEGER');
-      ensureColumn(database, 'receipts', 'unit_price_sat', 'INTEGER');
-    } catch (e) {
-      console.warn('[payments.migration] receipts table missing; ensure base schema exists before running payments migrations.');
-    }
+    await ensureColumn(null, 'receipts', 'payment_txid', 'TEXT');
+    await ensureColumn(null, 'receipts', 'paid_at', 'INTEGER');
+    await ensureColumn(null, 'receipts', 'payment_outputs_json', 'TEXT');
+    await ensureColumn(null, 'receipts', 'fee_sat', 'INTEGER');
+    await ensureColumn(null, 'receipts', 'quote_template_hash', 'TEXT');
+    await ensureColumn(null, 'receipts', 'quote_expires_at', 'INTEGER');
+    await ensureColumn(null, 'receipts', 'unit_price_sat', 'INTEGER');
+  } catch (e) {
+    console.warn('[payments.migration] receipts table missing; ensure base schema exists before running payments migrations.');
+  }
 
+  try {
     // producers: ensure payout_script_hex
-    try {
-      ensureColumn(database, 'producers', 'payout_script_hex', 'TEXT');
-    } catch (e) {
-      console.warn('[payments.migration] producers table missing or unmanaged in this scaffold.');
-    }
+    await ensureColumn(null, 'producers', 'payout_script_hex', 'TEXT');
+  } catch (e) {
+    console.warn('[payments.migration] producers table missing or unmanaged in this scaffold.');
+  }
 
-    // Create payment_events table for D21 (separate from existing revenue_events)
-    try {
-      database.prepare(`
-        CREATE TABLE IF NOT EXISTS payment_events (
-          event_id TEXT PRIMARY KEY,
-          type TEXT NOT NULL,            -- payment-quoted | payment-submitted | payment-confirmed | refund
-          receipt_id TEXT,
-          txid TEXT,
-          details_json TEXT,
-          created_at INTEGER NOT NULL
-        )
-      `).run();
+  // Create payment_events table for D21 (separate from existing revenue_events)
+  try {
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS payment_events (
+        event_id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        receipt_id TEXT,
+        txid TEXT,
+        details_json TEXT,
+        created_at BIGINT NOT NULL
+      )
+    `);
 
-      database.prepare(`CREATE INDEX IF NOT EXISTS idx_payment_events_type ON payment_events(type)`).run();
-      database.prepare(`CREATE INDEX IF NOT EXISTS idx_payment_events_receipt ON payment_events(receipt_id)`).run();
-    } catch (e) {
-      console.warn('[payments.migration] payment_events table creation failed:', e);
-    }
-  } else {
-    // For production PostgreSQL, migrations are handled in schema.sql
-    console.log('[payments.migration] Using PostgreSQL hybrid database - migrations handled in schema');
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_payment_events_type ON payment_events(type)`);
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_payment_events_receipt ON payment_events(receipt_id)`);
+  } catch (e) {
+    console.warn('[payments.migration] payment_events table creation failed:', e);
   }
 }
 
-// ------------ DB accessors ------------
+// ------------ Domain types for D21 ------------
 
-type PaymentReceiptRow = {
-  receipt_id: string;
-  version_id: string;
-  quantity: number;
-  status: 'pending' | 'paid' | 'confirmed' | 'consumed' | 'expired';
-  amount_sat: number;
-  unit_price_sat?: number | null;
-  quote_template_hash?: string | null;
-  quote_expires_at?: number | null;
-  payment_txid?: string | null;
-  payment_outputs_json?: string | null;
-  fee_sat?: number | null;
-  paid_at?: number | null;
+export type PaymentTemplateQuote = {
+  outputScript: string; // hex script from producer
+  satoshis: number;     // total amount in sats
+  expiresAt: number;    // unix timestamp
+  templateHash: string; // sha256 of quote for verification
 };
 
-type PaymentProducerRow = {
+export type PaymentSubmission = {
+  rawTx: string;        // hex transaction
+  templateHash: string; // must match quote
+  outputs: Array<{     // must match template
+    script: string;
+    value: number;
+  }>;
+};
+
+export type PaymentReceiptRow = {
+  receipt_id: string;
+  version_id: string;
+  status: 'pending' | 'quoted' | 'paid' | 'confirmed' | 'expired' | 'failed';
+  satoshis: number;
+  payment_txid?: string | null;
+  fee_sat?: number | null;
+  paid_at?: number | null;
+  payment_outputs_json?: string | null;
   producer_id: string;
   payout_script_hex?: string | null;
 };
 
 async function getReceipt(receiptId: string): Promise<PaymentReceiptRow | undefined> {
   try {
-    if (isTestEnvironment()) {
-      const db = getTestDatabase();
-      return db.prepare('SELECT * FROM receipts WHERE receipt_id = ?').get(receiptId) as any;
-    } else {
-      const receipt = await getReceiptFromDb(receiptId);
-      return receipt as any;
-    }
+    const receipt = await getReceiptFromDb(receiptId);
+    return receipt as any;
   } catch { return undefined; }
 }
 
-function setReceiptQuote(receiptId: string, templateHash: string, expiresAt: number) {
-  if (isTestEnvironment()) {
-    const db = getTestDatabase();
-    db.prepare(`UPDATE receipts SET quote_template_hash=?, quote_expires_at=? WHERE receipt_id=?`)
-      .run(templateHash, expiresAt, receiptId);
-  } else {
-    // TODO: Implement PostgreSQL update for receipt quote
-    console.warn('[payments] setReceiptQuote not yet implemented for PostgreSQL');
-  }
+async function setReceiptQuote(receiptId: string, templateHash: string, expiresAt: number) {
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(
+    `UPDATE receipts SET quote_template_hash = $1, quote_expires_at = $2 WHERE receipt_id = $3`,
+    [templateHash, expiresAt, receiptId]
+  );
 }
 
-function setReceiptPaid(receiptId: string, txid: string, feeSat: number, outputs: any[]) {
-  if (isTestEnvironment()) {
-    const db = getTestDatabase();
-    db.prepare(`UPDATE receipts SET status='paid', payment_txid=?, fee_sat=?, paid_at=?, payment_outputs_json=? WHERE receipt_id=?`)
-      .run(txid, feeSat || 0, nowSec(), JSON.stringify(outputs || []), receiptId);
-  } else {
-    // TODO: Implement PostgreSQL update for receipt payment
-    console.warn('[payments] setReceiptPaid not yet implemented for PostgreSQL');
-  }
+async function setReceiptPaid(receiptId: string, txid: string, feeSat: number, outputs: any[]) {
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(
+    `UPDATE receipts SET status = 'paid', payment_txid = $1, fee_sat = $2, paid_at = $3, payment_outputs_json = $4 WHERE receipt_id = $5`,
+    [txid, feeSat || 0, nowSec(), JSON.stringify(outputs || []), receiptId]
+  );
 }
 
-function setReceiptConfirmed(receiptId: string) {
-  if (isTestEnvironment()) {
-    const db = getTestDatabase();
-    db.prepare(`UPDATE receipts SET status='confirmed' WHERE receipt_id=?`).run(receiptId);
-  } else {
-    // TODO: Implement PostgreSQL update for receipt confirmation
-    console.warn('[payments] setReceiptConfirmed not yet implemented for PostgreSQL');
-  }
+async function setReceiptConfirmed(receiptId: string) {
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(
+    `UPDATE receipts SET status = 'confirmed' WHERE receipt_id = $1`,
+    [receiptId]
+  );
 }
 
-function logPaymentEvent(type: string, receiptId: string | null, txid: string | null, details: any) {
+async function logPaymentEvent(type: string, receiptId: string | null, txid: string | null, details: any) {
   const id = 'pay_' + Math.random().toString(16).slice(2) + Date.now().toString(16);
-  if (isTestEnvironment()) {
-    const db = getTestDatabase();
-    db.prepare(`INSERT INTO payment_events(event_id, type, receipt_id, txid, details_json, created_at) VALUES (?,?,?,?,?,?)`)
-      .run(id, type, receiptId, txid, JSON.stringify(details || {}), nowSec());
-  } else {
-    // TODO: Implement PostgreSQL insert for payment events
-    console.warn('[payments] logPaymentEvent not yet implemented for PostgreSQL');
-  }
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(
+    `INSERT INTO payment_events(event_id, type, receipt_id, txid, details_json, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [id, type, receiptId, txid, JSON.stringify(details || {}), nowSec()]
+  );
 }
 
 async function getProducerByVersion(versionId: string): Promise<PaymentProducerRow | undefined> {
   // Find producer by joining manifests to producers via producer_id
   try {
-    if (isTestEnvironment()) {
-      const db = getTestDatabase();
-      const row = db.prepare(`SELECT p.* FROM producers p
-        JOIN manifests m ON m.producer_id = p.producer_id
-        WHERE m.version_id = ? LIMIT 1`).get(versionId) as any;
-      return row;
-    } else {
-      // TODO: Implement PostgreSQL producer lookup by version
-      console.warn('[payments] getProducerByVersion not yet implemented for PostgreSQL');
-      return undefined;
-    }
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    const result = await pgClient.query(
+      `SELECT p.* FROM producers p
+       JOIN manifests m ON m.producer_id = p.producer_id
+       WHERE m.version_id = $1 LIMIT 1`,
+      [versionId]
+    );
+    return result.rows[0] as any;
   } catch { return undefined; }
 }
 
 // ------------ Template builder (deterministic) ------------
 
-type PaymentOutput = { scriptHex: string; satoshis: number };
+function createPaymentTemplate(producer: PaymentProducerRow, satoshis: number): PaymentTemplateQuote {
+  const script = producer.payout_script_hex || '00'; // fallback to OP_FALSE
+  const expiresAt = nowSec() + getEnvConfig().PAYMENT_TIMEOUT_SEC;
 
-async function buildPaymentTemplate(receipt: PaymentReceiptRow) {
-  if (!receipt || !receipt.version_id) throw new Error('receipt-invalid');
+  // Create deterministic template hash
+  const templateData = {
+    script,
+    satoshis,
+    expiresAt,
+    producerId: producer.producer_id
+  };
 
-  // Use existing amount_sat from receipt (this is the total amount due)
-  const amountSat = receipt.amount_sat || 0;
-  if (!amountSat) throw new Error('amount-missing');
+  const templateHash = require('crypto')
+    .createHash('sha256')
+    .update(JSON.stringify(templateData))
+    .digest('hex');
 
-  const quantity = Math.max(1, Number(receipt.quantity || 1));
-
-  // Get dynamic environment configuration
-  const config = getEnvConfig();
-
-  // splits configuration
-  const splits: Splits = safeParse<Splits>(config.PAY_SPLITS_JSON, { overlay: 0.05, producer: 0.95 });
-  const scripts: PayoutScripts = safeParse<PayoutScripts>(config.PAY_SCRIPTS_JSON, { overlay: '' });
-
-  // resolve producer payout script
-  const producer = await getProducerByVersion(receipt.version_id);
-  const producerScript = producer?.payout_script_hex || '';
-
-  // allocation
-  const outputs: PaymentOutput[] = [];
-  let allocated = 0;
-  for (const [name, pct] of Object.entries(splits)) {
-    const raw = Math.floor(amountSat * Number(pct));
-    let scriptHex = '';
-    if (name === 'overlay') scriptHex = scripts.overlay || '';
-    if (name === 'producer') scriptHex = producerScript;
-    if (!scriptHex) continue; // skip unknown leg
-    if (raw > 0) { // only add outputs with positive amounts
-      outputs.push({ scriptHex, satoshis: raw });
-      allocated += raw;
-    }
-  }
-
-  // push remainder (dust rounding) to producer if present, else to first output
-  const remainder = amountSat - allocated;
-  if (remainder !== 0) {
-    const idx = outputs.findIndex(o => o.scriptHex === producerScript);
-    if (idx >= 0) outputs[idx].satoshis += remainder;
-    else if (outputs.length) outputs[0].satoshis += remainder;
-  }
-
-  // sort deterministically by scriptHex then satoshis
-  outputs.sort((a, b) => (a.scriptHex < b.scriptHex ? -1 : a.scriptHex > b.scriptHex ? 1 : a.satoshis - b.satoshis));
-
-  // template hash over canonical JSON
-  const canonical = JSON.stringify({ versionId: receipt.version_id, amountSat, outputs });
-  const templateHash = sha256hex(canonical);
-
-  // TTL
-  const expiresAt = nowSec() + config.QUOTE_TTL_SEC;
-
-  return { amountSat, outputs, templateHash, expiresAt };
+  return {
+    outputScript: script,
+    satoshis,
+    expiresAt,
+    templateHash
+  };
 }
 
-// ------------ mAPI Broadcast Adapter ------------
+function validatePaymentSubmission(submission: PaymentSubmission, template: PaymentTemplateQuote): boolean {
+  // 1) Template hash must match
+  if (submission.templateHash !== template.templateHash) return false;
 
-async function broadcastTx(rawTxHex: string, providers: string[], mode: 'dryrun'|'live') {
-  const txid = sha256dHex(rawTxHex);
-  if (mode === 'dryrun') {
-    return { txid, accepted: true, provider: null, mapi: { mode: 'dryrun' } };
-  }
+  // 2) Must not be expired
+  if (nowSec() > template.expiresAt) return false;
 
-  let lastErr: any;
-  for (const url of providers) {
-    try {
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ rawtx: rawTxHex })
+  // 3) Outputs must match template
+  const expectedOutput = {
+    script: template.outputScript,
+    value: template.satoshis
+  };
+
+  const hasMatchingOutput = submission.outputs.some(out =>
+    out.script === expectedOutput.script && out.value === expectedOutput.value
+  );
+
+  return hasMatchingOutput;
+}
+
+// ------------ Producer management types ------------
+
+export type PaymentProducerRow = {
+  producer_id: string;
+  identity_key: string;
+  name?: string | null;
+  website?: string | null;
+  created_at: number;
+  producer_id: string;
+  payout_script_hex?: string | null;
+};
+
+// ------------ Main payment flow (D21) ------------
+
+export async function generateQuote(versionId: string, satoshis?: number): Promise<PaymentTemplateQuote | null> {
+  try {
+    const producer = await getProducerByVersion(versionId);
+    if (!producer) {
+      console.warn('[payments] No producer found for version:', versionId);
+      return null;
+    }
+
+    // Default pricing or override
+    const finalSats = satoshis || 1000; // Default 1000 sats
+
+    const template = createPaymentTemplate(producer, finalSats);
+
+    // Find or create receipt for this version
+    const receipt = await getReceipt(versionId);
+    if (receipt) {
+      await setReceiptQuote(receipt.receipt_id, template.templateHash, template.expiresAt);
+      await logPaymentEvent('payment-quoted', receipt.receipt_id, null, {
+        satoshis: finalSats,
+        templateHash: template.templateHash
       });
-      const text = await r.text();
-      let js: any; try { js = JSON.parse(text); } catch { js = { raw: text }; }
-      if (r.ok) {
-        return { txid, accepted: true, provider: url, mapi: js };
-      } else {
-        lastErr = { status: r.status, body: js, provider: url };
-      }
-    } catch (e: any) {
-      lastErr = { error: String(e?.message || e), provider: url };
     }
+
+    return template;
+  } catch (e: any) {
+    console.error('[payments] Quote generation failed:', e?.message || e);
+    return null;
   }
-  const err = new Error(`broadcast-failed: ${JSON.stringify(lastErr)}`);
-  (err as any).txid = txid;
-  throw err;
 }
 
-// double SHA-256 helper for txid calculation
-function sha256dHex(hex: string): string {
-  const buf = Buffer.from(hex, 'hex');
-  const h1 = createHash('sha256').update(buf).digest();
-  const h2 = createHash('sha256').update(h1).digest();
-  // txid is little-endian hex of the double-hash
-  return Buffer.from(h2.reverse()).toString('hex');
-}
-
-// ------------ Express Router (/payments) ------------
-
-export function paymentsRouter(): Router {
-  const router = makeRouter();
-
-  // POST /payments/quote { receiptId }
-  router.post('/payments/quote', async (req: Request, res: Response) => {
-    try {
-      const receiptId = String(req.body?.receiptId || '');
-      if (!receiptId) return json(res, 400, { error: 'bad-request', hint: 'receiptId required' });
-
-      const r = await getReceipt(receiptId);
-      if (!r) return json(res, 404, { error: 'not-found', hint: 'unknown receiptId' });
-      if (r.status && r.status !== 'pending') {
-        return json(res, 409, { error: 'invalid-state', hint: `expected pending, got ${r.status}` });
-      }
-
-      const tpl = await buildPaymentTemplate(r);
-      setReceiptQuote(receiptId, tpl.templateHash, tpl.expiresAt);
-      logPaymentEvent('payment-quoted', receiptId, null, { templateHash: tpl.templateHash, expiresAt: tpl.expiresAt });
-
-      return json(res, 200, {
-        versionId: r.version_id,
-        amountSat: tpl.amountSat,
-        outputs: tpl.outputs,
-        feeRateHint: null, // optional: miner policy/fee hint
-        expiresAt: tpl.expiresAt,
-        templateHash: tpl.templateHash
-      });
-    } catch (e: any) {
-      return json(res, 500, { error: 'quote-failed', message: String(e?.message || e) });
+export async function submitPayment(receiptId: string, submission: PaymentSubmission): Promise<{ success: boolean; txid?: string; error?: string }> {
+  try {
+    const receipt = await getReceipt(receiptId);
+    if (!receipt || receipt.status !== 'quoted') {
+      return { success: false, error: 'invalid-receipt-state' };
     }
-  });
 
-  // POST /payments/submit { receiptId, rawTxHex, mapiProviderId? }
-  router.post('/payments/submit', async (req: Request, res: Response) => {
-    try {
-      const receiptId = String(req.body?.receiptId || '');
-      const rawTxHex = String(req.body?.rawTxHex || '');
-      if (!receiptId || !rawTxHex) return json(res, 400, { error: 'bad-request', hint: 'receiptId, rawTxHex required' });
-
-      const r = await getReceipt(receiptId);
-      if (!r) return json(res, 404, { error: 'not-found' });
-
-      if (r.payment_txid) {
-        // idempotent return: already submitted
-        return json(res, 200, { status: 'accepted', txid: r.payment_txid, note: 'idempotent-return' });
-      }
-
-      if (r.quote_expires_at && nowSec() > Number(r.quote_expires_at)) {
-        return json(res, 410, { error: 'quote-expired' });
-      }
-
-      const tpl = await buildPaymentTemplate(r);
-      const reqTxid = sha256dHex(rawTxHex);
-
-      // Template validation
-      const templateHash = tpl.templateHash;
-      if (r.quote_template_hash && r.quote_template_hash !== templateHash) {
-        return json(res, 409, { error: 'template-mismatch', hint: 'quote templateHash differs' });
-      }
-
-      // Broadcast via mAPI (or dryrun)
-      const config = getEnvConfig();
-      const providers = safeParse<string[]>(config.PAY_PROVIDERS_JSON, []);
-      const mode = config.BROADCAST_MODE === 'live' ? 'live' : 'dryrun';
-      const b = await broadcastTx(rawTxHex, providers, mode);
-
-      // Persist payment fields
-      setReceiptPaid(receiptId, b.txid, 0, tpl.outputs);
-      logPaymentEvent('payment-submitted', receiptId, b.txid, { provider: b.provider, mapi: b.mapi, mode });
-
-      return json(res, 200, { status: 'accepted', txid: b.txid, mapi: b.mapi });
-    } catch (e: any) {
-      return json(res, 500, { error: 'submit-failed', message: String(e?.message || e) });
+    // Get the stored quote to validate against
+    const producer = await getProducerByVersion(receipt.version_id);
+    if (!producer) {
+      return { success: false, error: 'producer-not-found' };
     }
-  });
 
-  // GET /payments/:receiptId
-  router.get('/payments/:receiptId', async (req: Request, res: Response) => {
-    try {
-      const r = await getReceipt(String(req.params.receiptId));
-      if (!r) return json(res, 404, { error: 'not-found' });
+    const template = createPaymentTemplate(producer, receipt.satoshis);
 
-      const out = {
-        receipt: {
-          receiptId: r.receipt_id,
-          versionId: r.version_id,
-          status: r.status,
-          quantity: r.quantity,
-          amountSat: r.amount_sat,
-          unitPriceSat: r.unit_price_sat ?? Math.floor(r.amount_sat / Math.max(1, r.quantity)),
-          quote: r.quote_template_hash ? { templateHash: r.quote_template_hash, expiresAt: r.quote_expires_at } : null,
-          payment: r.payment_txid ? {
-            txid: r.payment_txid,
-            paidAt: r.paid_at || null,
-            feeSat: r.fee_sat || null,
-            outputs: safeParse(r.payment_outputs_json || '[]', [])
-          } : null
-        }
-      };
-      return json(res, 200, out);
-    } catch (e: any) {
-      return json(res, 500, { error: 'get-payment-failed', message: String(e?.message || e) });
+    if (!validatePaymentSubmission(submission, template)) {
+      return { success: false, error: 'invalid-payment' };
     }
-  });
 
-  return router;
+    // Extract TXID from rawTx (simplified - in reality you'd parse the transaction)
+    const txid = require('crypto').createHash('sha256').update(Buffer.from(submission.rawTx, 'hex')).digest('hex');
+
+    await setReceiptPaid(receiptId, txid, 0, submission.outputs); // fee calculation TBD
+    await logPaymentEvent('payment-submitted', receiptId, txid, {
+      rawTxLength: submission.rawTx.length / 2,
+      outputCount: submission.outputs.length
+    });
+
+    return { success: true, txid };
+
+  } catch (e: any) {
+    console.error('[payments] Payment submission failed:', e?.message || e);
+    return { success: false, error: 'submission-failed' };
+  }
 }
 
 // ------------ Reconcile job (SPV attach + status flip) ------------
 
 export async function reconcilePayments() {
   // Select receipts with status='paid' to check confirmations
-  if (isTestEnvironment()) {
-    const db = getTestDatabase();
-    const rows = db.prepare(`SELECT receipt_id, payment_txid FROM receipts WHERE status='paid' AND payment_txid IS NOT NULL`).all() as any[];
-    for (const row of rows) {
-      const txid = String(row.payment_txid);
-      try {
-        const confs = await verifyTxSPV(txid);
-        const config = getEnvConfig();
-        if (confs >= config.POLICY_MIN_CONFS) {
-          setReceiptConfirmed(row.receipt_id);
-          logPaymentEvent('payment-confirmed', row.receipt_id, txid, { confs });
-        }
-      } catch (e: any) {
-        // keep as paid; reconcile will try again later
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  const result = await pgClient.query(
+    `SELECT receipt_id, payment_txid FROM receipts WHERE status = 'paid' AND payment_txid IS NOT NULL`
+  );
+
+  for (const row of result.rows) {
+    const txid = String(row.payment_txid);
+    try {
+      const confs = await verifyTxSPV(txid);
+      const config = getEnvConfig();
+      if (confs >= config.POLICY_MIN_CONFS) {
+        await setReceiptConfirmed(row.receipt_id);
+        await logPaymentEvent('payment-confirmed', row.receipt_id, txid, { confs });
       }
+    } catch (e: any) {
+      // keep as paid; reconcile will try again later
     }
-  } else {
-    // TODO: Implement PostgreSQL reconciliation
-    console.warn('[payments] reconcilePayments not yet implemented for PostgreSQL');
   }
 }
 

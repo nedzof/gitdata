@@ -36,7 +36,7 @@ import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
 import { createHash } from 'crypto';
 import { EventEmitter } from 'events';
-import { getTestDatabase, isTestEnvironment } from '../db/index.js';
+import { getTestDatabase, isTestEnvironment, getDatabase } from '../db/index.js';
 // Note: External webhook certification will be implemented when webhook infrastructure is available
 
 // ---------------- Config / ENV ----------------
@@ -78,111 +78,205 @@ function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 // ---------------- Migrations ----------------
 
-export function runIngestMigrations(db?: Database.Database) {
-  if (!db && !isTestEnvironment()) {
-    console.log('[ingest] Using PostgreSQL hybrid database - migrations handled in schema');
-    return;
+export async function runIngestMigrations(db?: Database.Database) {
+  if (isTestEnvironment() || db) {
+    // In test mode, use SQLite compatibility
+    const database = db || getDatabase();
+    database.prepare(`
+      CREATE TABLE IF NOT EXISTS ingest_sources (
+        source_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        source_type TEXT NOT NULL DEFAULT 'webhook',
+        mapping_json TEXT,
+        validation_json TEXT,
+        fusion_policy_json TEXT,
+        trust_weight REAL NOT NULL DEFAULT 1.0,
+        rate_limit_per_min INTEGER DEFAULT 1000,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_heartbeat INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `).run();
+
+    // Enhanced ingest events with lineage
+    database.prepare(`
+      CREATE TABLE IF NOT EXISTS ingest_events (
+        event_id TEXT PRIMARY KEY,
+        source_id TEXT,
+        external_id TEXT,
+        raw_json TEXT NOT NULL,
+        normalized_json TEXT,
+        status TEXT NOT NULL,
+        last_error TEXT,
+        content_hash TEXT,
+        version_id TEXT,
+        parent_hashes TEXT,
+        lineage_json TEXT,
+        evidence_json TEXT,
+        conflict_resolution TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        certified_at INTEGER,
+        FOREIGN KEY (source_id) REFERENCES ingest_sources(source_id)
+      )
+    `).run();
+
+    // Create indexes for performance
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_source ON ingest_events(source_id)`).run();
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_status ON ingest_events(status)`).run();
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_created ON ingest_events(created_at)`).run();
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_content_hash ON ingest_events(content_hash)`).run();
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_external_id ON ingest_events(external_id)`).run();
+
+    // Dedicated ingest jobs queue
+    database.prepare(`
+      CREATE TABLE IF NOT EXISTS ingest_jobs (
+        job_id TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL,
+        job_type TEXT NOT NULL DEFAULT 'process',
+        priority INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 5,
+        next_run_at INTEGER NOT NULL,
+        last_error TEXT,
+        evidence_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `).run();
+
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_jobs_state_next ON ingest_jobs(state, next_run_at)`).run();
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_jobs_event ON ingest_jobs(event_id)`).run();
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_jobs_priority ON ingest_jobs(priority DESC, created_at ASC)`).run();
+
+    // Stream subscriptions for /watch endpoint
+    database.prepare(`
+      CREATE TABLE IF NOT EXISTS ingest_subscriptions (
+        subscription_id TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        filter_json TEXT,
+        created_at INTEGER NOT NULL,
+        last_ping INTEGER NOT NULL
+      )
+    `).run();
+
+    // Event relationships for multi-source fusion
+    database.prepare(`
+      CREATE TABLE IF NOT EXISTS ingest_event_relations (
+        relation_id TEXT PRIMARY KEY,
+        parent_event_id TEXT NOT NULL,
+        child_event_id TEXT NOT NULL,
+        relation_type TEXT NOT NULL,
+        confidence REAL DEFAULT 1.0,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (parent_event_id) REFERENCES ingest_events(event_id),
+        FOREIGN KEY (child_event_id) REFERENCES ingest_events(event_id)
+      )
+    `).run();
+
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_relations_parent ON ingest_event_relations(parent_event_id)`).run();
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_relations_child ON ingest_event_relations(child_event_id)`).run();
+  } else {
+    // PostgreSQL migrations
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS ingest_sources (
+        source_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        source_type TEXT NOT NULL DEFAULT 'webhook',
+        mapping_json TEXT,
+        validation_json TEXT,
+        fusion_policy_json TEXT,
+        trust_weight REAL NOT NULL DEFAULT 1.0,
+        rate_limit_per_min INTEGER DEFAULT 1000,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_heartbeat BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      )
+    `);
+
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS ingest_events (
+        event_id TEXT PRIMARY KEY,
+        source_id TEXT,
+        external_id TEXT,
+        raw_json TEXT NOT NULL,
+        normalized_json TEXT,
+        status TEXT NOT NULL,
+        last_error TEXT,
+        content_hash TEXT,
+        version_id TEXT,
+        parent_hashes TEXT,
+        lineage_json TEXT,
+        evidence_json TEXT,
+        conflict_resolution TEXT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        certified_at BIGINT,
+        FOREIGN KEY (source_id) REFERENCES ingest_sources(source_id)
+      )
+    `);
+
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_ingest_events_source ON ingest_events(source_id)`);
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_ingest_events_status ON ingest_events(status)`);
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_ingest_events_created ON ingest_events(created_at)`);
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_ingest_events_content_hash ON ingest_events(content_hash)`);
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_ingest_events_external_id ON ingest_events(external_id)`);
+
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS ingest_jobs (
+        job_id TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL,
+        job_type TEXT NOT NULL DEFAULT 'process',
+        priority INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 5,
+        next_run_at BIGINT NOT NULL,
+        last_error TEXT,
+        evidence_json TEXT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      )
+    `);
+
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_ingest_jobs_state_next ON ingest_jobs(state, next_run_at)`);
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_ingest_jobs_event ON ingest_jobs(event_id)`);
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_ingest_jobs_priority ON ingest_jobs(priority DESC, created_at ASC)`);
+
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS ingest_subscriptions (
+        subscription_id TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        filter_json TEXT,
+        created_at BIGINT NOT NULL,
+        last_ping BIGINT NOT NULL
+      )
+    `);
+
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS ingest_event_relations (
+        relation_id TEXT PRIMARY KEY,
+        parent_event_id TEXT NOT NULL,
+        child_event_id TEXT NOT NULL,
+        relation_type TEXT NOT NULL,
+        confidence REAL DEFAULT 1.0,
+        created_at BIGINT NOT NULL,
+        FOREIGN KEY (parent_event_id) REFERENCES ingest_events(event_id),
+        FOREIGN KEY (child_event_id) REFERENCES ingest_events(event_id)
+      )
+    `);
+
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_ingest_relations_parent ON ingest_event_relations(parent_event_id)`);
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_ingest_relations_child ON ingest_event_relations(child_event_id)`);
   }
-
-  const database = db || getTestDatabase();
-  // Ingest sources with enhanced metadata
-  database.prepare(`
-    CREATE TABLE IF NOT EXISTS ingest_sources (
-      source_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT,
-      source_type TEXT NOT NULL DEFAULT 'webhook',
-      mapping_json TEXT,
-      validation_json TEXT,
-      fusion_policy_json TEXT,
-      trust_weight REAL NOT NULL DEFAULT 1.0,
-      rate_limit_per_min INTEGER DEFAULT 1000,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      last_heartbeat INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `).run();
-
-  // Enhanced ingest events with lineage
-  database.prepare(`
-    CREATE TABLE IF NOT EXISTS ingest_events (
-      event_id TEXT PRIMARY KEY,
-      source_id TEXT,
-      external_id TEXT,
-      raw_json TEXT NOT NULL,
-      normalized_json TEXT,
-      status TEXT NOT NULL,
-      last_error TEXT,
-      content_hash TEXT,
-      version_id TEXT,
-      parent_hashes TEXT,
-      lineage_json TEXT,
-      evidence_json TEXT,
-      conflict_resolution TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      certified_at INTEGER,
-      FOREIGN KEY (source_id) REFERENCES ingest_sources(source_id)
-    )
-  `).run();
-
-  // Create indexes for performance
-  database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_source ON ingest_events(source_id)`).run();
-  database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_status ON ingest_events(status)`).run();
-  database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_created ON ingest_events(created_at)`).run();
-  database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_content_hash ON ingest_events(content_hash)`).run();
-  database.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_events_external_id ON ingest_events(external_id)`).run();
-
-  // Dedicated ingest jobs queue
-  database.prepare(`
-    CREATE TABLE IF NOT EXISTS ingest_jobs (
-      job_id TEXT PRIMARY KEY,
-      event_id TEXT NOT NULL,
-      job_type TEXT NOT NULL DEFAULT 'process',
-      priority INTEGER NOT NULL DEFAULT 0,
-      state TEXT NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      max_attempts INTEGER NOT NULL DEFAULT 5,
-      next_run_at INTEGER NOT NULL,
-      last_error TEXT,
-      evidence_json TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `).run();
-
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_jobs_state_next ON ingest_jobs(state, next_run_at)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_jobs_event ON ingest_jobs(event_id)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_jobs_priority ON ingest_jobs(priority DESC, created_at ASC)`).run();
-
-  // Stream subscriptions for /watch endpoint
-  db.prepare(`
-    CREATE TABLE IF NOT EXISTS ingest_subscriptions (
-      subscription_id TEXT PRIMARY KEY,
-      client_id TEXT NOT NULL,
-      filter_json TEXT,
-      created_at INTEGER NOT NULL,
-      last_ping INTEGER NOT NULL
-    )
-  `).run();
-
-  // Event relationships for multi-source fusion
-  db.prepare(`
-    CREATE TABLE IF NOT EXISTS ingest_event_relations (
-      relation_id TEXT PRIMARY KEY,
-      parent_event_id TEXT NOT NULL,
-      child_event_id TEXT NOT NULL,
-      relation_type TEXT NOT NULL,
-      confidence REAL DEFAULT 1.0,
-      created_at INTEGER NOT NULL,
-      FOREIGN KEY (parent_event_id) REFERENCES ingest_events(event_id),
-      FOREIGN KEY (child_event_id) REFERENCES ingest_events(event_id)
-    )
-  `).run();
-
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_relations_parent ON ingest_event_relations(parent_event_id)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ingest_relations_child ON ingest_event_relations(child_event_id)`).run();
 }
 
 // ---------------- Types ----------------
@@ -281,38 +375,46 @@ function safeParse<T = any>(s: string, fallback: T): T {
   }
 }
 
-function getSource(db: Database.Database, sourceId: string): IngestSource | undefined {
+async function getSource(db: any, sourceId: string): Promise<IngestSource | undefined> {
   try {
-    return db.prepare(`SELECT * FROM ingest_sources WHERE source_id = ?`).get(sourceId) as any;
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    const result = await pgClient.query(
+      `SELECT * FROM ingest_sources WHERE source_id = $1`,
+      [sourceId]
+    );
+    return result.rows[0] as any;
   } catch {
     return undefined;
   }
 }
 
-function upsertSource(db: Database.Database, s: Partial<IngestSource>): string {
+async function upsertSource(db: any, s: Partial<IngestSource>): Promise<string> {
   const id = s.source_id || safeId('src');
   const now = nowSec();
 
-  db.prepare(`
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(`
     INSERT INTO ingest_sources(
       source_id, name, description, source_type, mapping_json, validation_json,
       fusion_policy_json, trust_weight, rate_limit_per_min, enabled,
       last_heartbeat, created_at, updated_at
     )
-    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     ON CONFLICT(source_id) DO UPDATE SET
-      name=excluded.name,
-      description=excluded.description,
-      source_type=excluded.source_type,
-      mapping_json=excluded.mapping_json,
-      validation_json=excluded.validation_json,
-      fusion_policy_json=excluded.fusion_policy_json,
-      trust_weight=excluded.trust_weight,
-      rate_limit_per_min=excluded.rate_limit_per_min,
-      enabled=COALESCE(excluded.enabled, ingest_sources.enabled),
-      last_heartbeat=excluded.last_heartbeat,
-      updated_at=excluded.updated_at
-  `).run(
+      name = EXCLUDED.name,
+      description = EXCLUDED.description,
+      source_type = EXCLUDED.source_type,
+      mapping_json = EXCLUDED.mapping_json,
+      validation_json = EXCLUDED.validation_json,
+      fusion_policy_json = EXCLUDED.fusion_policy_json,
+      trust_weight = EXCLUDED.trust_weight,
+      rate_limit_per_min = EXCLUDED.rate_limit_per_min,
+      enabled = COALESCE(EXCLUDED.enabled, ingest_sources.enabled),
+      last_heartbeat = EXCLUDED.last_heartbeat,
+      updated_at = EXCLUDED.updated_at
+  `, [
     id,
     s.name || id,
     s.description || null,
@@ -326,108 +428,127 @@ function upsertSource(db: Database.Database, s: Partial<IngestSource>): string {
     s.last_heartbeat || null,
     s.created_at || now,
     now
-  );
+  ]);
 
   return id;
 }
 
-function insertEvent(db: Database.Database, sourceId: string | null, raw: any, externalId?: string): string {
+async function insertEvent(db: any, sourceId: string | null, raw: any, externalId?: string): Promise<string> {
   const id = safeId('ev');
   const now = nowSec();
 
-  db.prepare(`
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(`
     INSERT INTO ingest_events(
       event_id, source_id, external_id, raw_json, normalized_json, status,
       last_error, content_hash, version_id, parent_hashes, lineage_json,
       evidence_json, conflict_resolution, created_at, updated_at, certified_at
     )
-    VALUES(?, ?, ?, ?, NULL, 'received', NULL, NULL, NULL, NULL, NULL, '[]', NULL, ?, ?, NULL)
-  `).run(
+    VALUES($1, $2, $3, $4, NULL, 'received', NULL, NULL, NULL, NULL, NULL, '[]', NULL, $5, $6, NULL)
+  `, [
     id,
     sourceId || null,
     externalId || null,
     JSON.stringify(raw ?? {}),
     now,
     now
-  );
+  ]);
 
   return id;
 }
 
-function getEvent(db: Database.Database, eventId: string): IngestEvent | undefined {
+async function getEvent(db: any, eventId: string): Promise<IngestEvent | undefined> {
   try {
-    return db.prepare(`SELECT * FROM ingest_events WHERE event_id=?`).get(eventId) as any;
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    const result = await pgClient.query(
+      `SELECT * FROM ingest_events WHERE event_id = $1`,
+      [eventId]
+    );
+    return result.rows[0] as any;
   } catch {
     return undefined;
   }
 }
 
-function setEvent(db: Database.Database, eventId: string, patch: Partial<IngestEvent>) {
+async function setEvent(db: any, eventId: string, patch: Partial<IngestEvent>) {
   const now = nowSec();
   const fields: string[] = [];
   const values: any[] = [];
 
   for (const [key, value] of Object.entries(patch)) {
     if (value !== undefined) {
-      fields.push(`${key}=?`);
+      fields.push(key);
       values.push(value);
     }
   }
 
   if (fields.length === 0) return;
 
-  fields.push('updated_at=?');
-  values.push(now);
-  values.push(eventId);
-
-  db.prepare(`UPDATE ingest_events SET ${fields.join(', ')} WHERE event_id=?`).run(...values);
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  const setClause = fields.map((f, i) => `${f} = $${i + 1}`).join(', ');
+  values.push(now);  // updated_at
+  values.push(eventId);  // WHERE clause
+  await pgClient.query(
+    `UPDATE ingest_events SET ${setClause}, updated_at = $${values.length - 1} WHERE event_id = $${values.length}`,
+    values
+  );
 }
 
-function listEvents(db: Database.Database, opts: {
+async function listEvents(db: any, opts: {
   sourceId?: string;
   status?: string;
   limit?: number;
   offset?: number;
   since?: number;
-}) {
+}): Promise<any[]> {
   const where: string[] = [];
   const params: any[] = [];
 
   if (opts.sourceId) {
-    where.push('source_id = ?');
+    where.push(`source_id = $${params.length + 1}`);
     params.push(opts.sourceId);
   }
   if (opts.status) {
-    where.push('status = ?');
+    where.push(`status = $${params.length + 1}`);
     params.push(opts.status);
   }
   if (opts.since) {
-    where.push('created_at > ?');
+    where.push(`created_at > $${params.length + 1}`);
     params.push(opts.since);
   }
 
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
+
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
   const sql = `
     SELECT * FROM ingest_events
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY created_at DESC
-    LIMIT ? OFFSET ?`;
-  params.push(opts.limit ?? 50, opts.offset ?? 0);
-
-  return db.prepare(sql).all(...params) as any[];
+    LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+  params.push(limit, offset);
+  const result = await pgClient.query(sql, params);
+  return result.rows;
 }
 
 // Job queue operations
-function enqueueIngestJob(db: Database.Database, eventId: string, jobType: string = 'process', priority: number = 0, delaySec: number = 0): string {
+async function enqueueIngestJob(db: any, eventId: string, jobType: string = 'process', priority: number = 0, delaySec: number = 0): Promise<string> {
   const id = safeId('ij');
   const now = nowSec();
 
-  db.prepare(`
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(`
     INSERT INTO ingest_jobs(
       job_id, event_id, job_type, priority, state, attempts, max_attempts,
       next_run_at, last_error, evidence_json, created_at, updated_at
     )
-    VALUES(?, ?, ?, ?, 'queued', 0, ?, ?, NULL, '[]', ?, ?)
-  `).run(
+    VALUES($1, $2, $3, $4, 'queued', 0, $5, $6, NULL, '[]', $7, $8)
+  `, [
     id,
     eventId,
     jobType,
@@ -436,50 +557,68 @@ function enqueueIngestJob(db: Database.Database, eventId: string, jobType: strin
     now + delaySec,
     now,
     now
-  );
+  ]);
 
   return id;
 }
 
-function claimNextIngestJob(db: Database.Database, ts: number = nowSec()): IngestJob | undefined {
-  const tx = db.transaction(() => {
-    const row = db.prepare(`
+async function claimNextIngestJob(db: any, ts: number = nowSec()): Promise<IngestJob | undefined> {
+  // PostgreSQL transaction
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  try {
+    await pgClient.query('BEGIN');
+
+    const result = await pgClient.query(`
       SELECT * FROM ingest_jobs
-      WHERE state='queued' AND next_run_at <= ?
+      WHERE state = 'queued' AND next_run_at <= $1
       ORDER BY priority DESC, created_at ASC
       LIMIT 1
-    `).get(ts) as any;
+    `, [ts]);
 
-    if (!row) return undefined;
+    if (result.rows.length === 0) {
+      await pgClient.query('ROLLBACK');
+      return undefined;
+    }
 
-    db.prepare(`UPDATE ingest_jobs SET state='running', updated_at=? WHERE job_id=?`)
-      .run(ts, row.job_id);
+    const row = result.rows[0];
+    await pgClient.query(
+      `UPDATE ingest_jobs SET state = 'running', updated_at = $1 WHERE job_id = $2`,
+      [ts, row.job_id]
+    );
 
+    await pgClient.query('COMMIT');
     return row as IngestJob;
-  });
-
-  return tx() as any;
+  } catch (error) {
+    await pgClient.query('ROLLBACK');
+    throw error;
+  }
 }
 
-function setIngestJobResult(db: Database.Database, jobId: string, state: IngestJob['state'], evidence?: any, err?: string) {
+async function setIngestJobResult(db: any, jobId: string, state: IngestJob['state'], evidence?: any, err?: string) {
   const now = nowSec();
-  db.prepare(`
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(`
     UPDATE ingest_jobs
-    SET state=?, updated_at=?, evidence_json=COALESCE(?, evidence_json), last_error=?
-    WHERE job_id=?
-  `).run(state, now, evidence ? JSON.stringify(evidence) : null, err || null, jobId);
+    SET state = $1, updated_at = $2, evidence_json = COALESCE($3, evidence_json), last_error = $4
+    WHERE job_id = $5
+  `, [state, now, evidence ? JSON.stringify(evidence) : null, err || null, jobId]);
 }
 
-function bumpIngestRetry(db: Database.Database, jobId: string, attempts: number, err: string) {
+async function bumpIngestRetry(db: any, jobId: string, attempts: number, err: string) {
   const now = nowSec();
   const delayMs = Math.min(30000, Math.floor(INGEST_BACKOFF_BASE_MS * Math.pow(INGEST_BACKOFF_FACTOR, attempts)));
   const delaySec = Math.floor(delayMs / 1000);
 
-  db.prepare(`
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(`
     UPDATE ingest_jobs
-    SET attempts=attempts+1, state='queued', next_run_at=?, updated_at=?, last_error=?
-    WHERE job_id=?
-  `).run(now + delaySec, now, err, jobId);
+    SET attempts = attempts + 1, state = 'queued', next_run_at = $1, updated_at = $2, last_error = $3
+    WHERE job_id = $4
+  `, [now + delaySec, now, err, jobId]);
 }
 
 // ---------------- Normalization & Validation ----------------
@@ -656,7 +795,7 @@ export function ingestRouter(testDb?: Database.Database): Router {
   const router = makeRouter();
 
   // Get appropriate database
-  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
+  const db = testDb || getDatabase();
 
   // POST /ingest/events - Batch event ingestion
   router.post('/ingest/events', async (req: Request, res: Response) => {
@@ -840,19 +979,18 @@ export function ingestRouter(testDb?: Database.Database): Router {
   });
 
   // GET /ingest/sources - List sources
-  router.get('/ingest/sources', (req: Request, res: Response) => {
+  router.get('/ingest/sources', async (req: Request, res: Response) => {
     try {
-      if (!db) {
-        return json(res, 501, { error: 'not-implemented', message: 'Sources listing not yet implemented for PostgreSQL' });
-      }
-      const sources = db.prepare(`
+      const { getPostgreSQLClient } = await import('../db/postgresql');
+      const pgClient = getPostgreSQLClient();
+      const result = await pgClient.query(`
         SELECT source_id, name, description, source_type, trust_weight,
                rate_limit_per_min, enabled, last_heartbeat, created_at, updated_at
         FROM ingest_sources
         ORDER BY created_at DESC
-      `).all() as any[];
+      `);
 
-      return json(res, 200, { sources });
+      return json(res, 200, { sources: result.rows });
     } catch (e: any) {
       return json(res, 500, { error: 'sources-failed', message: String(e?.message || e) });
     }
@@ -895,10 +1033,10 @@ export function ingestRouter(testDb?: Database.Database): Router {
 // ---------------- Worker ----------------
 
 export function startIngestWorker(db?: Database.Database): (() => void) {
-  const database = db || (isTestEnvironment() ? getTestDatabase() : null);
+  const database = db || getDatabase();
 
   if (!database) {
-    console.log('[ingest] Ingest worker not started - PostgreSQL implementation not available');
+    console.log('[ingest] Ingest worker not started - database not available');
     return () => {}; // Return no-op cleanup function
   }
   let isProcessing = false;

@@ -21,8 +21,10 @@ describe('D21 Payments Integration Tests', () => {
     app.use(paymentsRouter());
 
     // Setup test data: producer, manifest, receipt
-    db.prepare(`INSERT INTO producers (producer_id, name, identity_key, payout_script_hex, created_at)
-               VALUES (?, ?, ?, ?, ?)`).run('prod-1', 'Test Producer', 'test-key', '76a914deadbeef88ac', Date.now());
+    const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    await pgClient.query(`INSERT INTO producers (producer_id, name, identity_key, payout_script_hex, created_at)
+               VALUES ($1, $2, $3, $4, $5)`, ['prod-1', 'Test Producer', 'test-key', '76a914deadbeef88ac', Date.now()]);
 
     await upsertManifest({
       version_id: 'ver-1',
@@ -82,7 +84,7 @@ describe('D21 Payments Integration Tests', () => {
     expect(r1.body.error).toBe('not-found');
 
     // Test with paid receipt
-    db.prepare(`UPDATE receipts SET status='paid' WHERE receipt_id=?`).run('receipt-1');
+    await pgClient.query(`UPDATE receipts SET status='paid' WHERE receipt_id=$1`, ['receipt-1']);
 
     const r2 = await request(app)
       .post('/payments/quote')
@@ -120,7 +122,8 @@ describe('D21 Payments Integration Tests', () => {
     });
 
     // Verify receipt status was updated
-    const receipt = db.prepare('SELECT * FROM receipts WHERE receipt_id = ?').get('receipt-1') as any;
+    const receiptResult = await pgClient.query('SELECT * FROM receipts WHERE receipt_id = $1', ['receipt-1']);
+    const receipt = receiptResult.rows[0];
     expect(receipt.status).toBe('paid');
     expect(receipt.payment_txid).toBe(response.body.txid);
   });
@@ -151,7 +154,7 @@ describe('D21 Payments Integration Tests', () => {
   test('POST /payments/submit should validate quote expiration', async () => {
     // Create expired quote
     const pastTime = Math.floor(Date.now() / 1000) - 3600; // 1 hour ago
-    db.prepare(`UPDATE receipts SET quote_expires_at=? WHERE receipt_id=?`).run(pastTime, 'receipt-1');
+    await pgClient.query(`UPDATE receipts SET quote_expires_at=$1 WHERE receipt_id=$2`, [pastTime, 'receipt-1']);
 
     const rawTxHex = '0100000001000000000000000000000000000000000000000000000000000000000000000000000000ffffffff01f401000000000000001976a914deadbeef88ac00000000';
 
@@ -235,7 +238,8 @@ describe('D21 Payments Integration Tests', () => {
     await request(app).post('/payments/submit').send({ receiptId: 'receipt-1', rawTxHex });
 
     // Check payment events
-    const events = db.prepare('SELECT * FROM payment_events WHERE receipt_id = ? ORDER BY created_at').all('receipt-1') as any[];
+    const eventsResult = await pgClient.query('SELECT * FROM payment_events WHERE receipt_id = $1 ORDER BY created_at', ['receipt-1']);
+    const events = eventsResult.rows;
 
     expect(events).toHaveLength(2);
     expect(events[0].type).toBe('payment-quoted');

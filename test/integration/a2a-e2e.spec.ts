@@ -81,29 +81,32 @@ class A2AE2ETest {
     this.db = getTestDatabase();
 
     // Insert test data for search manifests
-    this.db.prepare(`
+    const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+    const pgClient = getPostgreSQLClient();
+
+    await pgClient.query(`
       INSERT INTO manifests (version_id, manifest_hash, manifest_json, dataset_id, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run('v1_contract_data', 'hash_contract_123', JSON.stringify({
+      VALUES ($1, $2, $3, $4, $5)
+    `, ['v1_contract_data', 'hash_contract_123', JSON.stringify({
       files: ['contract1.pdf', 'contract2.pdf'],
       description: 'Contract data for testing'
-    }), 'test-dataset', new Date().toISOString());
+    }), 'test-dataset', new Date().toISOString()]);
 
-    this.db.prepare(`
+    await pgClient.query(`
       INSERT INTO manifests (version_id, manifest_hash, manifest_json, dataset_id, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run('v1_intermediate_results', 'hash_intermediate_456', JSON.stringify({
+      VALUES ($1, $2, $3, $4, $5)
+    `, ['v1_intermediate_results', 'hash_intermediate_456', JSON.stringify({
       files: ['intermediate1.json', 'intermediate2.json'],
       description: 'Intermediate processing results'
-    }), 'test-dataset', new Date().toISOString());
+    }), 'test-dataset', new Date().toISOString()]);
 
-    this.db.prepare(`
+    await pgClient.query(`
       INSERT INTO manifests (version_id, manifest_hash, manifest_json, dataset_id, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run('v1_final_output', 'hash_final_789', JSON.stringify({
+      VALUES ($1, $2, $3, $4, $5)
+    `, ['v1_final_output', 'hash_final_789', JSON.stringify({
       files: ['final1.json', 'final2.json'],
       description: 'Final analysis output'
-    }), 'test-dataset', new Date().toISOString());
+    }), 'test-dataset', new Date().toISOString()]);
 
     // Setup Express app
     this.app = express();

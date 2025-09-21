@@ -109,7 +109,9 @@ describe('Advisories Integration Test', () => {
   expect(advs[0].type).toBe('BLOCK');
 
   // 4) Expire the advisory; should no longer appear in active list
-  db.prepare('UPDATE advisories SET expires_at = ? WHERE advisory_id = ?').run(now - 10, advisoryId);
+  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query('UPDATE advisories SET expires_at = $1 WHERE advisory_id = $2', [now - 10, advisoryId]);
   const advs2 = listAdvisoriesForVersionActive(db, vid, now);
   expect(advs2.length).toBe(0);
 

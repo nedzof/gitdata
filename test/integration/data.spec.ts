@@ -84,14 +84,16 @@ describe('Data Integration Test', () => {
 
   // 3) Test quota by directly updating receipt bytes_used to near limit
   // Update bytes_used to be close to the 1024 limit
-  db.prepare('UPDATE receipts SET bytes_used = ? WHERE receipt_id = ?').run(1020, receiptId); // 1020 + 11 = 1031 > 1024
+  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query('UPDATE receipts SET bytes_used = $1 WHERE receipt_id = $2', [1020, receiptId]); // 1020 + 11 = 1031 > 1024
   const r2 = await request(app).get(`/v1/data?contentHash=${contentHash}&receiptId=${receiptId}`);
   expect(r2.status).toBe(409);
   expect(r2.body.error).toBe('quota-exceeded');
 
   // 4) Negative: expired receipt
   // Manually expire by decreasing expires_at
-  db.prepare('UPDATE receipts SET expires_at = ? WHERE receipt_id = ?').run(Math.floor(Date.now()/1000) - 10, receiptId);
+  await pgClient.query('UPDATE receipts SET expires_at = $1 WHERE receipt_id = $2', [Math.floor(Date.now()/1000) - 10, receiptId]);
   const r3 = await request(app).get(`/v1/data?contentHash=${contentHash}&receiptId=${receiptId}`);
   expect(r3.status).toBe(403);
   expect(r3.body.error).toBe('expired');

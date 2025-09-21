@@ -50,9 +50,11 @@ describe('D22 Storage Backend Integration Tests', () => {
     // app.use(storageRouter()); // TODO: Update storageRouter to use hybrid database
 
     // Setup test data using hybrid database functions
-    // Insert producer data directly into test database (for now)
-    db.prepare(`INSERT INTO producers (producer_id, name, identity_key, payout_script_hex, created_at)
-               VALUES (?, ?, ?, ?, ?)`).run('prod-1', 'Test Producer', 'test-key', '76a914deadbeef88ac', Date.now());
+    // Insert producer data directly into PostgreSQL
+    const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    await pgClient.query(`INSERT INTO producers (producer_id, name, identity_key, payout_script_hex, created_at)
+               VALUES ($1, $2, $3, $4, $5)`, ['prod-1', 'Test Producer', 'test-key', '76a914deadbeef88ac', Date.now()]);
 
     // Use hybrid database functions for manifests and receipts
     await upsertManifest({
@@ -290,16 +292,18 @@ describe('D22 Storage Backend Integration Tests', () => {
       const lifecycle = new StorageLifecycleManager(storage, db);
 
       // Create some test access patterns
-      db.prepare(`
+      const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+      const pgClient = getPostgreSQLClient();
+      await pgClient.query(`
         INSERT INTO receipts (receipt_id, version_id, quantity, amount_sat, status, created_at, expires_at, bytes_used, last_seen, content_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [
         'receipt-old', 'ver-1', 1, 5000, 'paid',
         Date.now() - 10 * 24 * 60 * 60 * 1000, // 10 days ago
         Date.now() + 3600000, 1000,
         Date.now() - 5 * 24 * 60 * 60 * 1000, // Last seen 5 days ago
         '6d9a0cc619fdcb1b616a06a7ed5b6ea6102427aceb2f95598d0d69b4bbefe37d'
-      );
+      ]);
 
       const result = await lifecycle.runTieringJob();
 
@@ -522,8 +526,9 @@ describe('D22 Storage Backend Integration Tests', () => {
       await storage.putObject(contentHash, testContent, 'hot');
 
       const expiredTime = Math.floor(Date.now() / 1000) - 1;
-      db.prepare(`UPDATE receipts SET expires_at = ? WHERE receipt_id = ?`)
-        .run(expiredTime, 'receipt-1'); // Expired 1 second ago
+      const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+      const pgClient = getPostgreSQLClient();
+      await pgClient.query(`UPDATE receipts SET expires_at = $1 WHERE receipt_id = $2`, [expiredTime, 'receipt-1']); // Expired 1 second ago
 
       const response = await request(app)
         .get('/v1/data')

@@ -25,7 +25,7 @@ import type { Router, Request, Response } from 'express';
 import { Router as makeRouter } from 'express';
 import Database from 'better-sqlite3';
 import { createHash } from 'crypto';
-import { getParents, getManifest } from '../db';
+import { getParents, getManifest, isTestEnvironment, getDatabase } from '../db';
 
 // ---------------- Env / Config ----------------
 
@@ -64,20 +64,39 @@ async function httpJson(method: 'GET'|'POST', url: string, body?: any, timeoutMs
 
 // ---------------- Migrations ----------------
 
-export function runModelsMigrations(db: Database.Database) {
-  db.prepare(`
-    CREATE TABLE IF NOT EXISTS models (
-      model_version_id TEXT PRIMARY KEY,
-      model_hash TEXT NOT NULL UNIQUE,
-      training_index_version_id TEXT,
-      framework TEXT,
-      tags_json TEXT,
-      size_bytes INTEGER,
-      created_at INTEGER NOT NULL
-    )
-  `).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_models_hash ON models(model_hash)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_models_created ON models(created_at)`).run();
+export async function runModelsMigrations(db?: Database.Database) {
+  if (isTestEnvironment() || db) {
+    const database = db || getDatabase();
+    database.prepare(`
+      CREATE TABLE IF NOT EXISTS models (
+        model_version_id TEXT PRIMARY KEY,
+        model_hash TEXT NOT NULL UNIQUE,
+        training_index_version_id TEXT,
+        framework TEXT,
+        tags_json TEXT,
+        size_bytes INTEGER,
+        created_at INTEGER NOT NULL
+      )
+    `).run();
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_models_hash ON models(model_hash)`).run();
+    database.prepare(`CREATE INDEX IF NOT EXISTS idx_models_created ON models(created_at)`).run();
+  } else {
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS models (
+        model_version_id TEXT PRIMARY KEY,
+        model_hash TEXT NOT NULL UNIQUE,
+        training_index_version_id TEXT,
+        framework TEXT,
+        tags_json TEXT,
+        size_bytes INTEGER,
+        created_at BIGINT NOT NULL
+      )
+    `);
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_models_hash ON models(model_hash)`);
+    await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_models_created ON models(created_at)`);
+  }
 }
 
 // ---------------- DB helpers ----------------
@@ -92,52 +111,72 @@ type ModelRow = {
   created_at: number;
 };
 
-function upsertModel(db: Database.Database, r: Partial<ModelRow>) {
+async function upsertModel(db: any, r: Partial<ModelRow>): Promise<string> {
   const id = r.model_version_id || safeId('md');
   const now = nowSec();
-  db.prepare(`
+
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query(`
     INSERT INTO models(model_version_id, model_hash, training_index_version_id, framework, tags_json, size_bytes, created_at)
-    VALUES(@model_version_id, @model_hash, @training_index_version_id, @framework, @tags_json, @size_bytes, @created_at)
+    VALUES($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT(model_hash) DO UPDATE SET
-      training_index_version_id=COALESCE(excluded.training_index_version_id, models.training_index_version_id),
-      framework=COALESCE(excluded.framework, models.framework),
-      tags_json=COALESCE(excluded.tags_json, models.tags_json),
-      size_bytes=COALESCE(excluded.size_bytes, models.size_bytes)
-  `).run({
-    model_version_id: id,
-    model_hash: r.model_hash!,
-    training_index_version_id: r.training_index_version_id || null,
-    framework: r.framework || null,
-    tags_json: r.tags_json || null,
-    size_bytes: r.size_bytes || null,
-    created_at: r.created_at || now
-  });
+      training_index_version_id = COALESCE(EXCLUDED.training_index_version_id, models.training_index_version_id),
+      framework = COALESCE(EXCLUDED.framework, models.framework),
+      tags_json = COALESCE(EXCLUDED.tags_json, models.tags_json),
+      size_bytes = COALESCE(EXCLUDED.size_bytes, models.size_bytes)
+  `, [
+    id,
+    r.model_hash!,
+    r.training_index_version_id || null,
+    r.framework || null,
+    r.tags_json || null,
+    r.size_bytes || null,
+    r.created_at || now
+  ]);
   return id;
 }
 
-function getModel(db: Database.Database, id: string): ModelRow | undefined {
-  // Accept either model_version_id exact or model_hash exact
-  const row = db.prepare(`SELECT * FROM models WHERE model_version_id = ?`).get(id) as any;
-  if (row) return row;
-  const byHash = db.prepare(`SELECT * FROM models WHERE model_hash = ?`).get(id) as any;
-  return byHash || undefined;
+async function getModel(db: any, id: string): Promise<ModelRow | undefined> {
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  // Try by model_version_id first
+  let result = await pgClient.query(
+    `SELECT * FROM models WHERE model_version_id = $1`,
+    [id]
+  );
+  if (result.rows.length > 0) return result.rows[0] as any;
+
+  // Try by model_hash
+  result = await pgClient.query(
+    `SELECT * FROM models WHERE model_hash = $1`,
+    [id]
+  );
+  return result.rows[0] as any || undefined;
 }
 
-function searchModels(db: Database.Database, q?: string, limit=20, offset=0): ModelRow[] {
-  const where: string[] = [];
+async function searchModels(db: any, q?: string, limit=20, offset=0): Promise<ModelRow[]> {
+  const { getPostgreSQLClient } = await import('../db/postgresql');
+  const pgClient = getPostgreSQLClient();
+
   const params: any[] = [];
+  let whereClause = '';
+
   if (q) {
-    // naive prefix search on hash or tags_json LIKE
-    where.push(`(model_hash LIKE ? OR tags_json LIKE ?)`);
+    whereClause = 'WHERE (model_hash LIKE $1 OR tags_json LIKE $2)';
     params.push(`${q}%`, `%${q}%`);
   }
+
   const sql = `
     SELECT * FROM models
-    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ${whereClause}
     ORDER BY created_at DESC
-    LIMIT ? OFFSET ?`;
+    LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
   params.push(limit, offset);
-  return db.prepare(sql).all(...params) as any[];
+
+  const result = await pgClient.query(sql, params);
+  return result.rows as any[];
 }
 
 // ---------------- Manifest builders (synthetic) ----------------
@@ -424,7 +463,13 @@ export function modelsRouter(db: Database.Database): Router {
           const { evaluatePolicy } = await import('../policies');
 
           // Get policy
-          const policyRow = db.prepare(`SELECT * FROM policies WHERE policy_id = ? AND enabled = 1`).get(policyId) as any;
+          const { getPostgreSQLClient } = await import('../db/postgresql');
+          const pgClient = getPostgreSQLClient();
+          const result = await pgClient.query(
+            `SELECT * FROM policies WHERE policy_id = $1 AND enabled = 1`,
+            [policyId]
+          );
+          const policyRow = result.rows[0] as any;
           if (!policyRow) {
             return json(res, 404, { error: 'policy-not-found' });
           }

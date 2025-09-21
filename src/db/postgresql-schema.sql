@@ -26,15 +26,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_identity ON users(identity_key);
 
 -- Agents (registry)
 CREATE TABLE IF NOT EXISTS agents (
-  agent_id     TEXT PRIMARY KEY,
-  name         TEXT NOT NULL,
-  webhook_url  TEXT NOT NULL,
-  capabilities JSONB NOT NULL DEFAULT '[]',
-  identity_key TEXT,
-  status       TEXT CHECK (status IN ('unknown','up','down')) DEFAULT 'unknown',
-  last_ping_at TIMESTAMPTZ,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  agent_id          TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,
+  webhook_url       TEXT NOT NULL,
+  capabilities      JSONB NOT NULL DEFAULT '[]',
+  capabilities_json TEXT NOT NULL DEFAULT '[]',  -- Legacy compatibility column
+  identity_key      TEXT,
+  status            TEXT CHECK (status IN ('unknown','up','down')) DEFAULT 'unknown',
+  last_ping_at      BIGINT,  -- Use BIGINT for compatibility with legacy code
+  created_at        BIGINT NOT NULL DEFAULT extract(epoch from now()) * 1000,  -- Unix timestamp in milliseconds
+  updated_at        BIGINT NOT NULL DEFAULT extract(epoch from now()) * 1000
 );
 
 -- Catalog (Datasets/Models)
@@ -199,7 +200,7 @@ CREATE TABLE IF NOT EXISTS advisory_targets (
   advisory_id TEXT NOT NULL,
   version_id TEXT,                              -- scope by version
   producer_id TEXT REFERENCES producers(producer_id),                             -- scope by producer
-  PRIMARY KEY (advisory_id, COALESCE(version_id, ''), COALESCE(producer_id, ''))
+  UNIQUE (advisory_id, version_id, producer_id)
 );
 CREATE INDEX IF NOT EXISTS idx_adv_targets_version ON advisory_targets(version_id);
 CREATE INDEX IF NOT EXISTS idx_adv_targets_producer ON advisory_targets(producer_id);

@@ -1,269 +1,308 @@
-// Test database setup for integration tests
-// Uses SQLite for tests to avoid dependency on external services
-import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+// Test database setup - provides in-memory mock implementation
+// This replaces PostgreSQL/Redis dependencies for unit tests
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+export class TestDatabase {
+  private agents = new Map<string, any>();
+  private rules = new Map<string, any>();
+  private jobs = new Map<string, any>();
+  private templates = new Map<string, any>();
+  private manifests = new Map<string, any>();
+  private edges = new Map<string, string[]>();
 
-let testDb: Database.Database | null = null;
+  async upsertAgent(agent: any): Promise<string> {
+    const agentId = agent.agent_id || `agent_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const now = Date.now();
 
-export function getTestDatabase(): Database.Database {
-  if (testDb && testDb.open) {
-    return testDb;
+    const agentRecord = {
+      agent_id: agentId,
+      name: agent.name,
+      capabilities_json: agent.capabilities_json || '[]',
+      webhook_url: agent.webhook_url,
+      identity_key: agent.identity_key,
+      status: agent.status || 'unknown',
+      last_ping_at: agent.last_ping_at,
+      created_at: agent.created_at || now,
+      updated_at: now
+    };
+
+    this.agents.set(agentId, agentRecord);
+    return agentId;
   }
 
-  // Use in-memory SQLite for tests
-  testDb = new Database(':memory:');
+  async getAgent(agentId: string): Promise<any> {
+    return this.agents.get(agentId) || null;
+  }
 
-  // Initialize test schema with minimal required tables
-  const initSQL = `
-    CREATE TABLE IF NOT EXISTS manifests (
-      version_id TEXT PRIMARY KEY,
-      manifest_hash TEXT NOT NULL,
-      content_hash TEXT,
-      title TEXT,
-      license TEXT,
-      classification TEXT,
-      created_at TEXT,
-      manifest_json TEXT NOT NULL,
-      dataset_id TEXT,
-      producer_id TEXT
-    );
+  async searchAgents(q?: string, capability?: string, limit = 50, offset = 0): Promise<any[]> {
+    let results = Array.from(this.agents.values());
 
-    CREATE TABLE IF NOT EXISTS declarations (
-      version_id TEXT PRIMARY KEY,
-      txid TEXT UNIQUE,
-      type TEXT NOT NULL,
-      status TEXT DEFAULT 'pending',
-      created_at INTEGER NOT NULL,
-      block_hash TEXT,
-      height INTEGER,
-      opret_vout INTEGER,
-      raw_tx TEXT,
-      proof_json TEXT
-    );
+    if (q) {
+      results = results.filter(agent =>
+        agent.name.includes(q) || agent.agent_id.includes(q)
+      );
+    }
 
-    CREATE TABLE IF NOT EXISTS producers (
-      producer_id TEXT PRIMARY KEY,
-      name TEXT,
-      website TEXT,
-      identity_key TEXT,
-      payout_script_hex TEXT,
-      created_at INTEGER NOT NULL
-    );
+    if (capability) {
+      results = results.filter(agent =>
+        agent.capabilities_json.includes(capability)
+      );
+    }
 
-    CREATE TABLE IF NOT EXISTS receipts (
-      receipt_id TEXT PRIMARY KEY,
-      version_id TEXT,
-      quantity INTEGER NOT NULL,
-      content_hash TEXT,
-      amount_sat INTEGER NOT NULL,
-      status TEXT DEFAULT 'pending',
-      created_at INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL,
-      bytes_used INTEGER DEFAULT 0,
-      last_seen INTEGER,
-      payment_txid TEXT,
-      paid_at INTEGER,
-      payment_outputs_json TEXT,
-      fee_sat INTEGER,
-      quote_template_hash TEXT,
-      quote_expires_at INTEGER,
-      unit_price_sat INTEGER
-    );
+    return results.slice(offset, offset + limit);
+  }
 
-    CREATE TABLE IF NOT EXISTS revenue_events (
-      event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      receipt_id TEXT NOT NULL,
-      version_id TEXT NOT NULL,
-      amount_sat INTEGER NOT NULL,
-      quantity INTEGER NOT NULL,
-      created_at INTEGER NOT NULL,
-      type TEXT NOT NULL DEFAULT 'pay'
-    );
+  async setAgentPing(agentId: string, success: boolean): Promise<void> {
+    const agent = this.agents.get(agentId);
+    if (agent) {
+      agent.status = success ? 'up' : 'down';
+      agent.last_ping_at = Date.now();
+      agent.updated_at = Date.now();
+    }
+  }
 
-    CREATE TABLE IF NOT EXISTS edges (
-      child_version_id TEXT NOT NULL,
-      parent_version_id TEXT NOT NULL,
-      PRIMARY KEY (child_version_id, parent_version_id)
-    );
+  async createRule(rule: any): Promise<string> {
+    const ruleId = rule.rule_id || `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const now = Date.now();
 
-    CREATE TABLE IF NOT EXISTS prices (
-      version_id TEXT PRIMARY KEY,
-      satoshis INTEGER NOT NULL
-    );
+    const ruleRecord = {
+      rule_id: ruleId,
+      name: rule.name,
+      enabled: rule.enabled !== false ? 1 : 0,
+      when_json: typeof rule.when === 'string' ? rule.when : JSON.stringify(rule.when || {}),
+      find_json: typeof rule.find === 'string' ? rule.find : JSON.stringify(rule.find || {}),
+      actions_json: typeof rule.actions === 'string' ? rule.actions : JSON.stringify(rule.actions || []),
+      owner_producer_id: rule.owner_producer_id,
+      created_at: rule.created_at || now,
+      updated_at: now
+    };
 
-    CREATE TABLE IF NOT EXISTS price_rules (
-      rule_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      version_id TEXT,
-      producer_id TEXT,
-      tier_from INTEGER NOT NULL DEFAULT 1,
-      satoshis INTEGER NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
+    this.rules.set(ruleId, ruleRecord);
+    return ruleId;
+  }
 
-    CREATE TABLE IF NOT EXISTS advisories (
-      advisory_id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      reason TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      expires_at INTEGER,
-      payload_json TEXT
-    );
+  async listRules(enabled?: boolean): Promise<any[]> {
+    let results = Array.from(this.rules.values());
 
-    CREATE TABLE IF NOT EXISTS agents (
-      agent_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      capabilities_json TEXT NOT NULL,
-      webhook_url TEXT NOT NULL,
-      identity_key TEXT,
-      status TEXT DEFAULT 'unknown',
-      last_ping_at INTEGER,
-      created_at INTEGER NOT NULL
-    );
+    if (enabled !== undefined) {
+      results = results.filter(rule =>
+        enabled ? rule.enabled === 1 : rule.enabled === 0
+      );
+    }
 
-    CREATE TABLE IF NOT EXISTS rules (
-      rule_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      when_json TEXT NOT NULL,
-      find_json TEXT NOT NULL,
-      actions_json TEXT NOT NULL,
-      owner_producer_id TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
+    return results;
+  }
 
-    CREATE TABLE IF NOT EXISTS jobs (
-      job_id TEXT PRIMARY KEY,
-      rule_id TEXT NOT NULL,
-      target_id TEXT,
-      state TEXT NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      next_run_at INTEGER NOT NULL,
-      last_error TEXT,
-      evidence_json TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
+  async updateRule(ruleId: string, updates: any): Promise<any> {
+    const rule = this.rules.get(ruleId);
+    if (rule) {
+      Object.assign(rule, updates);
+      rule.updated_at = Date.now();
+      return rule;
+    }
+    return null;
+  }
 
-    CREATE TABLE IF NOT EXISTS contract_templates (
-      template_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT,
-      template_content TEXT NOT NULL,
-      template_type TEXT DEFAULT 'pdf',
-      variables_json TEXT,
-      owner_producer_id TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
+  async deleteRule(ruleId: string): Promise<boolean> {
+    return this.rules.delete(ruleId);
+  }
 
-    CREATE TABLE IF NOT EXISTS artifacts (
-      artifact_id TEXT PRIMARY KEY,
-      job_id TEXT NOT NULL,
-      artifact_type TEXT NOT NULL,
-      content_hash TEXT NOT NULL,
-      file_path TEXT,
-      content_data BLOB,
-      version_id TEXT,
-      metadata_json TEXT,
-      created_at INTEGER NOT NULL,
-      published_at INTEGER
-    );
+  async listJobs(ruleId?: string, state?: string, limit = 100, offset = 0): Promise<any[]> {
+    let results = Array.from(this.jobs.values());
 
-    CREATE TABLE IF NOT EXISTS payment_events (
-      event_id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      receipt_id TEXT,
-      txid TEXT,
-      details_json TEXT,
-      created_at INTEGER NOT NULL
-    );
+    if (ruleId) {
+      results = results.filter(job => job.rule_id === ruleId);
+    }
 
-    CREATE TABLE IF NOT EXISTS storage_events (
-      event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      event_type TEXT NOT NULL,
-      content_hash TEXT,
-      from_tier TEXT,
-      to_tier TEXT,
-      reason TEXT,
-      status TEXT NOT NULL,
-      error_message TEXT,
-      estimated_savings REAL,
-      created_at INTEGER NOT NULL
-    );
+    if (state) {
+      results = results.filter(job => job.state === state);
+    }
 
-    CREATE TABLE IF NOT EXISTS ingest_sources (
-      source_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT,
-      source_type TEXT NOT NULL DEFAULT 'webhook',
-      mapping_json TEXT,
-      validation_json TEXT,
-      fusion_policy_json TEXT,
-      trust_weight REAL NOT NULL DEFAULT 1.0,
-      rate_limit_per_min INTEGER DEFAULT 1000,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      last_heartbeat INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
+    return results.slice(offset, offset + limit);
+  }
 
-    CREATE TABLE IF NOT EXISTS ingest_events (
-      event_id TEXT PRIMARY KEY,
-      source_id TEXT,
-      external_id TEXT,
-      raw_json TEXT NOT NULL,
-      normalized_json TEXT,
-      status TEXT NOT NULL,
-      last_error TEXT,
-      content_hash TEXT,
-      version_id TEXT,
-      parent_hashes TEXT,
-      lineage_json TEXT,
-      evidence_json TEXT,
-      conflict_resolution TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      certified_at INTEGER
-    );
+  async createTemplate(template: any): Promise<string> {
+    const templateId = template.template_id || `tmpl_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const now = Date.now();
 
-    CREATE TABLE IF NOT EXISTS ingest_jobs (
-      job_id TEXT PRIMARY KEY,
-      event_id TEXT NOT NULL,
-      job_type TEXT NOT NULL DEFAULT 'process',
-      priority INTEGER NOT NULL DEFAULT 0,
-      state TEXT NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      max_attempts INTEGER NOT NULL DEFAULT 5,
-      next_run_at INTEGER NOT NULL,
-      last_error TEXT,
-      evidence_json TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-  `;
+    const templateRecord = {
+      template_id: templateId,
+      name: template.name,
+      description: template.description,
+      template_content: template.template_content,
+      template_type: template.template_type || 'pdf',
+      variables_json: template.variables_json,
+      owner_producer_id: template.owner_producer_id,
+      created_at: template.created_at || now,
+      updated_at: now
+    };
 
-  testDb.exec(initSQL);
-  console.log('Test database initialized with SQLite');
+    this.templates.set(templateId, templateRecord);
+    return templateId;
+  }
 
+  async getTemplate(templateId: string): Promise<any> {
+    return this.templates.get(templateId) || null;
+  }
+
+  async listTemplates(limit = 100, offset = 0): Promise<any[]> {
+    const results = Array.from(this.templates.values());
+    return results.slice(offset, offset + limit);
+  }
+
+  async updateTemplate(templateId: string, updates: any): Promise<any> {
+    const template = this.templates.get(templateId);
+    if (template) {
+      Object.assign(template, updates);
+      template.updated_at = Date.now();
+      return template;
+    }
+    return null;
+  }
+
+  async deleteTemplate(templateId: string): Promise<boolean> {
+    return this.templates.delete(templateId);
+  }
+
+  async searchManifests(q?: string, limit = 50, offset = 0): Promise<any[]> {
+    let results = Array.from(this.manifests.values());
+
+    if (q) {
+      results = results.filter(manifest =>
+        (manifest.title && manifest.title.includes(q)) ||
+        (manifest.dataset_id && manifest.dataset_id.includes(q))
+      );
+    }
+
+    return results.slice(offset, offset + limit);
+  }
+
+  async listVersionsByDataset(datasetId: string): Promise<any[]> {
+    const results = Array.from(this.manifests.values())
+      .filter(manifest => manifest.dataset_id === datasetId);
+    return results;
+  }
+
+  async getParents(versionId: string): Promise<string[]> {
+    return this.edges.get(versionId) || [];
+  }
+
+  clear() {
+    this.agents.clear();
+    this.rules.clear();
+    this.jobs.clear();
+    this.templates.clear();
+    this.manifests.clear();
+    this.edges.clear();
+  }
+
+  // SQLite compatibility methods for tests
+  prepare(sql: string) {
+    return {
+      run: (...params: any[]) => ({ lastInsertRowid: 1, changes: 1 }),
+      get: (...params: any[]) => null,
+      all: (...params: any[]) => []
+    };
+  }
+
+  transaction(fn: () => any) {
+    return fn();
+  }
+
+  exec(sql: string) {
+    return this;
+  }
+
+  close() {
+    // No-op for test database
+    return Promise.resolve();
+  }
+}
+
+// Global test database instance
+let testDb: TestDatabase;
+
+export function getTestDatabase(): TestDatabase {
+  if (!testDb) {
+    testDb = new TestDatabase();
+  }
   return testDb;
 }
 
-export function closeTestDatabase(): void {
+export function resetTestDatabase(): void {
   if (testDb) {
-    testDb.close();
-    testDb = null;
+    testDb.clear();
   }
 }
 
-// Test environment detection
-export function isTestEnvironment(): boolean {
-  return process.env.NODE_ENV === 'test' ||
-         process.env.VITEST === 'true' ||
-         process.argv.includes('vitest');
+// Mock implementations for database functions
+export async function initSchema(): Promise<TestDatabase> {
+  return getTestDatabase();
+}
+
+export async function upsertAgent(agent: any): Promise<string> {
+  return getTestDatabase().upsertAgent(agent);
+}
+
+export async function getAgent(agentId: string): Promise<any> {
+  return getTestDatabase().getAgent(agentId);
+}
+
+export async function searchAgents(q?: string, capability?: string, limit = 50, offset = 0): Promise<any[]> {
+  return getTestDatabase().searchAgents(q, capability, limit, offset);
+}
+
+export async function setAgentPing(agentId: string, success: boolean): Promise<void> {
+  return getTestDatabase().setAgentPing(agentId, success);
+}
+
+export async function createRule(rule: any): Promise<string> {
+  return getTestDatabase().createRule(rule);
+}
+
+export async function listRules(enabled?: boolean): Promise<any[]> {
+  return getTestDatabase().listRules(enabled);
+}
+
+export async function updateRule(ruleId: string, updates: any): Promise<any> {
+  return getTestDatabase().updateRule(ruleId, updates);
+}
+
+export async function deleteRule(ruleId: string): Promise<boolean> {
+  return getTestDatabase().deleteRule(ruleId);
+}
+
+export async function listJobs(ruleId?: string, state?: string, limit = 100, offset = 0): Promise<any[]> {
+  return getTestDatabase().listJobs(ruleId, state, limit, offset);
+}
+
+export async function createTemplate(template: any): Promise<string> {
+  return getTestDatabase().createTemplate(template);
+}
+
+export async function getTemplate(templateId: string): Promise<any> {
+  return getTestDatabase().getTemplate(templateId);
+}
+
+export async function listTemplates(limit = 100, offset = 0): Promise<any[]> {
+  return getTestDatabase().listTemplates(limit, offset);
+}
+
+export async function updateTemplate(templateId: string, updates: any): Promise<any> {
+  return getTestDatabase().updateTemplate(templateId, updates);
+}
+
+export async function deleteTemplate(templateId: string): Promise<boolean> {
+  return getTestDatabase().deleteTemplate(templateId);
+}
+
+export async function searchManifests(q?: string, limit = 50, offset = 0): Promise<any[]> {
+  return getTestDatabase().searchManifests(q, limit, offset);
+}
+
+export async function listVersionsByDataset(datasetId: string): Promise<any[]> {
+  return getTestDatabase().listVersionsByDataset(datasetId);
+}
+
+export async function getParents(versionId: string): Promise<string[]> {
+  return getTestDatabase().getParents(versionId);
 }

@@ -64,7 +64,7 @@ export async function ingestSubmission(opts: {
   }
 
   // 4) Persist manifest row
-  upsertManifest(db, {
+  await upsertManifest({
     version_id: versionId,
     manifest_hash: manifestHash,
     content_hash: manifest?.content?.contentHash || null,
@@ -78,7 +78,7 @@ export async function ingestSubmission(opts: {
   });
 
   // 4) Persist declaration row
-  upsertDeclaration(db, {
+  await upsertDeclaration({
     version_id: versionId,
     txid: txid.toLowerCase(),
     type: tag,

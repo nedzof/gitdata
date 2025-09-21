@@ -20,6 +20,7 @@
 
 import Database from 'better-sqlite3';
 import { StorageDriver, StorageTier, StorageObject } from './index';
+import { isTestEnvironment } from '../db/index.js';
 
 export interface LifecycleConfig {
   // Auto-tiering thresholds (days)
@@ -160,7 +161,23 @@ export class StorageLifecycleManager {
       GROUP BY m.content_hash, m.created_at
     `;
 
-    const rows = this.db.prepare(query).all() as any[];
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    const result = await pgClient.query(`
+      SELECT
+        m.content_hash,
+        m.created_at,
+        COALESCE(SUM(r.bytes_used), 0) as total_bytes,
+        COUNT(CASE WHEN r.last_seen > NOW() - INTERVAL '1 day' THEN 1 END) as access_24h,
+        COUNT(CASE WHEN r.last_seen > NOW() - INTERVAL '7 days' THEN 1 END) as access_7d,
+        COUNT(CASE WHEN r.last_seen > NOW() - INTERVAL '30 days' THEN 1 END) as access_30d,
+        MAX(r.last_seen) as last_accessed
+      FROM manifests m
+      LEFT JOIN receipts r ON m.version_id = r.version_id
+      WHERE m.content_hash IS NOT NULL
+      GROUP BY m.content_hash, m.created_at
+    `);
+    const rows = result.rows;
     const metrics: AccessMetrics[] = [];
 
     for (const row of rows) {
@@ -284,23 +301,28 @@ export class StorageLifecycleManager {
 
   private async isOrphanedObject(contentHash: string): Promise<boolean> {
     // Check if object is referenced by any active manifest
-    const manifestCount = this.db.prepare(`
-      SELECT COUNT(*) as count
-      FROM manifests
-      WHERE content_hash = ?
-    `).get(contentHash) as { count: number };
+    let manifestCount: { count: number };
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    const result = await pgClient.query(
+      `SELECT COUNT(*) as count FROM manifests WHERE content_hash = $1`,
+      [contentHash]
+    );
+    manifestCount = result.rows[0] as { count: number };
 
     return manifestCount.count === 0;
   }
 
   private async logTieringEvent(decision: TieringDecision, status: 'success' | 'error', error?: any): Promise<void> {
     try {
-      this.db.prepare(`
+      const { getPostgreSQLClient } = await import('../db/postgresql');
+      const pgClient = getPostgreSQLClient();
+      await pgClient.query(`
         INSERT INTO storage_events (
           event_type, content_hash, from_tier, to_tier,
           reason, status, error_message, estimated_savings, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `, [
         'tiering',
         decision.contentHash,
         decision.fromTier,
@@ -310,7 +332,7 @@ export class StorageLifecycleManager {
         error ? String(error) : null,
         decision.estimatedSavings || 0,
         Date.now()
-      );
+      ]);
     } catch {
       // Ignore logging errors
     }
@@ -318,18 +340,20 @@ export class StorageLifecycleManager {
 
   private async logDeletionEvent(obj: { contentHash: string; tier: StorageTier }, reason: string): Promise<void> {
     try {
-      this.db.prepare(`
+      const { getPostgreSQLClient } = await import('../db/postgresql');
+      const pgClient = getPostgreSQLClient();
+      await pgClient.query(`
         INSERT INTO storage_events (
           event_type, content_hash, from_tier, reason, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
+        ) VALUES ($1, $2, $3, $4, $5, $6)
+      `, [
         'deletion',
         obj.contentHash,
         obj.tier,
         reason,
         'success',
         Date.now()
-      );
+      ]);
     } catch {
       // Ignore logging errors
     }
@@ -360,22 +384,26 @@ export class StorageLifecycleManager {
     }
 
     // Get recent move activity (last 24 hours)
-    const recentMoves = this.db.prepare(`
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+
+    const recentResult = await pgClient.query(`
       SELECT COUNT(*) as count
       FROM storage_events
       WHERE event_type = 'tiering'
         AND status = 'success'
-        AND created_at > ?
-    `).get(Date.now() - 24 * 60 * 60 * 1000) as { count: number };
+        AND created_at > $1
+    `, [Date.now() - 24 * 60 * 60 * 1000]);
+    const recentMoves = recentResult.rows[0] as { count: number };
 
-    // Calculate estimated monthly savings
-    const monthlySavings = this.db.prepare(`
+    const savingsResult = await pgClient.query(`
       SELECT COALESCE(SUM(estimated_savings), 0) as savings
       FROM storage_events
       WHERE event_type = 'tiering'
         AND status = 'success'
-        AND created_at > ?
-    `).get(Date.now() - 30 * 24 * 60 * 60 * 1000) as { savings: number };
+        AND created_at > $1
+    `, [Date.now() - 30 * 24 * 60 * 60 * 1000]);
+    const monthlySavings = savingsResult.rows[0] as { savings: number };
 
     return {
       tierBreakdown,
@@ -386,26 +414,51 @@ export class StorageLifecycleManager {
 }
 
 // Migration for storage events table
-export function createStorageEventsMigration(db: Database.Database): void {
+export async function createStorageEventsMigration(db?: Database.Database): Promise<void> {
   try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS storage_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        event_type TEXT NOT NULL,
-        content_hash TEXT NOT NULL,
-        from_tier TEXT,
-        to_tier TEXT,
-        reason TEXT,
-        status TEXT NOT NULL,
-        error_message TEXT,
-        estimated_savings REAL DEFAULT 0,
-        created_at INTEGER NOT NULL
-      );
+    if (isTestEnvironment() || db) {
+      const database = db!;
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS storage_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          event_type TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          from_tier TEXT,
+          to_tier TEXT,
+          reason TEXT,
+          status TEXT NOT NULL,
+          error_message TEXT,
+          estimated_savings REAL DEFAULT 0,
+          created_at INTEGER NOT NULL
+        );
 
-      CREATE INDEX IF NOT EXISTS idx_storage_events_content_hash ON storage_events(content_hash);
-      CREATE INDEX IF NOT EXISTS idx_storage_events_created_at ON storage_events(created_at);
-      CREATE INDEX IF NOT EXISTS idx_storage_events_type_status ON storage_events(event_type, status);
-    `);
+        CREATE INDEX IF NOT EXISTS idx_storage_events_content_hash ON storage_events(content_hash);
+        CREATE INDEX IF NOT EXISTS idx_storage_events_created_at ON storage_events(created_at);
+        CREATE INDEX IF NOT EXISTS idx_storage_events_type_status ON storage_events(event_type, status);
+      `);
+    } else {
+      const { getPostgreSQLClient } = await import('../db/postgresql');
+      const pgClient = getPostgreSQLClient();
+
+      await pgClient.query(`
+        CREATE TABLE IF NOT EXISTS storage_events (
+          id SERIAL PRIMARY KEY,
+          event_type TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          from_tier TEXT,
+          to_tier TEXT,
+          reason TEXT,
+          status TEXT NOT NULL,
+          error_message TEXT,
+          estimated_savings REAL DEFAULT 0,
+          created_at BIGINT NOT NULL
+        )
+      `);
+
+      await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_storage_events_content_hash ON storage_events(content_hash)`);
+      await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_storage_events_created_at ON storage_events(created_at)`);
+      await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_storage_events_type_status ON storage_events(event_type, status)`);
+    }
   } catch (error) {
     console.warn('Failed to create storage_events table:', error);
   }

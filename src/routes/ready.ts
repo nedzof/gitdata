@@ -27,9 +27,15 @@ function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
 }
 
-function getPolicy(db: Database.Database, policyId: string) {
+async function getPolicy(db: any, policyId: string) {
   try {
-    const row = db.prepare(`SELECT * FROM policies WHERE policy_id = ? AND enabled = 1`).get(policyId) as any;
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+    const result = await pgClient.query(
+      `SELECT * FROM policies WHERE policy_id = $1 AND enabled = 1`,
+      [policyId]
+    );
+    const row = result.rows[0] as any;
     return row ? JSON.parse(row.policy_json) : null;
   } catch (e) {
     return null;
@@ -123,7 +129,7 @@ export function readyRouter(db: Database.Database): Router {
 
       if (policyId) {
         try {
-          const policy = getPolicy(db, policyId);
+          const policy = await getPolicy(db, policyId);
           if (!policy) {
             return json(res, 404, { ready: false, reason: 'policy-not-found' });
           }

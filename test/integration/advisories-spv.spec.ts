@@ -107,7 +107,9 @@ describe('Advisories SPV Integration Test', () => {
   // Test 3: Expire advisory, ready should work again
   console.log('Expiring advisory...');
   const now = Math.floor(Date.now() / 1000);
-  db.prepare('UPDATE advisories SET expires_at = ? WHERE advisory_id = ?').run(now - 10, post.body.advisoryId);
+  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query('UPDATE advisories SET expires_at = $1 WHERE advisory_id = $2', [now - 10, post.body.advisoryId]);
 
   const rdy3 = await request(app).get(`/ready?versionId=${vid}`);
   expect(rdy3.status).toBe(200);
@@ -132,7 +134,7 @@ describe('Advisories SPV Integration Test', () => {
 
   // Test 5: WARN advisory should not block
   console.log('Testing WARN advisory...');
-  db.prepare('UPDATE advisories SET type = ? WHERE advisory_id = ?').run('WARN', post2.body.advisoryId);
+  await pgClient.query('UPDATE advisories SET type = $1 WHERE advisory_id = $2', ['WARN', post2.body.advisoryId]);
 
   const rdy5 = await request(app).get(`/ready?versionId=${vid}`);
   expect(rdy5.status).toBe(200);

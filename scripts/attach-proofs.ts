@@ -1,6 +1,4 @@
-import Database from 'better-sqlite3';
 import path from 'path';
-import { openDb } from '../src/db';
 import { setProofEnvelope } from '../src/db';
 import {
   loadHeaders,
@@ -147,18 +145,19 @@ async function run() {
     process.exit(1);
   }
 
-  const db = openDb(DB_PATH);
+  const { getPostgreSQLClient } = await import('../src/db/postgresql');
+  const pgClient = getPostgreSQLClient();
   const headersIdx = loadHeaders(HEADERS_FILE);
 
   // Find declarations missing proof_json
-  const sel = db.prepare<unknown[], MissingRow>(`
+  const result = await pgClient.query(`
     SELECT version_id, txid, raw_tx
     FROM declarations
     WHERE (proof_json IS NULL OR proof_json = '')
       AND txid IS NOT NULL
-    LIMIT ?
-  `);
-  const rows = sel.all(BATCH_LIMIT);
+    LIMIT $1
+  `, [BATCH_LIMIT]);
+  const rows = result.rows as MissingRow[];
   if (!rows.length) {
     console.log('No declarations missing proofs.');
     process.exit(0);
@@ -193,7 +192,7 @@ async function run() {
         continue;
       }
 
-      setProofEnvelope(db, row.version_id, JSON.stringify(env));
+      await setProofEnvelope(row.version_id, JSON.stringify(env));
       console.log(`attached (confs=${vr.confirmations ?? 0})`);
       okCount++;
 

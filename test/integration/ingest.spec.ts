@@ -709,16 +709,23 @@ describe('D23 Real-Time Event Ingestion & Certification Tests', () => {
   describe('Integration with Existing Systems', () => {
     test('should maintain compatibility with existing database schema', async () => {
       // Test that our migrations don't break existing functionality
-      const producers = db.prepare('SELECT COUNT(*) as count FROM producers').get() as { count: number };
-      const manifests = db.prepare('SELECT COUNT(*) as count FROM manifests').get() as { count: number };
+      const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+      const pgClient = getPostgreSQLClient();
+
+      const producersResult = await pgClient.query('SELECT COUNT(*) as count FROM producers');
+      const manifestsResult = await pgClient.query('SELECT COUNT(*) as count FROM manifests');
+
+      const producers = producersResult.rows[0];
+      const manifests = manifestsResult.rows[0];
 
       // These should work without errors (empty but accessible)
-      expect(producers.count).toBe(0);
-      expect(manifests.count).toBe(0);
+      expect(parseInt(producers.count)).toBe(0);
+      expect(parseInt(manifests.count)).toBe(0);
 
       // Ingest tables should exist and be functional
-      const sources = db.prepare('SELECT COUNT(*) as count FROM ingest_sources').get() as { count: number };
-      expect(sources.count).toBe(2);
+      const sourcesResult = await pgClient.query('SELECT COUNT(*) as count FROM ingest_sources');
+      const sources = sourcesResult.rows[0];
+      expect(parseInt(sources.count)).toBe(2);
     });
 
     test('should generate content hashes compatible with storage system', async () => {
