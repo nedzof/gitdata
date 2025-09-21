@@ -178,7 +178,7 @@ export class HybridDatabase {
     if (existingId) {
       // Update existing producer
       await this.pg.query(
-        'UPDATE producers SET name = COALESCE($1, name), website = COALESCE($2, website) WHERE producer_id = $3',
+        'UPDATE producers SET display_name = COALESCE($1, display_name), website = COALESCE($2, website) WHERE producer_id = $3',
         [producer.name, producer.website, existingId]
       );
 

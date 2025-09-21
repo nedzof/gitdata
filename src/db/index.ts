@@ -414,6 +414,172 @@ export async function setProofEnvelope(versionId: string, envelopeJson: string):
   );
 }
 
+// Advisory management functions
+// Overloaded function signatures for insertAdvisory
+export function insertAdvisory(db: any, advisory: Partial<AdvisoryRow>): void;
+export function insertAdvisory(advisory: Partial<AdvisoryRow>): Promise<void>;
+export function insertAdvisory(dbOrAdvisory: any, advisory?: Partial<AdvisoryRow>): void | Promise<void> {
+  // Check if first parameter is a database (has prepare method) or an advisory
+  if (dbOrAdvisory && dbOrAdvisory.prepare && typeof dbOrAdvisory.prepare === 'function') {
+    // Legacy signature: insertAdvisory(db, advisory)
+    const db = dbOrAdvisory;
+    const advisoryData = advisory!;
+    const stmt = db.prepare(`
+      INSERT INTO advisories (advisory_id, type, reason, created_at, expires_at, payload_json)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      advisoryData.advisory_id,
+      advisoryData.type,
+      advisoryData.reason,
+      advisoryData.created_at,
+      advisoryData.expires_at,
+      advisoryData.payload_json
+    );
+    return;
+  } else {
+    // Modern signature: insertAdvisory(advisory) - async
+    const advisoryData = dbOrAdvisory as Partial<AdvisoryRow>;
+    return insertAdvisoryPostgreSQL(advisoryData);
+  }
+}
+
+async function insertAdvisoryPostgreSQL(advisory: Partial<AdvisoryRow>): Promise<void> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  console.log('[insertAdvisory] Inserting advisory:', advisory);
+  await pgClient.query(`
+    INSERT INTO advisories (advisory_id, type, reason, created_at, expires_at, payload_json)
+    VALUES ($1, $2, $3, $4, $5, $6)
+  `, [
+    advisory.advisory_id,
+    advisory.type,
+    advisory.reason,
+    advisory.created_at,
+    advisory.expires_at,
+    advisory.payload_json
+  ]);
+  console.log('[insertAdvisory] Advisory inserted successfully');
+}
+
+// Overloaded function signatures for insertAdvisoryTargets
+export function insertAdvisoryTargets(db: any, advisoryId: string, targets: Array<{ version_id?: string | null; producer_id?: string | null }>): void;
+export function insertAdvisoryTargets(advisoryId: string, targets: Array<{ version_id?: string | null; producer_id?: string | null }>): Promise<void>;
+export function insertAdvisoryTargets(dbOrAdvisoryId: any, advisoryIdOrTargets?: string | Array<{ version_id?: string | null; producer_id?: string | null }>, targets?: Array<{ version_id?: string | null; producer_id?: string | null }>): void | Promise<void> {
+  // Check if first parameter is a database (has prepare method)
+  if (dbOrAdvisoryId && dbOrAdvisoryId.prepare && typeof dbOrAdvisoryId.prepare === 'function') {
+    // Legacy signature: insertAdvisoryTargets(db, advisoryId, targets)
+    const db = dbOrAdvisoryId;
+    const advisoryId = advisoryIdOrTargets as string;
+    const targetsData = targets!;
+
+    const stmt = db.prepare(`
+      INSERT INTO advisory_targets (advisory_id, version_id, producer_id)
+      VALUES (?, ?, ?)
+    `);
+
+    for (const target of targetsData) {
+      stmt.run(advisoryId, target.version_id, target.producer_id);
+    }
+    return;
+  } else {
+    // Modern signature: insertAdvisoryTargets(advisoryId, targets) - async
+    const advisoryId = dbOrAdvisoryId as string;
+    const targetsData = advisoryIdOrTargets as Array<{ version_id?: string | null; producer_id?: string | null }>;
+    return insertAdvisoryTargetsPostgreSQL(advisoryId, targetsData);
+  }
+}
+
+async function insertAdvisoryTargetsPostgreSQL(advisoryId: string, targets: Array<{ version_id?: string | null; producer_id?: string | null }>): Promise<void> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  console.log('[insertAdvisoryTargets] Inserting targets for advisory:', advisoryId, targets);
+  for (const target of targets) {
+    await pgClient.query(`
+      INSERT INTO advisory_targets (advisory_id, version_id, producer_id)
+      VALUES ($1, $2, $3)
+    `, [advisoryId, target.version_id, target.producer_id]);
+  }
+  console.log('[insertAdvisoryTargets] All targets inserted successfully');
+}
+
+// Async PostgreSQL advisory functions
+export async function listAdvisoriesForVersionActiveAsync(versionId: string, now: number): Promise<AdvisoryRow[]> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  const result = await pgClient.query(`
+    SELECT a.* FROM advisories a
+    JOIN advisory_targets t ON a.advisory_id = t.advisory_id
+    WHERE t.version_id = $1 AND (a.expires_at IS NULL OR a.expires_at > $2)
+  `, [versionId, now]);
+
+  return result.rows as AdvisoryRow[];
+}
+
+export async function listAdvisoriesForProducerActiveAsync(producerId: string, now: number): Promise<AdvisoryRow[]> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  const result = await pgClient.query(`
+    SELECT a.* FROM advisories a
+    JOIN advisory_targets t ON a.advisory_id = t.advisory_id
+    WHERE t.producer_id = $1 AND (a.expires_at IS NULL OR a.expires_at > $2)
+  `, [producerId, now]);
+
+  return result.rows as AdvisoryRow[];
+}
+
+export async function getProducerIdForVersionAsync(versionId: string): Promise<string | null> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  const result = await pgClient.query('SELECT producer_id FROM manifests WHERE version_id = $1', [versionId]);
+  return result.rows[0]?.producer_id || null;
+}
+
+// Legacy sync functions for SQLite compatibility
+export function listAdvisoriesForVersionActive(db: any, versionId: string, now: number): AdvisoryRow[] {
+  if (!db || typeof db.prepare !== 'function') {
+    console.warn('[listAdvisoriesForVersionActive] This function needs to be converted to async for PostgreSQL');
+    return [];
+  }
+
+  const stmt = db.prepare(`
+    SELECT a.* FROM advisories a
+    JOIN advisory_targets t ON a.advisory_id = t.advisory_id
+    WHERE t.version_id = ? AND (a.expires_at IS NULL OR a.expires_at > ?)
+  `);
+  return stmt.all(versionId, now) as AdvisoryRow[];
+}
+
+export function listAdvisoriesForProducerActive(db: any, producerId: string, now: number): AdvisoryRow[] {
+  if (!db || typeof db.prepare !== 'function') {
+    console.warn('[listAdvisoriesForProducerActive] This function needs to be converted to async for PostgreSQL');
+    return [];
+  }
+
+  const stmt = db.prepare(`
+    SELECT a.* FROM advisories a
+    JOIN advisory_targets t ON a.advisory_id = t.advisory_id
+    WHERE t.producer_id = ? AND (a.expires_at IS NULL OR a.expires_at > ?)
+  `);
+  return stmt.all(producerId, now) as AdvisoryRow[];
+}
+
+export function getProducerIdForVersion(db: any, versionId: string): string | null {
+  if (!db || typeof db.prepare !== 'function') {
+    console.warn('[getProducerIdForVersion] This function needs to be converted to async for PostgreSQL');
+    return null;
+  }
+
+  const stmt = db.prepare('SELECT producer_id FROM manifests WHERE version_id = ?');
+  const result = stmt.get(versionId) as { producer_id?: string } | undefined;
+  return result?.producer_id || null;
+}
+
 // Additional functions that need PostgreSQL implementation
 export async function listListings(limit = 50, offset = 0): Promise<any[]> {
   const { getPostgreSQLClient } = await import('./postgresql');

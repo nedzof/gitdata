@@ -16,18 +16,15 @@ import { initAdvisoryValidator, validateAdvisory } from '../validators/advisory'
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
 export function advisoriesRouter(testDb?: Database.Database): Router {
-  // Get appropriate database
+  // Get appropriate database - use testDb for SQLite compatibility, otherwise use PostgreSQL
   const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
   const router = makeRouter();
   initAdvisoryValidator();
 
   // POST /advisories
   // Body: { type:'BLOCK'|'WARN', reason:string, expiresAt?:number, payload?:object, targets:{ versionIds?:string[], producerIds?:string[] } }
-  router.post('/advisories', (req: Request, res: Response) => {
+  router.post('/advisories', async (req: Request, res: Response) => {
     try {
-      if (!db) {
-        return json(res, 501, { error: 'not-implemented', message: 'Advisories not yet implemented for PostgreSQL' });
-      }
 
       const { type, reason, expiresAt, payload, targets } = req.body || {};
       if (type !== 'BLOCK' && type !== 'WARN') return json(res, 400, { error: 'bad-request', hint: 'type must be BLOCK or WARN' });
@@ -54,7 +51,6 @@ export function advisoriesRouter(testDb?: Database.Database): Router {
         expires_at: typeof expiresAt === 'number' ? Number(expiresAt) : null,
         payload_json: payload ? JSON.stringify(payload) : null,
       };
-      insertAdvisory(db, advRow);
 
       const tgtList: { version_id?: string | null; producer_id?: string | null }[] = [];
       if (targets && typeof targets === 'object') {
@@ -69,18 +65,24 @@ export function advisoriesRouter(testDb?: Database.Database): Router {
       }
       if (tgtList.length === 0) return json(res, 400, { error: 'bad-request', hint: 'at least one target (versionIds or producerIds) required' });
 
-      insertAdvisoryTargets(db, advisoryId, tgtList);
+      if (db) {
+        // Use SQLite for test database
+        insertAdvisory(db, advRow);
+        insertAdvisoryTargets(db, advisoryId, tgtList);
+      } else {
+        // Use PostgreSQL for production
+        await insertAdvisory(advRow);
+        await insertAdvisoryTargets(advisoryId, tgtList);
+      }
       return json(res, 200, { status: 'ok', advisoryId });
     } catch (e: any) {
-      return json(res, 500, { error: 'advisory-create-failed', message: String(e?.message || e) });
+      console.error('[advisories POST] Error details:', e);
+      return json(res, 500, { error: 'advisory-create-failed', message: String(e?.message || e), stack: e?.stack });
     }
   });
 
   // GET /advisories?versionId=... | /advisories?producerId=...
-  router.get('/advisories', (req: Request, res: Response) => {
-    if (!db) {
-      return json(res, 501, { error: 'not-implemented', message: 'Advisories not yet implemented for PostgreSQL' });
-    }
+  router.get('/advisories', async (req: Request, res: Response) => {
 
     const versionId = req.query.versionId ? String(req.query.versionId).toLowerCase() : undefined;
     const producerId = req.query.producerId ? String(req.query.producerId) : undefined;
@@ -89,13 +91,40 @@ export function advisoriesRouter(testDb?: Database.Database): Router {
 
     try {
       let list: AdvisoryRow[] = [];
-      if (versionId) {
-        list = listAdvisoriesForVersionActive(db, versionId, now);
-        // Also check producer-scoped advisories for this version's producer
-        const pid = getProducerIdForVersion(db, versionId);
-        if (pid) list = list.concat(listAdvisoriesForProducerActive(db, pid, now));
+
+      if (db) {
+        // Use SQLite for test database
+        if (versionId) {
+          list = listAdvisoriesForVersionActive(db, versionId, now);
+          // Also check producer-scoped advisories for this version's producer
+          const pid = getProducerIdForVersion(db, versionId);
+          if (pid) list = list.concat(listAdvisoriesForProducerActive(db, pid, now));
+        }
+        if (producerId) list = list.concat(listAdvisoriesForProducerActive(db, producerId, now));
+      } else {
+        // Use PostgreSQL for production
+        const { listAdvisoriesForVersionActiveAsync, listAdvisoriesForProducerActiveAsync, getProducerIdForVersionAsync } = await import('../db');
+
+        if (versionId) {
+          console.log(`[advisories GET] Looking for advisories for versionId: ${versionId}, now: ${now}`);
+          list = await listAdvisoriesForVersionActiveAsync(versionId, now);
+          console.log(`[advisories GET] Found ${list.length} version-scoped advisories`);
+
+          // Also check producer-scoped advisories for this version's producer
+          const pid = await getProducerIdForVersionAsync(versionId);
+          console.log(`[advisories GET] Producer ID for version: ${pid}`);
+          if (pid) {
+            const producerAdvs = await listAdvisoriesForProducerActiveAsync(pid, now);
+            console.log(`[advisories GET] Found ${producerAdvs.length} producer-scoped advisories`);
+            list = list.concat(producerAdvs);
+          }
+        }
+        if (producerId) {
+          const producerAdvs = await listAdvisoriesForProducerActiveAsync(producerId, now);
+          list = list.concat(producerAdvs);
+        }
       }
-      if (producerId) list = list.concat(listAdvisoriesForProducerActive(db, producerId, now));
+
       // De-dupe by advisory_id
       const map = new Map<string, AdvisoryRow>();
       for (const a of list) map.set(a.advisory_id, a);
