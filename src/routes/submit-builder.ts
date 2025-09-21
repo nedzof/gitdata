@@ -121,6 +121,78 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
           if (manifest.parents && manifest.parents.length > 0) {
             await db.replaceEdges(versionId, manifest.parents);
           }
+
+          // Create OpenLineage event for lineage tracking
+          try {
+            const olEvent = {
+              eventType: 'COMPLETE' as const,
+              eventTime: manifest.provenance?.createdAt || new Date().toISOString(),
+              producer: 'gitdata-overlay',
+              job: {
+                namespace: 'overlay',
+                name: 'asset-publish',
+                facets: {
+                  sourceCode: {
+                    language: 'typescript',
+                    sourceCodeLocation: 'submit-builder.ts'
+                  }
+                }
+              },
+              run: {
+                runId: `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                facets: {
+                  parent: {
+                    run: {
+                      runId: `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+                    },
+                    job: {
+                      namespace: 'overlay',
+                      name: 'asset-publish'
+                    }
+                  }
+                }
+              },
+              inputs: (manifest.parents || []).map((parentId: string) => ({
+                namespace: 'overlay',
+                name: parentId,
+                facets: {
+                  dataSource: {
+                    name: parentId,
+                    uri: `asset://${parentId}`
+                  }
+                }
+              })),
+              outputs: [{
+                namespace: 'overlay',
+                name: versionId,
+                facets: {
+                  dataSource: {
+                    name: manifest.datasetId || versionId,
+                    uri: `asset://${versionId}`
+                  },
+                  schema: {
+                    fields: [
+                      {
+                        name: 'contentHash',
+                        type: 'string',
+                        description: 'SHA256 hash of asset content'
+                      },
+                      {
+                        name: 'datasetId',
+                        type: 'string',
+                        description: 'Dataset identifier'
+                      }
+                    ]
+                  }
+                }
+              }]
+            };
+
+            await db.ingestOpenLineageEvent(olEvent);
+            console.log('[submit-builder] Created OpenLineage event for asset:', versionId);
+          } catch (olError) {
+            console.warn('[submit-builder] Failed to create OpenLineage event:', olError);
+          }
         } catch (error) {
           // Log error but don't fail the submission since this is for testing
           console.warn('Failed to store manifest in database:', error);

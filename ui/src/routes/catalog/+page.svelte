@@ -3,6 +3,7 @@
   import { api } from '$lib/api';
 
   let assets = [];
+  let availableAssets = []; // For parent selection
   let loading = true;
   let searchQuery = '';
   let selectedType = 'all'; // 'all', 'data', 'ai'
@@ -14,7 +15,8 @@
     description: '',
     type: 'data',
     tags: '',
-    content: null
+    content: null,
+    parents: [] // Array of parent asset IDs for lineage
   };
 
   onMount(async () => {
@@ -24,11 +26,23 @@
   async function loadAssets() {
     try {
       loading = true;
-      // No catalog assets endpoint exists, so just initialize empty
+      // Load published assets for display
       assets = [];
+
+      // Load available assets for parent selection from search endpoint
+      try {
+        const searchResponse = await api.request('/search', {
+          method: 'GET'
+        });
+        availableAssets = searchResponse.results || [];
+      } catch (searchError) {
+        console.log('Search endpoint not available yet, using empty list for parents');
+        availableAssets = [];
+      }
     } catch (error) {
       console.error('Failed to load assets:', error);
       assets = [];
+      availableAssets = [];
     } finally {
       loading = false;
     }
@@ -71,7 +85,7 @@
           mediaType: publishData.type === 'data' ? 'application/json' : 'application/octet-stream',
           sizeBytes: publishData.content ? publishData.content.size : 1024
         },
-        parents: [],
+        parents: publishData.parents || [],
         tags: publishData.tags.split(',').map(tag => tag.trim()).filter(tag => tag)
       };
 
@@ -86,7 +100,7 @@
       console.log('Published successfully:', response);
 
       // Reset form
-      publishData = { name: '', description: '', type: 'data', tags: '', content: null };
+      publishData = { name: '', description: '', type: 'data', tags: '', content: null, parents: [] };
       showPublishForm = false;
       alert('Asset published successfully!');
     } catch (error) {
@@ -164,6 +178,45 @@
             placeholder="finance, csv, quarterly"
             class="form-input"
           />
+        </div>
+        <div class="form-group">
+          <label for="parents">Parent Assets (for lineage tracking)</label>
+          <div class="parent-selection">
+            {#if availableAssets.length > 0}
+              <div class="parent-options">
+                {#each availableAssets as asset}
+                  <label class="parent-option">
+                    <input
+                      type="checkbox"
+                      value={asset.version_id}
+                      bind:group={publishData.parents}
+                      class="parent-checkbox"
+                    />
+                    <span class="parent-label">
+                      <strong>{asset.title || asset.dataset_id || asset.version_id?.slice(0, 8)}</strong>
+                      {#if asset.title && asset.dataset_id}
+                        <small>({asset.dataset_id})</small>
+                      {/if}
+                    </span>
+                  </label>
+                {/each}
+              </div>
+            {:else}
+              <p class="no-parents">No existing assets available for lineage. This will be the first asset.</p>
+            {/if}
+            {#if publishData.parents.length > 0}
+              <div class="selected-parents">
+                <strong>Selected parents:</strong>
+                {#each publishData.parents as parentId}
+                  <span class="selected-parent-tag">
+                    {availableAssets.find(a => a.version_id === parentId)?.title ||
+                     availableAssets.find(a => a.version_id === parentId)?.dataset_id ||
+                     parentId?.slice(0, 8)}
+                  </span>
+                {/each}
+              </div>
+            {/if}
+          </div>
         </div>
         <div class="form-group">
           <label for="content">File (optional)</label>
@@ -579,6 +632,91 @@
   .asset-link.primary:hover {
     background: #2ea043;
     text-decoration: none;
+  }
+
+  /* Parent selection styles */
+  .parent-selection {
+    margin-top: 8px;
+  }
+
+  .parent-options {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 12px;
+    background: #0d1117;
+  }
+
+  .parent-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .parent-option:hover {
+    background: #21262d;
+  }
+
+  .parent-checkbox {
+    margin: 0;
+    accent-color: #58a6ff;
+  }
+
+  .parent-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .parent-label strong {
+    color: #f0f6fc;
+    font-size: 14px;
+  }
+
+  .parent-label small {
+    color: #8b949e;
+    font-size: 12px;
+  }
+
+  .no-parents {
+    color: #8b949e;
+    font-size: 14px;
+    text-align: center;
+    padding: 20px;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    background: #0d1117;
+  }
+
+  .selected-parents {
+    margin-top: 12px;
+    padding: 12px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+  }
+
+  .selected-parents strong {
+    color: #f0f6fc;
+    font-size: 14px;
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  .selected-parent-tag {
+    display: inline-block;
+    background: #1f6feb;
+    color: #ffffff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-right: 6px;
+    margin-bottom: 4px;
   }
 
   @media (max-width: 768px) {
