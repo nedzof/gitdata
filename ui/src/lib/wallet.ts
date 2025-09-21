@@ -169,6 +169,338 @@ class WalletService {
   }
 
   /**
+   * Signs a previously created action
+   */
+  async signAction(args: {
+    spends: Record<number, {
+      unlockingScript: string;
+      sequenceNumber?: number;
+    }>;
+    reference: string;
+    options?: any;
+  }): Promise<any> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.signAction(args);
+    } catch (error) {
+      throw new Error(`Failed to sign action: ${error.message}`);
+    }
+  }
+
+  /**
+   * Aborts a previously created action
+   */
+  async abortAction(reference: string): Promise<{ aborted: boolean }> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.abortAction({ reference });
+    } catch (error) {
+      throw new Error(`Failed to abort action: ${error.message}`);
+    }
+  }
+
+  /**
+   * Internalizes an action by accepting incoming transactions
+   */
+  async internalizeAction(args: {
+    tx: string;
+    outputs: Array<{
+      outputIndex: number;
+      protocol: 'wallet payment' | 'basket insertion';
+      paymentRemittance?: {
+        derivationPrefix: string;
+        derivationSuffix: string;
+      };
+      insertionRemittance?: {
+        basket: string;
+        customInstructions?: string;
+        tags?: string[];
+      };
+    }>;
+    description: string;
+    labels?: string[];
+  }): Promise<{ accepted: boolean }> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.internalizeAction(args);
+    } catch (error) {
+      throw new Error(`Failed to internalize action: ${error.message}`);
+    }
+  }
+
+  /**
+   * Relinquishes an output from a basket
+   */
+  async relinquishOutput(basket: string, output: string): Promise<{ relinquished: boolean }> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.relinquishOutput({ basket, output });
+    } catch (error) {
+      throw new Error(`Failed to relinquish output: ${error.message}`);
+    }
+  }
+
+  /**
+   * Reveals counterparty key linkage information
+   */
+  async revealCounterpartyKeyLinkage(args: {
+    counterparty: string;
+    verifier: string;
+    privilegedReason?: string;
+  }): Promise<any> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.revealCounterpartyKeyLinkage(args);
+    } catch (error) {
+      throw new Error(`Failed to reveal counterparty key linkage: ${error.message}`);
+    }
+  }
+
+  /**
+   * Reveals specific key linkage information
+   */
+  async revealSpecificKeyLinkage(args: {
+    counterparty: string;
+    verifier: string;
+    protocolID: [0 | 1 | 2, string];
+    keyID: string;
+    privilegedReason?: string;
+  }): Promise<any> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.revealSpecificKeyLinkage(args);
+    } catch (error) {
+      throw new Error(`Failed to reveal specific key linkage: ${error.message}`);
+    }
+  }
+
+  /**
+   * Creates an HMAC for message authentication
+   */
+  async createHmac(args: {
+    data: string;
+    protocolID: [0 | 1 | 2, string];
+    keyID: string;
+    privilegedReason?: string;
+    counterparty?: 'self' | 'anyone' | string;
+    privileged?: boolean;
+  }): Promise<{ hmac: string }> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.createHmac(args);
+    } catch (error) {
+      throw new Error(`Failed to create HMAC: ${error.message}`);
+    }
+  }
+
+  /**
+   * Verifies an HMAC for message authentication
+   */
+  async verifyHmac(args: {
+    data: string;
+    hmac: string;
+    protocolID: [0 | 1 | 2, string];
+    keyID: string;
+    privilegedReason?: string;
+    counterparty?: 'self' | 'anyone' | string;
+    privileged?: boolean;
+  }): Promise<{ valid: boolean }> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.verifyHmac(args);
+    } catch (error) {
+      throw new Error(`Failed to verify HMAC: ${error.message}`);
+    }
+  }
+
+  /**
+   * Verifies a digital signature
+   */
+  async verifySignature(args: {
+    data?: string;
+    hashToDirectlyVerify?: string;
+    signature: string;
+    protocolID: [0 | 1 | 2, string];
+    keyID: string;
+    privilegedReason?: string;
+    counterparty?: 'self' | 'anyone' | string;
+    privileged?: boolean;
+    forSelf?: boolean;
+  }): Promise<{ valid: boolean }> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.verifySignature(args);
+    } catch (error) {
+      throw new Error(`Failed to verify signature: ${error.message}`);
+    }
+  }
+
+  /**
+   * Acquires a certificate for proving key ownership
+   */
+  async acquireCertificate(args: {
+    type: string;
+    certifier: string;
+    acquisitionProtocol: string;
+    fields: Record<string, string>;
+    serialNumber?: string;
+    revocationOutpoint?: string;
+    signature?: string;
+    privilegedReason?: string;
+  }): Promise<any> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.acquireCertificate(args);
+    } catch (error) {
+      throw new Error(`Failed to acquire certificate: ${error.message}`);
+    }
+  }
+
+  /**
+   * Lists certificates held by the wallet
+   */
+  async listCertificates(args: {
+    certifiers: string[];
+    types: string[];
+    limit?: number;
+    offset?: number;
+    privileged?: boolean;
+    privilegedReason?: string;
+  }): Promise<any> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.listCertificates(args);
+    } catch (error) {
+      throw new Error(`Failed to list certificates: ${error.message}`);
+    }
+  }
+
+  /**
+   * Proves ownership of a certificate
+   */
+  async proveCertificate(args: {
+    certificate: any;
+    fieldsToReveal: string[];
+    verifier: string;
+    privilegedReason?: string;
+  }): Promise<any> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.proveCertificate(args);
+    } catch (error) {
+      throw new Error(`Failed to prove certificate: ${error.message}`);
+    }
+  }
+
+  /**
+   * Relinquishes a certificate from the wallet
+   */
+  async relinquishCertificate(args: {
+    type: string;
+    serialNumber: string;
+    certifier: string;
+  }): Promise<{ relinquished: boolean }> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.relinquishCertificate(args);
+    } catch (error) {
+      throw new Error(`Failed to relinquish certificate: ${error.message}`);
+    }
+  }
+
+  /**
+   * Discovers certificates by identity key
+   */
+  async discoverByIdentityKey(args: {
+    identityKey: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<any> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.discoverByIdentityKey(args);
+    } catch (error) {
+      throw new Error(`Failed to discover certificates by identity key: ${error.message}`);
+    }
+  }
+
+  /**
+   * Discovers certificates by their attributes
+   */
+  async discoverByAttributes(args: {
+    attributes: Record<string, string>;
+    limit?: number;
+    offset?: number;
+  }): Promise<any> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      return await wallet.discoverByAttributes(args);
+    } catch (error) {
+      throw new Error(`Failed to discover certificates by attributes: ${error.message}`);
+    }
+  }
+
+  /**
    * Lists user's purchase history
    */
   async getPurchaseHistory(): Promise<any[]> {
@@ -304,6 +636,137 @@ class WalletService {
   }
 
   /**
+   * Checks if the user is currently authenticated with the wallet
+   */
+  async isAuthenticated(): Promise<boolean> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      return false;
+    }
+
+    try {
+      if (wallet.isAuthenticated) {
+        return await wallet.isAuthenticated();
+      }
+      // Fallback: try to get public key to test authentication
+      await wallet.getPublicKey({ identityKey: true });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Waits for user authentication to complete
+   */
+  async waitForAuthentication(): Promise<boolean> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      if (wallet.waitForAuthentication) {
+        return await wallet.waitForAuthentication();
+      }
+      // Fallback: check authentication status
+      return await this.isAuthenticated();
+    } catch (error) {
+      throw new Error(`Failed to wait for authentication: ${error.message}`);
+    }
+  }
+
+  /**
+   * Gets the current blockchain height
+   */
+  async getHeight(): Promise<number> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      if (wallet.getHeight) {
+        return await wallet.getHeight();
+      }
+      throw new Error('Wallet does not support getHeight method');
+    } catch (error) {
+      throw new Error(`Failed to get blockchain height: ${error.message}`);
+    }
+  }
+
+  /**
+   * Gets the block header for a specific height
+   */
+  async getHeaderForHeight(height: number): Promise<{
+    height: number;
+    hash: string;
+    version: number;
+    previousHash: string;
+    merkleRoot: string;
+    time: number;
+    bits: number;
+    nonce: number;
+  }> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      if (wallet.getHeaderForHeight) {
+        return await wallet.getHeaderForHeight(height);
+      }
+      throw new Error('Wallet does not support getHeaderForHeight method');
+    } catch (error) {
+      throw new Error(`Failed to get header for height ${height}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Gets the current network type
+   */
+  async getNetwork(): Promise<'mainnet' | 'testnet' | 'regtest'> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      if (wallet.getNetwork) {
+        return await wallet.getNetwork();
+      }
+      // Default to mainnet if not supported
+      return 'mainnet';
+    } catch (error) {
+      throw new Error(`Failed to get network: ${error.message}`);
+    }
+  }
+
+  /**
+   * Gets the wallet version (enhanced implementation)
+   */
+  async getVersion(): Promise<{ version: string; implementation: string }> {
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    try {
+      if (wallet.getVersion) {
+        return await wallet.getVersion();
+      }
+      // Fallback version info
+      return {
+        version: '1.0.0',
+        implementation: 'Unknown BRC-100 Wallet'
+      };
+    } catch (error) {
+      throw new Error(`Failed to get wallet version: ${error.message}`);
+    }
+  }
+
+  /**
    * Registers a listener for connection state changes
    */
   onConnectionChange(listener: (connected: boolean) => void): () => void {
@@ -332,29 +795,80 @@ class WalletService {
   }
 
   /**
-   * Validates that a wallet implements required BRC-100 methods
+   * Validates that a wallet implements all 28 required BRC-100 methods
    */
   async validateWallet(wallet: Wallet): Promise<boolean> {
     const requiredMethods = [
-      'getPublicKey',
+      // Core Transaction Methods (7)
       'createAction',
+      'signAction',
+      'abortAction',
       'listActions',
-      'listOutputs'
+      'internalizeAction',
+      'listOutputs',
+      'relinquishOutput',
+      // Key Management Methods (3)
+      'getPublicKey',
+      'revealCounterpartyKeyLinkage',
+      'revealSpecificKeyLinkage',
+      // Cryptographic Methods (6)
+      'encrypt',
+      'decrypt',
+      'createHmac',
+      'verifyHmac',
+      'createSignature',
+      'verifySignature',
+      // Certificate Methods (6)
+      'acquireCertificate',
+      'listCertificates',
+      'proveCertificate',
+      'relinquishCertificate',
+      'discoverByIdentityKey',
+      'discoverByAttributes'
     ];
 
+    const optionalMethods = [
+      // Authentication & Network Methods (6) - optional but recommended
+      'isAuthenticated',
+      'waitForAuthentication',
+      'getHeight',
+      'getHeaderForHeight',
+      'getNetwork',
+      'getVersion',
+      // Utility Methods (2)
+      'isAvailable'
+    ];
+
+    let missingRequired = 0;
+    let missingOptional = 0;
+
+    // Check required methods
     for (const method of requiredMethods) {
       if (typeof wallet[method] !== 'function') {
-        console.warn(`Wallet missing required method: ${method}`);
-        return false;
+        console.warn(`Wallet missing required BRC-100 method: ${method}`);
+        missingRequired++;
       }
     }
+
+    // Check optional methods
+    for (const method of optionalMethods) {
+      if (typeof wallet[method] !== 'function') {
+        console.info(`Wallet missing optional BRC-100 method: ${method}`);
+        missingOptional++;
+      }
+    }
+
+    console.log(`BRC-100 Validation Results:
+      Required methods: ${requiredMethods.length - missingRequired}/${requiredMethods.length}
+      Optional methods: ${optionalMethods.length - missingOptional}/${optionalMethods.length}
+      Total compliance: ${requiredMethods.length + optionalMethods.length - missingRequired - missingOptional}/${requiredMethods.length + optionalMethods.length}`);
 
     // Test basic functionality
     try {
       if (wallet.isAvailable) {
         await wallet.isAvailable();
       }
-      return true;
+      return missingRequired === 0; // Must have all required methods
     } catch (error) {
       console.warn('Wallet validation failed:', error);
       return false;

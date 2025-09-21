@@ -486,6 +486,40 @@ export interface Wallet {
     version: string;
     implementation: string;
   }>;
+
+  /**
+   * Checks if the user is currently authenticated with the wallet.
+   */
+  isAuthenticated?: () => Promise<boolean>;
+
+  /**
+   * Waits for user authentication to complete.
+   */
+  waitForAuthentication?: () => Promise<boolean>;
+
+  /**
+   * Gets the current blockchain height.
+   */
+  getHeight?: () => Promise<number>;
+
+  /**
+   * Gets the block header for a specific height.
+   */
+  getHeaderForHeight?: (height: number) => Promise<{
+    height: number;
+    hash: HexString;
+    version: number;
+    previousHash: HexString;
+    merkleRoot: HexString;
+    time: number;
+    bits: number;
+    nonce: number;
+  }>;
+
+  /**
+   * Gets the current network type.
+   */
+  getNetwork?: () => Promise<'mainnet' | 'testnet' | 'regtest'>;
 }
 
 // Global window interface extension for browser wallets
