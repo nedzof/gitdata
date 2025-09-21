@@ -303,6 +303,24 @@ export async function getProducerById(producerId: string): Promise<ProducerRow |
   return await hybridDb.getProducer(producerId);
 }
 
+export async function getProducerByDatasetId(datasetId: string): Promise<ProducerRow | null> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  // Get producer_id from manifests table using datasetId
+  const result = await pgClient.query(
+    'SELECT producer_id FROM manifests WHERE dataset_id = $1 LIMIT 1',
+    [datasetId]
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  // Get full producer details
+  return await getProducerById(result.rows[0].producer_id);
+}
+
 export async function replaceEdges(child: string, parents: string[]): Promise<void> {
   const { getHybridDatabase } = await import('./hybrid');
   const hybridDb = getHybridDatabase();
@@ -580,6 +598,166 @@ export function getProducerIdForVersion(db: any, versionId: string): string | nu
   return result?.producer_id || null;
 }
 
+// Pricing functions
+export async function getBestUnitPrice(versionId: string, quantity: number, defaultSats: number): Promise<{ satoshis: number; source: string; tier_from?: number }>;
+export function getBestUnitPrice(db: any, versionId: string, quantity: number, defaultSats: number): { satoshis: number; source: string; tier_from?: number };
+export function getBestUnitPrice(dbOrVersionId: any, versionIdOrQuantity?: string | number, quantityOrDefault?: number, defaultSats2?: number): any {
+  // Check if first parameter is a database (has prepare method)
+  if (dbOrVersionId && dbOrVersionId.prepare && typeof dbOrVersionId.prepare === 'function') {
+    // Legacy signature: getBestUnitPrice(db, versionId, quantity, defaultSats)
+    const db = dbOrVersionId;
+    const versionId = versionIdOrQuantity as string;
+    const quantity = quantityOrDefault!;
+    const defaultSats = defaultSats2!;
+
+    // SQLite implementation for tests
+    // First check for direct price override in prices table
+    const priceStmt = db.prepare('SELECT satoshis FROM prices WHERE version_id = ?');
+    const priceResult = priceStmt.get(versionId) as { satoshis: number } | undefined;
+
+    if (priceResult) {
+      return { satoshis: priceResult.satoshis, source: 'direct' };
+    }
+
+    // Then check price rules
+    const ruleStmt = db.prepare(`
+      SELECT satoshis, tier_from FROM price_rules
+      WHERE (version_id = ? OR producer_id = (SELECT producer_id FROM manifests WHERE version_id = ?))
+        AND tier_from <= ?
+      ORDER BY tier_from DESC LIMIT 1
+    `);
+    const ruleResult = ruleStmt.get(versionId, versionId, quantity) as { satoshis: number; tier_from: number } | undefined;
+
+    if (ruleResult) {
+      return { satoshis: ruleResult.satoshis, source: 'rule', tier_from: ruleResult.tier_from };
+    }
+
+    return { satoshis: defaultSats, source: 'default' };
+  } else {
+    // Modern signature: getBestUnitPrice(versionId, quantity, defaultSats) - async
+    return getBestUnitPricePostgreSQL(dbOrVersionId as string, versionIdOrQuantity as number, quantityOrDefault!);
+  }
+}
+
+async function getBestUnitPricePostgreSQL(versionId: string, quantity: number, defaultSats: number): Promise<{ satoshis: number; source: string; tier_from?: number }> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  // First check for direct price override in prices table
+  const priceResult = await pgClient.query(
+    'SELECT satoshis FROM prices WHERE version_id = $1',
+    [versionId]
+  );
+
+  if (priceResult.rows.length > 0) {
+    return { satoshis: priceResult.rows[0].satoshis, source: 'direct' };
+  }
+
+  // Then check price rules
+  const ruleResult = await pgClient.query(`
+    SELECT satoshis, tier_from FROM price_rules
+    WHERE (version_id = $1 OR producer_id = (SELECT producer_id FROM manifests WHERE version_id = $1))
+      AND tier_from <= $2
+    ORDER BY tier_from DESC LIMIT 1
+  `, [versionId, quantity]);
+
+  if (ruleResult.rows.length > 0) {
+    const row = ruleResult.rows[0];
+    return { satoshis: row.satoshis, source: 'rule', tier_from: row.tier_from };
+  }
+
+  return { satoshis: defaultSats, source: 'default' };
+}
+
+// Overloaded function declarations for pricing functions
+export function upsertPriceRule(db: any, rule: { version_id?: string | null; producer_id?: string | null; tier_from: number; satoshis: number }): void;
+export function upsertPriceRule(rule: { version_id?: string; producer_id?: string; tier_from: number; satoshis: number }): Promise<void>;
+export function upsertPriceRule(dbOrRule: any, rule?: { version_id?: string | null; producer_id?: string | null; tier_from: number; satoshis: number }): void | Promise<void> {
+  if (rule) {
+    // SQLite mode: upsertPriceRule(db, rule)
+    const now = Date.now();
+    const stmt = dbOrRule.prepare(`
+      INSERT INTO price_rules (version_id, producer_id, tier_from, satoshis, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT (version_id, tier_from)
+      DO UPDATE SET satoshis = excluded.satoshis, updated_at = excluded.updated_at
+    `);
+    stmt.run(rule.version_id, rule.producer_id, rule.tier_from, rule.satoshis, now, now);
+  } else {
+    // PostgreSQL mode: upsertPriceRule(rule)
+    return upsertPriceRulePostgreSQL(dbOrRule);
+  }
+}
+
+async function upsertPriceRulePostgreSQL(rule: { version_id?: string; producer_id?: string; tier_from: number; satoshis: number }): Promise<void> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  const now = Date.now();
+  await pgClient.query(`
+    INSERT INTO price_rules (version_id, producer_id, tier_from, satoshis, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    ON CONFLICT (version_id, tier_from)
+    DO UPDATE SET satoshis = EXCLUDED.satoshis, updated_at = EXCLUDED.updated_at
+  `, [rule.version_id, rule.producer_id, rule.tier_from, rule.satoshis, now, now]);
+}
+
+// Overloaded function declarations for deletePriceRule
+export function deletePriceRule(db: any, params: { version_id?: string; producer_id?: string; tier_from?: number | null }): void;
+export function deletePriceRule(versionId?: string, producerId?: string, tierFrom?: number): Promise<void>;
+export function deletePriceRule(dbOrVersionId: any, paramsOrProducerId?: { version_id?: string; producer_id?: string; tier_from?: number | null } | string, tierFrom?: number): void | Promise<void> {
+  if (typeof dbOrVersionId === 'object' && typeof paramsOrProducerId === 'object') {
+    // SQLite mode: deletePriceRule(db, params)
+    const db = dbOrVersionId;
+    const params = paramsOrProducerId;
+    let query = 'DELETE FROM price_rules WHERE 1=1';
+    const values: any[] = [];
+
+    if (params.version_id) {
+      query += ' AND version_id = ?';
+      values.push(params.version_id);
+    }
+    if (params.producer_id) {
+      query += ' AND producer_id = ?';
+      values.push(params.producer_id);
+    }
+    if (params.tier_from !== undefined && params.tier_from !== null) {
+      query += ' AND tier_from = ?';
+      values.push(params.tier_from);
+    }
+
+    const stmt = db.prepare(query);
+    stmt.run(...values);
+  } else {
+    // PostgreSQL mode: deletePriceRule(versionId?, producerId?, tierFrom?)
+    return deletePriceRulePostgreSQL(dbOrVersionId, paramsOrProducerId as string, tierFrom);
+  }
+}
+
+async function deletePriceRulePostgreSQL(versionId?: string, producerId?: string, tierFrom?: number): Promise<void> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  let query = 'DELETE FROM price_rules WHERE 1=1';
+  const params: any[] = [];
+  let paramIndex = 1;
+
+  if (versionId) {
+    query += ` AND version_id = $${paramIndex++}`;
+    params.push(versionId);
+  }
+  if (producerId) {
+    query += ` AND producer_id = $${paramIndex++}`;
+    params.push(producerId);
+  }
+  if (tierFrom !== undefined) {
+    query += ` AND tier_from = $${paramIndex++}`;
+    params.push(tierFrom);
+  }
+
+  await pgClient.query(query, params);
+}
+
 // Additional functions that need PostgreSQL implementation
 export async function listListings(limit = 50, offset = 0): Promise<any[]> {
   const { getPostgreSQLClient } = await import('./postgresql');
@@ -650,7 +828,7 @@ export async function listJobs(state?: string, limit = 100, offset = 0): Promise
   }
 
   query += ` ORDER BY created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-  params.push(limit, offset);
+  params.push(Number(limit) || 100, Number(offset) || 0);
 
   const result = await pgClient.query(query, params);
   return result.rows as JobRow[];
@@ -764,6 +942,14 @@ export async function createRule(rule: Partial<RuleRow>): Promise<string> {
   return ruleId;
 }
 
+export async function getRule(ruleId: string): Promise<RuleRow | null> {
+  const { getPostgreSQLClient } = await import('./postgresql');
+  const pgClient = getPostgreSQLClient();
+
+  const result = await pgClient.query('SELECT * FROM rules WHERE rule_id = $1', [ruleId]);
+  return result.rows.length > 0 ? result.rows[0] as RuleRow : null;
+}
+
 export async function listRules(enabled?: boolean): Promise<RuleRow[]> {
   const { getPostgreSQLClient } = await import('./postgresql');
   const pgClient = getPostgreSQLClient();
@@ -852,7 +1038,7 @@ export async function listJobsByRule(ruleId: string, state?: string, limit = 100
   }
 
   query += ` ORDER BY created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-  params.push(limit, offset);
+  params.push(Number(limit) || 100, Number(offset) || 0);
 
   const result = await pgClient.query(query, params);
   return result.rows as JobRow[];

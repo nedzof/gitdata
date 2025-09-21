@@ -162,8 +162,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_rule ON jobs(rule_id);
 2) Update file: src/db/index.ts
 Add agent/rule/job helpers:
 ```ts
-import Database from 'better-sqlite3';
-
+ //
 // Types
 export type AgentRow = {
   agent_id: string;
@@ -433,8 +432,7 @@ export async function callAgentWebhook(url: string, body: any, fetchImpl: typeof
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { upsertAgent, getAgent, searchAgents, setAgentPing } from '../db';
+ //import { upsertAgent, getAgent, searchAgents, setAgentPing } from '../db';
 import { requireIdentity } from '../middleware/identity';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
@@ -489,8 +487,7 @@ export function agentsRouter(db: Database.Database): Router {
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { createRule, updateRule, getRule, listRules, deleteRule, enqueueJob } from '../db';
+ //import { createRule, updateRule, getRule, listRules, deleteRule, enqueueJob } from '../db';
 import { requireIdentity } from '../middleware/identity';
 import { searchManifests } from '../db'; // reuse your existing search
 
@@ -600,8 +597,7 @@ export function rulesRouter(db: Database.Database): Router {
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { listJobs } from '../db';
+ //import { listJobs } from '../db';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
@@ -622,8 +618,7 @@ export function jobsRouter(db: Database.Database): Router {
 8) Create file: src/agents/worker.ts
 A simple in-process worker that executes jobs and calls agent webhooks:
 ```ts
-import Database from 'better-sqlite3';
-import { claimNextJob, setJobResult, bumpJobRetry, getRule, getAgent } from '../db';
+ //import { claimNextJob, setJobResult, bumpJobRetry, getRule, getAgent } from '../db';
 import { callAgentWebhook } from './webhook';
 import { evalPredicate } from './predicate';
 

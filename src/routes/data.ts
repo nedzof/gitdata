@@ -2,8 +2,7 @@ import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import fs from 'fs';
 import path from 'path';
-import Database from 'better-sqlite3';
-import { getManifest, getReceipt, setReceiptStatus, updateReceiptUsage } from '../db';
+ //import { getManifest, getReceipt, setReceiptStatus, updateReceiptUsage } from '../db';
 import { getStorageDriver, parseRange, formatContentRange } from '../storage';
 
 // Config (can be tuned via ENV)

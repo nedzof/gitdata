@@ -412,8 +412,7 @@ CREATE TABLE IF NOT EXISTS edges (
 6) Create file: src/db/index.ts
 With content:
 ```ts
-import Database from 'better-sqlite3';
-import fs from 'fs';
+ //import fs from 'fs';
 import path from 'path';
 
 export type DeclarationRow = {
@@ -522,8 +521,7 @@ export function setOpretVout(db: Database.Database, versionId: string, vout: num
 7) Create file: src/services/ingest.ts
 With content:
 ```ts
-import Database from 'better-sqlite3';
-import { upsertDeclaration, upsertManifest, replaceEdges, setOpretVout } from '../db';
+ //import { upsertDeclaration, upsertManifest, replaceEdges, setOpretVout } from '../db';
 import { deriveManifestIds, extractParents, decodeDLM1 } from '../dlm1/codec';
 import { findFirstOpReturn } from '../utils/opreturn';
 
@@ -653,8 +651,7 @@ With content:
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { ingestSubmission } from '../services/ingest';
+ //import { ingestSubmission } from '../services/ingest';
 import { createHash } from 'crypto';
 
 function jsonError(res: Response, code: number, error: string, hint?: string) {
@@ -802,8 +799,7 @@ With content:
 import assert from 'assert';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-
+ //
 import { initSchema } from '../../src/db';
 import { submitDlm1Router } from '../../src/routes/submit-builder';
 import { submitReceiverRouter } from '../../src/routes/submit-receiver';

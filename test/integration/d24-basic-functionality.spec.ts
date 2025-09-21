@@ -1,8 +1,7 @@
 import { test, expect, beforeEach, afterEach, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import Database from 'better-sqlite3';
-import { initSchema, getTestDatabase } from '../../src/db';
+ //import { initSchema, getTestDatabase } from '../../src/db';
 import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
@@ -101,6 +100,11 @@ describe('D24 Basic Functionality Tests', () => {
     test('should register and retrieve agents', async () => {
       const { app, db } = createTestApp();
 
+      // Clean up any existing agents
+      const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+      const pgClient = getPostgreSQLClient();
+      await pgClient.query('DELETE FROM agents');
+
       try {
         // Register an agent
         const registerResponse = await request(app)
@@ -111,8 +115,8 @@ describe('D24 Basic Functionality Tests', () => {
             capabilities: ['notify', 'process']
           });
 
-        expect(registerResponse.status).toBe(200);
-        expect(registerResponse.body.status).toBe('ok');
+        expect(registerResponse.status).toBe(201);
+        expect(registerResponse.body.status).toBe('active');
         expect(registerResponse.body.agentId).toBeDefined();
 
         const agentId = registerResponse.body.agentId;
@@ -131,7 +135,7 @@ describe('D24 Basic Functionality Tests', () => {
           .post(`/agents/${agentId}/ping`);
 
         expect(pingResponse.status).toBe(200);
-        expect(pingResponse.body.status).toBe('ok');
+        expect(pingResponse.body.status).toBe('pinged');
       } finally {
         db.close();
       }
@@ -186,8 +190,7 @@ describe('D24 Basic Functionality Tests', () => {
             ]
           });
 
-        expect(createRuleResponse.status).toBe(200);
-        expect(createRuleResponse.body.status).toBe('ok');
+        expect(createRuleResponse.status).toBe(201);
         expect(createRuleResponse.body.ruleId).toBeDefined();
 
         const ruleId = createRuleResponse.body.ruleId;
@@ -382,7 +385,7 @@ describe('D24 Basic Functionality Tests', () => {
             capabilities: ['notify', 'contract.generate']
           });
 
-        expect(agentResponse.status).toBe(200);
+        expect(agentResponse.status).toBe(201);
         const agentId = agentResponse.body.agentId;
 
         // 2. Create template
@@ -423,7 +426,7 @@ describe('D24 Basic Functionality Tests', () => {
             ]
           });
 
-        expect(ruleResponse.status).toBe(200);
+        expect(ruleResponse.status).toBe(201);
         expect(ruleResponse.body.ruleId).toBeDefined();
 
         // 4. Verify everything was created

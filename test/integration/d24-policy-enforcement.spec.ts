@@ -1,8 +1,7 @@
 import { test, expect, beforeAll, afterAll, beforeEach, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import Database from 'better-sqlite3';
-import { initSchema, getTestDatabase } from '../../src/db';
+ //import { initSchema, getTestDatabase } from '../../src/db';
 import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { templatesRouter } from '../../src/routes/templates';

@@ -76,21 +76,54 @@ export class HybridDatabase {
   }
 
   async upsertAsset(asset: Partial<ManifestRow>): Promise<void> {
-    // Update database
-    const columns = Object.keys(asset);
-    const values = Object.values(asset);
+    // Filter to only include columns that exist in the manifests table
+    const validColumns = [
+      'version_id', 'manifest_hash', 'content_hash', 'title', 'name',
+      'license', 'classification', 'created_at', 'manifest_json',
+      'dataset_id', 'producer_id'
+    ];
+
+    const filteredAsset = Object.fromEntries(
+      Object.entries(asset).filter(([key, value]) =>
+        validColumns.includes(key) && value != null && value !== ''
+      )
+    );
+
+    // Require version_id to be present
+    if (!filteredAsset.version_id) {
+      console.warn('[upsertAsset] Skipping insert - no version_id provided');
+      return;
+    }
+
+    const columns = Object.keys(filteredAsset);
+    const values = Object.values(filteredAsset);
+
+    if (columns.length === 0) {
+      console.warn('[upsertAsset] Skipping insert - no valid columns to insert');
+      return;
+    }
+
     const placeholders = values.map((_, i) => `$${i + 1}`);
     const updateSet = columns
       .filter(col => col !== 'version_id')
       .map(col => `${col} = EXCLUDED.${col}`)
       .join(', ');
 
-    await this.pg.query(`
-      INSERT INTO manifests (${columns.join(', ')})
-      VALUES (${placeholders.join(', ')})
-      ON CONFLICT (version_id)
-      DO UPDATE SET ${updateSet}
-    `, values);
+    if (updateSet) {
+      await this.pg.query(`
+        INSERT INTO manifests (${columns.join(', ')})
+        VALUES (${placeholders.join(', ')})
+        ON CONFLICT (version_id)
+        DO UPDATE SET ${updateSet}
+      `, values);
+    } else {
+      // Only version_id, use INSERT ... ON CONFLICT DO NOTHING
+      await this.pg.query(`
+        INSERT INTO manifests (${columns.join(', ')})
+        VALUES (${placeholders.join(', ')})
+        ON CONFLICT (version_id) DO NOTHING
+      `, values);
+    }
 
     // Invalidate caches
     if (asset.version_id) {

@@ -33,7 +33,7 @@ export function jobsRouter(): Router {
         updatedAt: job.updated_at
       }));
 
-      return json(res, 200, { jobs: formattedJobs });
+      return json(res, 200, { items: formattedJobs });
     } catch (e:any) {
       return json(res, 500, { error: 'list-failed', message: String(e?.message || e) });
     }

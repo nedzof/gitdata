@@ -1,7 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { searchManifests, listVersionsByDataset, getParents, isTestEnvironment, getTestDatabase } from '../db';
+import { searchManifests, listVersionsByDataset, getParents } from '../db';
 
 function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
@@ -22,9 +21,7 @@ function nextCursor(offset: number, count: number): string | null {
   return count > 0 ? `offset:${offset + count}` : null;
 }
 
-export function catalogRouter(testDb?: Database.Database): Router {
-  // Get appropriate database
-  const db = testDb || (isTestEnvironment() ? getTestDatabase() : null);
+export function catalogRouter(): Router {
   const router = makeRouter();
 
   /**
@@ -34,24 +31,25 @@ export function catalogRouter(testDb?: Database.Database): Router {
    * - tag: parsed from manifest_json.metadata.tags or manifest.tags (array of strings)
    * Paging: limit (default 20, max 100), cursor "offset:<n>"
    */
-  router.get('/search', (req: Request, res: Response) => {
+  router.get('/search', async (req: Request, res: Response) => {
     try {
-      if (!db) {
-        return json(res, 501, { error: 'not-implemented', message: 'Search not yet implemented for PostgreSQL' });
-      }
-
       const q = req.query.q ? String(req.query.q) : undefined;
       const datasetId = req.query.datasetId ? String(req.query.datasetId) : undefined;
       const tag = req.query.tag ? String(req.query.tag).toLowerCase() : undefined;
       const limit = Math.min(Math.max(Number(req.query.limit || 20), 1), 100);
       const offset = parseCursor(req.query.cursor);
 
-      // Get more results than needed to handle pagination and filtering
-      const queryLimit = Math.min(limit + offset + 50, 200); // Buffer for offset + filtering
-      const allRows = searchManifests(db, { q, datasetId, limit: queryLimit });
+      // Get results using async PostgreSQL function
+      const allRows = await searchManifests(q, limit + offset + 50);
+
+      // Filter by datasetId if specified
+      let filteredRows = allRows;
+      if (datasetId) {
+        filteredRows = allRows.filter(r => r.dataset_id === datasetId);
+      }
 
       // Manual pagination with offset
-      const rows = allRows.slice(offset, offset + limit);
+      const rows = filteredRows.slice(offset, offset + limit);
 
       // Post-filter by tag if requested (parse manifest_json)
       const filtered = rows.filter((r) => {
@@ -94,12 +92,8 @@ export function catalogRouter(testDb?: Database.Database): Router {
    * - If versionId: return that node + its parents
    * - If datasetId: return paged versions of that dataset with parents per item
    */
-  router.get('/resolve', (req: Request, res: Response) => {
+  router.get('/resolve', async (req: Request, res: Response) => {
     try {
-      if (!db) {
-        return json(res, 501, { error: 'not-implemented', message: 'Resolve not yet implemented for PostgreSQL' });
-      }
-
       const versionId = req.query.versionId ? String(req.query.versionId).toLowerCase() : undefined;
       const datasetId = req.query.datasetId ? String(req.query.datasetId) : undefined;
 
@@ -111,7 +105,7 @@ export function catalogRouter(testDb?: Database.Database): Router {
         if (!/^[0-9a-fA-F]{64}$/.test(versionId)) {
           return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
         }
-        const parents = getParents(db, versionId);
+        const parents = await getParents(versionId);
         return json(res, 200, {
           items: [{ versionId, parents }],
           nextCursor: null,
@@ -121,17 +115,22 @@ export function catalogRouter(testDb?: Database.Database): Router {
       // datasetId path
       const limit = Math.min(Math.max(Number(req.query.limit || 20), 1), 100);
       const offset = parseCursor(req.query.cursor);
-      const versions = listVersionsByDataset(db, datasetId!, limit, offset);
-      const items = versions.map((v) => ({
+      const versions = await listVersionsByDataset(datasetId!);
+
+      // Manual pagination for versions
+      const paginatedVersions = versions.slice(offset, offset + limit);
+
+      const items = await Promise.all(paginatedVersions.map(async (v) => ({
         versionId: v.version_id,
-        parents: getParents(db, v.version_id),
+        parents: await getParents(v.version_id),
         createdAt: v.created_at,
         contentHash: v.content_hash,
-      }));
+      })));
+
       return json(res, 200, {
         items,
         limit,
-        nextCursor: nextCursor(offset, versions.length),
+        nextCursor: nextCursor(offset, paginatedVersions.length),
       });
     } catch (e: any) {
       return json(res, 500, { error: 'resolve-failed', message: String(e?.message || e) });

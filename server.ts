@@ -18,6 +18,7 @@ import { rulesRouter } from './src/routes/rules';
 import { jobsRouter } from './src/routes/jobs';
 import { templatesRouter } from './src/routes/templates';
 import { createArtifactRoutes } from './src/agents/dlm1-publisher';
+import { artifactsRouter } from './src/routes/artifacts';
 import { catalogRouter } from './src/routes/catalog';
 import { producersRegisterRouter } from './src/routes/producers-register';
 import { createJobProcessor } from './src/worker/job-processor';
@@ -93,7 +94,7 @@ app.use(rateLimit('data'), dataRouter());
 app.use(healthRouter());
 app.use('/listings', rateLimit('submit'), listingsRouter());
 // TODO: These routes need to be updated to work without database parameter
-// app.use(rateLimit('submit'), producersRouter());
+app.use(rateLimit('submit'), producersRouter());
 app.use(rateLimit('submit'), advisoriesRouter());
 
 // TODO: Update these routes to use hybrid database
@@ -105,8 +106,7 @@ app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforc
 app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(), enforceJobCreationPolicy(), rulesRouter());
 app.use('/jobs', jobsRouter());
 app.use('/templates', enforceResourceLimits(), templatesRouter());
-// TODO: createArtifactRoutes still needs database parameter
-// app.use('/artifacts', createArtifactRoutes());
+app.use('/artifacts', enforceResourceLimits(), artifactsRouter());
 
 // D18: Catalog routes (/search and /resolve) - updated for hybrid
 app.use(catalogRouter());

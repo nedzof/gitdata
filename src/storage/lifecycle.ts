@@ -18,8 +18,7 @@
     await lifecycle.cleanupExpiredContent();
 */
 
-import Database from 'better-sqlite3';
-import { StorageDriver, StorageTier, StorageObject } from './index';
+ //import { StorageDriver, StorageTier, StorageObject } from './index';
 import { isTestEnvironment } from '../db/index.js';
 
 export interface LifecycleConfig {

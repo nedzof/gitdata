@@ -224,8 +224,7 @@ With content:
 import assert from 'assert';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, upsertManifest, upsertDeclaration } from '../../src/db';
+ //import { initSchema, upsertManifest, upsertDeclaration } from '../../src/db';
 import { bundleRouter } from '../../src/routes/bundle';
 import { submitReceiverRouter } from '../../src/routes/submit-receiver';
 import { rateLimit } from '../../src/middleware/limits';

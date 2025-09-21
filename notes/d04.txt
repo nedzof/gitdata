@@ -4,8 +4,7 @@ With content:
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { getDeclarationByVersion, getParents } from '../db';
+ //import { getDeclarationByVersion, getParents } from '../db';
 import {
   loadHeaders,
   verifyEnvelopeAgainstHeaders,
@@ -115,8 +114,7 @@ import os from 'os';
 import path from 'path';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-
+ //
 import { initSchema, upsertManifest, upsertDeclaration, replaceEdges } from '../../src/db';
 import { readyRouter } from '../../src/routes/ready';
 import { txidFromRawTx } from '../../src/spv/verify-envelope';

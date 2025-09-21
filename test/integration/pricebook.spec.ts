@@ -1,8 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, upsertManifest, upsertProducer } from '../../src/db';
+ //import { initSchema, upsertManifest, upsertProducer } from '../../src/db';
 import { priceRouter } from '../../src/routes/price';
 import { upsertPriceRule, setPrice } from '../../src/db';
 

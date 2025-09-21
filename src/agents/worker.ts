@@ -1,5 +1,4 @@
-import Database from 'better-sqlite3';
-import { claimNextJob, setJobResult, bumpJobRetry, getRule, getAgent, setPrice, createReceipt, createArtifact } from '../db';
+ //import { claimNextJob, setJobResult, bumpJobRetry, getRule, getAgent, setPrice, createReceipt, createArtifact } from '../db';
 import { callAgentWebhook } from './webhook';
 import { evalPredicate } from './predicate';
 import { generateContract } from './templates';

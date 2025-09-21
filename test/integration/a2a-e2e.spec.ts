@@ -13,8 +13,7 @@
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { getTestDatabase } from '../../src/db';
+ //import { getTestDatabase } from '../../src/db';
 import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
@@ -83,6 +82,9 @@ class A2AE2ETest {
     // Insert test data for search manifests
     const { getPostgreSQLClient } = await import('../../src/db/postgresql');
     const pgClient = getPostgreSQLClient();
+
+    // Clean up any existing test data first
+    await pgClient.query('DELETE FROM manifests WHERE version_id IN ($1, $2)', ['v1_contract_data', 'v1_intermediate_results']);
 
     await pgClient.query(`
       INSERT INTO manifests (version_id, manifest_hash, manifest_json, dataset_id, created_at)

@@ -5,26 +5,30 @@ process.env.RECEIPT_TTL_SEC = '120';
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, upsertManifest, setPrice } from '../../src/db';
+import { upsertManifest, setPrice } from '../../src/db';
 import { payRouter } from '../../src/routes/pay';
 import { initReceiptValidator, validateReceipt } from '../../src/validators/receipt';
 
 describe('Pay Integration Test', () => {
   test('should handle payment receipts', async () => {
+  console.log('Test environment configured for hybrid database tests');
   initReceiptValidator(); // compile schema for validation
 
   const app = express();
   app.use(express.json({ limit: '1mb' }));
-  const db = new Database(':memory:');
-  initSchema(db);
-  app.use(payRouter(db));
+  app.use(payRouter());
 
   const versionId = 'a'.repeat(64);
   const contentHash = 'c'.repeat(64);
 
-  // Insert manifest row (required)
-  upsertManifest(db, {
+  // Clean up any existing data for this version
+  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query('DELETE FROM receipts WHERE version_id = $1', [versionId]);
+  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [versionId]);
+
+  // Insert manifest row (required) using PostgreSQL
+  await upsertManifest({
     version_id: versionId,
     manifest_hash: versionId,
     content_hash: contentHash,
@@ -63,7 +67,7 @@ describe('Pay Integration Test', () => {
   expect(schemaRes.ok).toBe(true);
 
   // 2) Override price and pay again (price 2500 * 1 = 2500)
-  setPrice(db, versionId, 2500);
+  await setPrice(versionId, 2500);
   const r2 = await request(app)
     .post('/pay')
     .set('content-type', 'application/json')

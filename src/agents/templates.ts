@@ -1,5 +1,4 @@
-import Database from 'better-sqlite3';
-import { getTemplate } from '../db';
+ //import { getTemplate } from '../db';
 
 export interface TemplateVariable {
   name: string;

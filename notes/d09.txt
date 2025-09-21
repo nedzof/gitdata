@@ -23,8 +23,7 @@ CREATE INDEX IF NOT EXISTS idx_price_rules_producer ON price_rules(producer_id);
 2) Update file: src/db/index.ts
 With content (only new/changed helpers shown; keep existing code):
 ```ts
-import Database from 'better-sqlite3';
-import fs from 'fs';
+ //import fs from 'fs';
 import path from 'path';
 
 export type PriceRule = {
@@ -174,8 +173,7 @@ With content (replace file to support quantity + rules admin):
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { getManifest } from '../db';
+ //import { getManifest } from '../db';
 import { upsertPriceRule, deletePriceRule, getBestUnitPrice } from '../db';
 
 const PRICE_DEFAULT_SATS = Number(process.env.PRICE_DEFAULT_SATS || 5000);
@@ -260,8 +258,7 @@ With content:
 import assert from 'assert';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, upsertManifest, upsertProducer } from '../../src/db';
+ //import { initSchema, upsertManifest, upsertProducer } from '../../src/db';
 import { priceRouter } from '../../src/routes/price';
 import { upsertPriceRule, setPrice } from '../../src/db';
 

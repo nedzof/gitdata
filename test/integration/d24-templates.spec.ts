@@ -1,8 +1,7 @@
 import { test, expect, beforeAll, afterAll, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import Database from 'better-sqlite3';
-import { initSchema, getTestDatabase } from '../../src/db';
+ //import { initSchema, getTestDatabase } from '../../src/db';
 import { templatesRouter } from '../../src/routes/templates';
 import { generateContract, renderTemplate, validateTemplateVariables, EXAMPLE_TEMPLATE_SCHEMA } from '../../src/agents/templates';
 import { enforceResourceLimits } from '../../src/middleware/policy';

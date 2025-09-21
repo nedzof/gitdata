@@ -310,8 +310,7 @@ CREATE INDEX IF NOT EXISTS idx_ol_dlq_next ON ol_dlq(next_try_at);
 
 2) Create file: src/ol/store.ts
 ```ts
-import Database from 'better-sqlite3';
-import { createHash } from 'crypto';
+ //import { createHash } from 'crypto';
 
 export type OlEvent = {
   eventType: 'START'|'COMPLETE'|'ABORT';
@@ -438,8 +437,7 @@ export function deleteDlq(db: Database.Database, dlqId: string) {
 
 3) Create file: src/ol/ingest.ts
 ```ts
-import Database from 'better-sqlite3';
-import { saveOlEvent, enqueueDlq, claimDlq, bumpDlq, deleteDlq } from './store';
+ //import { saveOlEvent, enqueueDlq, claimDlq, bumpDlq, deleteDlq } from './store';
 
 const OL_NAMESPACE = process.env.OL_NAMESPACE || 'overlay:dev';
 const PRODUCER_URL = process.env.OL_PRODUCER_URL || 'https://overlay.example/adapter/openlineage/1.0';
@@ -540,8 +538,7 @@ export function startOlDlqWorker(db: Database.Database) {
 
 4) Create file: src/ol/query.ts
 ```ts
-import Database from 'better-sqlite3';
-
+ //
 type Direction = 'up'|'down'|'both';
 const MAX_DEPTH = Number(process.env.OL_QUERY_MAX_DEPTH || 10);
 const CACHE_TTL_MS = Number(process.env.OL_QUERY_CACHE_TTL_SEC || 120)*1000;
@@ -644,8 +641,7 @@ function toCyto(simple: any) {
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { queryLineage } from '../ol/query';
+ //import { queryLineage } from '../ol/query';
 import { emitOlCompleteFromBundle, emitOlRecall } from '../ol/ingest';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }

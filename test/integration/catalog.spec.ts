@@ -1,8 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, upsertManifest, replaceEdges } from '../../src/db';
+ //import { initSchema, upsertManifest, replaceEdges } from '../../src/db';
 import { catalogRouter } from '../../src/routes/catalog';
 
 describe('Catalog Integration Test', () => {

@@ -33,8 +33,7 @@
 
 import type { Router, Request, Response } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { createHash } from 'crypto';
+ //import { createHash } from 'crypto';
 import { EventEmitter } from 'events';
 import { getTestDatabase, isTestEnvironment, getDatabase } from '../db/index.js';
 // Note: External webhook certification will be implemented when webhook infrastructure is available

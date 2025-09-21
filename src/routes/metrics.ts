@@ -1,7 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import fs from 'fs';
+ //import fs from 'fs';
 import { snapshotMetrics } from '../metrics/registry';
 import { getHeadersSnapshot } from '../spv/headers-cache';
 import { getPolicyMetrics } from '../middleware/policy';

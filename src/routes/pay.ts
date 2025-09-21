@@ -1,8 +1,7 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
 import crypto from 'crypto';
-import { getManifest, getPrice, insertReceipt, getReceipt, logRevenue } from '../db';
+import { getManifest, getPrice, insertReceipt, getReceipt } from '../db';
 
 const PRICE_DEFAULT_SATS = Number(process.env.PRICE_DEFAULT_SATS || 5000);
 const RECEIPT_TTL_SEC = Number(process.env.RECEIPT_TTL_SEC || 1800); // 30 minutes
@@ -17,7 +16,7 @@ function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
 }
 
-export function payRouter(db: Database.Database): Router {
+export function payRouter(): Router {
   const router = makeRouter();
 
   // POST /pay { versionId, quantity }
@@ -55,15 +54,7 @@ export function payRouter(db: Database.Database): Router {
         last_seen: null,
       });
 
-      // Simple revenue log entry (pending)
-      logRevenue(db, {
-        receipt_id: receiptId,
-        version_id: String(versionId).toLowerCase(),
-        amount_sat: amount,
-        quantity: Number(quantity),
-        created_at: now,
-        type: 'pay',
-      });
+      // TODO: Implement revenue logging for PostgreSQL if needed
 
       // Return receipt JSON (schema-aligned). Signature omitted in MVP.
       return json(res, 200, {
@@ -82,12 +73,12 @@ export function payRouter(db: Database.Database): Router {
   });
 
   // GET /receipt?receiptId=...
-  router.get('/receipt', (req: Request, res: Response) => {
+  router.get('/receipt', async (req: Request, res: Response) => {
     const receiptId = String(req.query.receiptId || '');
     if (!receiptId || receiptId.length < 8) {
       return json(res, 400, { error: 'bad-request', hint: 'receiptId required' });
     }
-    const r = getReceipt(db, receiptId);
+    const r = await getReceipt(receiptId);
     if (!r) {
       return json(res, 404, { error: 'not-found', hint: 'receipt missing' });
     }

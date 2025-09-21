@@ -1,5 +1,4 @@
-import Database from 'better-sqlite3';
-import { getDatabase, type DeclarationRow, type ManifestRow, getProducerIdForVersion } from '../db';
+ //import { getDatabase, type DeclarationRow, type ManifestRow, getProducerIdForVersion } from '../db';
 import { getReceiptFromDb, type ReceiptRow } from '../db';
 
 // Environment config helper

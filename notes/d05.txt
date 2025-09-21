@@ -9,8 +9,7 @@ With content:
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { getManifest, getPrice, setPrice } from '../db';
+ //import { getManifest, getPrice, setPrice } from '../db';
 
 const PRICE_DEFAULT_SATS = Number(process.env.PRICE_DEFAULT_SATS || 5000);
 // Optional quote TTL (seconds)
@@ -80,8 +79,7 @@ With content:
 import assert from 'assert';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, upsertManifest, setPrice } from '../../src/db';
+ //import { initSchema, upsertManifest, setPrice } from '../../src/db';
 import { priceRouter } from '../../src/routes/price';
 
 (async function run() {

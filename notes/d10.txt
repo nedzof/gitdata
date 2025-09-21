@@ -47,8 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_adv_targets_producer ON advisory_targets(producer
 3) Update file: src/db/index.ts
 With content additions (keep existing exports; add these helpers):
 ```ts
-import Database from 'better-sqlite3';
-import fs from 'fs';
+ //import fs from 'fs';
 import path from 'path';
 
 export type AdvisoryRow = {
@@ -150,8 +149,7 @@ With content:
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import {
+ //import {
   insertAdvisory,
   insertAdvisoryTargets,
   listAdvisoriesForVersionActive,
@@ -255,8 +253,7 @@ With content (advisory check added; keep SPV logic as-is):
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { getDeclarationByVersion, getParents } from '../db';
+ //import { getDeclarationByVersion, getParents } from '../db';
 import { loadHeaders, verifyEnvelopeAgainstHeaders, type HeadersIndex } from '../spv/verify-envelope';
 import { listAdvisoriesForVersionActive, listAdvisoriesForProducerActive, getProducerIdForVersion } from '../db';
 
@@ -390,8 +387,7 @@ With content:
 import assert from 'assert';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, upsertManifest, upsertProducer, insertAdvisory, insertAdvisoryTargets } from '../../src/db';
+ //import { initSchema, upsertManifest, upsertProducer, insertAdvisory, insertAdvisoryTargets } from '../../src/db';
 import { advisoriesRouter } from '../../src/routes/advisories';
 import { readyRouter } from '../../src/routes/ready';
 import { txidFromRawTx } from '../../src/spv/verify-envelope';

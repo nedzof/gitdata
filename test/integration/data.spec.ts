@@ -4,8 +4,7 @@ import os from 'os';
 import path from 'path';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-
+ //
 import { initSchema, upsertManifest } from '../../src/db';
 import { payRouter } from '../../src/routes/pay';
 

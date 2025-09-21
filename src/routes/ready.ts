@@ -1,7 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { getDeclarationByVersion, getParents } from '../db';
+ //import { getDeclarationByVersion, getParents } from '../db';
 import { listAdvisoriesForVersionActive, listAdvisoriesForProducerActive, getProducerIdForVersion } from '../db';
 import {
   loadHeaders,

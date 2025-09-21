@@ -109,8 +109,7 @@ Replace its content with:
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { getDeclarationByVersion, getManifest, getParents } from '../db';
+ //import { getDeclarationByVersion, getManifest, getParents } from '../db';
 import { verifyEnvelopeAgainstHeaders } from '../spv/verify-envelope';
 import { getHeadersSnapshot } from '../spv/headers-cache';
 import { bundlesGet, bundlesSet, bundlesInvalidate, bundlesKey } from '../cache/bundles';
@@ -281,8 +280,7 @@ import os from 'os';
 import path from 'path';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-
+ //
 import { initSchema, upsertManifest, upsertDeclaration, replaceEdges } from '../../src/db';
 import { bundleRouter } from '../../src/routes/bundle';
 import { txidFromRawTx } from '../../src/spv/verify-envelope';

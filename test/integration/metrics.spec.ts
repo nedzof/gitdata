@@ -1,8 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema } from '../../src/db';
+ //import { initSchema } from '../../src/db';
 import { opsRouter } from '../../src/routes/metrics';
 import { metricsRoute } from '../../src/middleware/metrics';
 import { incRequest, incAdmissions, cacheHit, cacheMiss, observeProofLatency } from '../../src/metrics/registry';

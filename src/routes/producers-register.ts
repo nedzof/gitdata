@@ -1,7 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { upsertProducer } from '../db';
+ //import { upsertProducer } from '../db';
 import { requireIdentity } from '../middleware/identity';
 
 /**

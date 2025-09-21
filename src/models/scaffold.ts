@@ -23,8 +23,7 @@
 
 import type { Router, Request, Response } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { createHash } from 'crypto';
+ //import { createHash } from 'crypto';
 import { getParents, getManifest, isTestEnvironment, getDatabase } from '../db';
 
 // ---------------- Env / Config ----------------

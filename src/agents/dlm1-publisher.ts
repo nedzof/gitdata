@@ -1,6 +1,5 @@
 import { createHash } from 'crypto';
-import Database from 'better-sqlite3';
-import { createArtifact, updateArtifactVersion, getArtifact, listArtifacts } from '../db';
+ //import { createArtifact, updateArtifactVersion, getArtifact, listArtifacts } from '../db';
 
 export interface PublishableArtifact {
   id: string;

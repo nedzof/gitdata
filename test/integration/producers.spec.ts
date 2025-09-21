@@ -1,8 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, upsertProducer, upsertManifest } from '../../src/db';
+ //import { initSchema, upsertProducer, upsertManifest } from '../../src/db';
 import { producersRouter } from '../../src/routes/producers';
 
 describe('Producers Integration Test', () => {

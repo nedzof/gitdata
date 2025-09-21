@@ -1,7 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { validateDlm1Manifest, initValidators } from '../validators';
+ //import { validateDlm1Manifest, initValidators } from '../validators';
 import { requireIdentity } from '../middleware/identity';
 import { createManifest } from '../db';
 import {

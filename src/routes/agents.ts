@@ -36,7 +36,7 @@ export function agentsRouter(): Router {
         capabilities: JSON.parse(a.capabilities_json || '[]'),
         webhookUrl: a.webhook_url, status: a.status, lastPingAt: a.last_ping_at || null
       }));
-      return json(res, 200, { agents: items });
+      return json(res, 200, { items });
     } catch (e:any) {
       return json(res, 500, { error: 'search-failed', message: String(e?.message || e) });
     }

@@ -1,7 +1,7 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 import { requireIdentity } from '../middleware/identity';
-import { createRule, listRules, updateRule, deleteRule } from '../db';
+import { createRule, getRule, listRules, updateRule, deleteRule } from '../db';
 
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
@@ -59,9 +59,34 @@ export function rulesRouter(): Router {
         updatedAt: rule.updated_at
       }));
 
-      return json(res, 200, { rules: formattedRules });
+      return json(res, 200, { items: formattedRules });
     } catch (e:any) {
       return json(res, 500, { error: 'list-failed', message: String(e?.message || e) });
+    }
+  });
+
+  // GET /:id (get specific rule)
+  router.get('/:id', async (req: Request, res: Response) => {
+    try {
+      const ruleId = req.params.id;
+      const rule = await getRule(ruleId);
+
+      if (!rule) {
+        return json(res, 404, { error: 'not-found', message: `Rule ${ruleId} not found` });
+      }
+
+      return json(res, 200, {
+        ruleId: rule.rule_id,
+        name: rule.name,
+        enabled: rule.enabled === 1,
+        when: rule.when_json,
+        find: rule.find_json,
+        actions: rule.actions_json,
+        createdAt: rule.created_at,
+        updatedAt: rule.updated_at
+      });
+    } catch (e:any) {
+      return json(res, 500, { error: 'get-failed', message: String(e?.message || e) });
     }
   });
 

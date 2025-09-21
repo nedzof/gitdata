@@ -1,6 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import Database from 'better-sqlite3';
-import { listJobs, getTestDatabase, isTestEnvironment } from '../db';
+ //import { listJobs, getTestDatabase, isTestEnvironment } from '../db';
 
 // Policy configuration from environment
 const RULES_MAX_CONCURRENCY = Number(process.env.RULES_MAX_CONCURRENCY || 10);

@@ -1,8 +1,7 @@
 1) Update file: src/db/index.ts
 With content additions (keep your existing exports; add these helpers):
 ```ts
-import Database from 'better-sqlite3';
-
+ //
 // ... existing types and helpers ...
 
 export type SearchItem = {
@@ -86,8 +85,7 @@ With content:
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { searchManifests, listVersionsByDataset, getParents } from '../db';
+ //import { searchManifests, listVersionsByDataset, getParents } from '../db';
 
 function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
@@ -228,8 +226,7 @@ With content:
 import assert from 'assert';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, upsertManifest, replaceEdges } from '../../src/db';
+ //import { initSchema, upsertManifest, replaceEdges } from '../../src/db';
 import { catalogRouter } from '../../src/routes/catalog';
 
 (async function run() {

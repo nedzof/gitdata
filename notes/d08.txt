@@ -31,8 +31,7 @@ Notes
 2) Update file: src/db/index.ts
 With content:
 ```ts
-import Database from 'better-sqlite3';
-import fs from 'fs';
+ //import fs from 'fs';
 import path from 'path';
 
 export type DeclarationRow = {
@@ -170,8 +169,7 @@ export function listListings(db: Database.Database, limit = 50, offset = 0) {
 3) Update file: src/services/ingest.ts
 With content (only changes shown; keep previous logic):
 ```ts
-import Database from 'better-sqlite3';
-import {
+ //import {
   upsertDeclaration,
   upsertManifest,
   replaceEdges,
@@ -270,8 +268,7 @@ With content:
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { getProducerById, getProducerByDatasetId } from '../db';
+ //import { getProducerById, getProducerByDatasetId } from '../db';
 
 function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
@@ -327,8 +324,7 @@ With content (enrich listing items with producer info already added in DB listLi
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { listListings } from '../db';
+ //import { listListings } from '../db';
 
 export function listingsRouter(db: Database.Database): Router {
   const router = makeRouter();
@@ -422,8 +418,7 @@ With content:
 import assert from 'assert';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, upsertProducer, upsertManifest } from '../../src/db';
+ //import { initSchema, upsertProducer, upsertManifest } from '../../src/db';
 import { producersRouter } from '../../src/routes/producers';
 
 (async function run() {

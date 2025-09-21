@@ -40,6 +40,15 @@ describe('Advisories Integration Test', () => {
   // Insert producer + manifest + declaration with a valid SPV envelope
   const producerId = await upsertProducer({ identity_key: '02abc'.padEnd(66, 'a'), name: 'Acme', website: 'https://acme.example' });
   const vid = 'a'.repeat(64);
+
+  // Clean up any existing test data
+  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+  const pgClient = getPostgreSQLClient();
+  await pgClient.query('DELETE FROM advisory_targets WHERE version_id = $1', [vid]);
+  await pgClient.query('DELETE FROM advisories WHERE advisory_id LIKE $1', ['%test%']);
+  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [vid]);
+  await pgClient.query('DELETE FROM declarations WHERE version_id = $1', [vid]);
+
   const m = {
     type: 'datasetVersionManifest',
     datasetId: 'ds-1',
@@ -105,8 +114,6 @@ describe('Advisories Integration Test', () => {
 
   // 4) Expire the advisory; should no longer appear in active list
   const now = Math.floor(Date.now() / 1000);
-  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
-  const pgClient = getPostgreSQLClient();
   await pgClient.query('UPDATE advisories SET expires_at = $1 WHERE advisory_id = $2', [now - 10, advisoryId]);
 
   const getAdv2 = await request(app).get(`/advisories?versionId=${vid}`);

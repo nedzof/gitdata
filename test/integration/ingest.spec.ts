@@ -1,8 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema, getTestDatabase } from '../../src/db';
+ //import { initSchema, getTestDatabase } from '../../src/db';
 import { runIngestMigrations, ingestRouter, startIngestWorker, upsertSource } from '../../src/ingest';
 import { createStorageEventsMigration } from '../../src/storage/lifecycle';
 import { runPaymentsMigrations } from '../../src/payments';

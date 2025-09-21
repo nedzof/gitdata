@@ -7,8 +7,7 @@
 
 import type { Router, Request, Response } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { getDatabase, isTestEnvironment } from '../db/index.js';
+ //import { getDatabase, isTestEnvironment } from '../db/index.js';
 
 // Environment configuration
 const POLICY_PREVIEW_ENABLE = process.env.POLICY_PREVIEW_ENABLE === 'true';

@@ -193,8 +193,7 @@ With content:
 ```ts
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { upsertProducer } from '../db';
+ //import { upsertProducer } from '../db';
 import { requireIdentity } from '../middleware/identity';
 
 /**
@@ -248,8 +247,7 @@ With content:
 import assert from 'assert';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema } from '../../src/db';
+ //import { initSchema } from '../../src/db';
 import { submitDlm1Router } from '../../src/routes/submit-builder';
 import { requireIdentity } from '../../src/middleware/identity';
 import * as secp from '@noble/secp256k1';

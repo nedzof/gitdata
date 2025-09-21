@@ -1,7 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import Database from 'better-sqlite3';
-import { getManifest, setPrice } from '../db';
+ //import { getManifest, setPrice } from '../db';
 import { upsertPriceRule, deletePriceRule, getBestUnitPrice } from '../db';
 import { requireIdentity } from '../middleware/identity';
 
@@ -11,7 +10,7 @@ const PRICE_QUOTE_TTL_SEC = Number(process.env.PRICE_QUOTE_TTL_SEC || 1800);
 function isHex64(s: string): boolean { return /^[0-9a-fA-F]{64}$/.test(s); }
 function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
 
-export function priceRouter(db: Database.Database): Router {
+export function priceRouter(db?: Database.Database): Router {
   const router = makeRouter();
 
   // GET /price?versionId=&quantity=...
@@ -24,7 +23,14 @@ export function priceRouter(db: Database.Database): Router {
     const man = await getManifest(versionId);
     if (!man) return json(res, 404, { error: 'not-found', hint: 'manifest missing' });
 
-    const best = getBestUnitPrice(db, versionId, quantity, PRICE_DEFAULT_SATS);
+    let best: { satoshis: number; source: string; tier_from?: number };
+    if (db) {
+      // Use SQLite for test database
+      best = getBestUnitPrice(db, versionId, quantity, PRICE_DEFAULT_SATS);
+    } else {
+      // Use PostgreSQL for production
+      best = await getBestUnitPrice(versionId, quantity, PRICE_DEFAULT_SATS);
+    }
     const unit = best.satoshis;
     const total = unit * quantity;
     const expiresAt = Math.floor(Date.now() / 1000) + PRICE_QUOTE_TTL_SEC;
@@ -74,7 +80,7 @@ export function priceRouter(db: Database.Database): Router {
 
   // Admin: POST /price/rules (set/add rule)
   // Body: { versionId?, producerId?, tierFrom, satoshis }
-  router.post('/price/rules', requireIdentity(), (req: Request, res: Response) => {
+  router.post('/price/rules', requireIdentity(), async (req: Request, res: Response) => {
     const { versionId, producerId, tierFrom, satoshis } = req.body || {};
     if (!versionId && !producerId) return json(res, 400, { error: 'bad-request', hint: 'versionId or producerId required' });
     if (versionId && !isHex64(String(versionId || ''))) return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
@@ -82,12 +88,23 @@ export function priceRouter(db: Database.Database): Router {
     if (!Number.isInteger(satoshis) || satoshis <= 0) return json(res, 400, { error: 'bad-request', hint: 'satoshis > 0 integer' });
 
     try {
-      upsertPriceRule(db, {
-        version_id: versionId ? String(versionId).toLowerCase() : null,
-        producer_id: producerId || null,
-        tier_from: Number(tierFrom),
-        satoshis: Number(satoshis),
-      });
+      if (db) {
+        // Use SQLite for test database (synchronous)
+        upsertPriceRule(db, {
+          version_id: versionId ? String(versionId).toLowerCase() : null,
+          producer_id: producerId || null,
+          tier_from: Number(tierFrom),
+          satoshis: Number(satoshis),
+        });
+      } else {
+        // Use PostgreSQL for production (async)
+        await upsertPriceRule({
+          version_id: versionId ? String(versionId).toLowerCase() : null,
+          producer_id: producerId || null,
+          tier_from: Number(tierFrom),
+          satoshis: Number(satoshis),
+        });
+      }
       return json(res, 200, { status: 'ok' });
     } catch (e: any) {
       return json(res, 500, { error: 'set-rule-failed', message: String(e?.message || e) });
@@ -95,13 +112,19 @@ export function priceRouter(db: Database.Database): Router {
   });
 
   // Admin: DELETE /price/rules?versionId=&producerId=&tierFrom=
-  router.delete('/price/rules', requireIdentity(), (req: Request, res: Response) => {
+  router.delete('/price/rules', requireIdentity(), async (req: Request, res: Response) => {
     const versionId = req.query.versionId ? String(req.query.versionId).toLowerCase() : undefined;
     const producerId = req.query.producerId ? String(req.query.producerId) : undefined;
     const tierFrom = req.query.tierFrom ? Number(req.query.tierFrom) : undefined;
     if (!versionId && !producerId) return json(res, 400, { error: 'bad-request', hint: 'versionId or producerId required' });
     try {
-      deletePriceRule(db, { version_id: versionId, producer_id: producerId, tier_from: tierFrom || null });
+      if (db) {
+        // Use SQLite for test database (synchronous)
+        deletePriceRule(db, { version_id: versionId, producer_id: producerId, tier_from: tierFrom || null });
+      } else {
+        // Use PostgreSQL for production (async)
+        await deletePriceRule(versionId, producerId, tierFrom);
+      }
       return json(res, 200, { status: 'ok' });
     } catch (e: any) {
       return json(res, 500, { error: 'delete-rule-failed', message: String(e?.message || e) });

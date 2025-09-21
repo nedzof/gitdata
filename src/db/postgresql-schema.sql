@@ -7,12 +7,26 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Producers/Users
 CREATE TABLE IF NOT EXISTS producers (
   producer_id  TEXT PRIMARY KEY,
-  identity_key TEXT NOT NULL,            -- pubkey (hex)
+  identity_key TEXT,                     -- pubkey (hex), optional like SQLite
   display_name TEXT,
   website      TEXT,
   payout_script_hex TEXT,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Make identity_key nullable if it exists as NOT NULL (for schema compatibility)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'producers'
+    AND column_name = 'identity_key'
+    AND is_nullable = 'NO'
+  ) THEN
+    ALTER TABLE producers ALTER COLUMN identity_key DROP NOT NULL;
+  END IF;
+END $$;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_producers_identity ON producers(identity_key);
 
 CREATE TABLE IF NOT EXISTS users (
@@ -82,19 +96,52 @@ CREATE INDEX IF NOT EXISTS idx_policy_runs_version ON policy_runs(version_id);
 -- Payments (quote/receipt)
 CREATE TABLE IF NOT EXISTS receipts (
   receipt_id     TEXT PRIMARY KEY,
-  version_id     TEXT REFERENCES assets(version_id),
-  status         TEXT CHECK (status IN ('pending','paid','confirmed')) NOT NULL DEFAULT 'pending',
+  version_id     TEXT NOT NULL,  -- Remove foreign key constraint to assets
+  quantity       INTEGER NOT NULL,
+  content_hash   TEXT,
+  amount_sat     INTEGER NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'pending', -- 'pending'|'paid'|'consumed'|'expired'
+  created_at     INTEGER NOT NULL,
+  expires_at     INTEGER NOT NULL,
+  bytes_used     INTEGER NOT NULL DEFAULT 0,
+  last_seen      INTEGER,
+  -- Additional PostgreSQL-specific columns for future use
   payment_txid   TEXT,       -- hex (64)
   unit_price_sat BIGINT,
-  quantity       BIGINT,
   fee_sat        BIGINT,
   outputs_json   JSONB,      -- required UTXO outputs
   quote_template_hash TEXT,  -- hex (64)
   quote_expires_at TIMESTAMPTZ,
   paid_at        TIMESTAMPTZ,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at     TIMESTAMPTZ DEFAULT now()
 );
+
+-- Drop foreign key constraint and add missing columns if they don't exist
+DO $$
+BEGIN
+  -- Drop foreign key constraint if it exists
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'receipts_version_id_fkey') THEN
+    ALTER TABLE receipts DROP CONSTRAINT receipts_version_id_fkey;
+  END IF;
+
+  -- Add missing columns if they don't exist
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'content_hash') THEN
+    ALTER TABLE receipts ADD COLUMN content_hash TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'amount_sat') THEN
+    ALTER TABLE receipts ADD COLUMN amount_sat INTEGER NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'expires_at') THEN
+    ALTER TABLE receipts ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'bytes_used') THEN
+    ALTER TABLE receipts ADD COLUMN bytes_used INTEGER NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'last_seen') THEN
+    ALTER TABLE receipts ADD COLUMN last_seen INTEGER;
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_receipts_version ON receipts(version_id);
 CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
 
@@ -135,6 +182,7 @@ CREATE TABLE IF NOT EXISTS manifests (
   manifest_hash TEXT NOT NULL,
   content_hash TEXT,
   title TEXT,
+  name TEXT,                        -- Added for compatibility
   license TEXT,
   classification TEXT,
   created_at TEXT,                   -- ISO date-time from manifest.provenance.createdAt

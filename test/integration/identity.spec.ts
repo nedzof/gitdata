@@ -1,8 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
-import { initSchema } from '../../src/db';
+ //import { initSchema } from '../../src/db';
 import { submitDlm1Router } from '../../src/routes/submit-builder';
 import { requireIdentity } from '../../src/middleware/identity';
 import { secp256k1 } from '@noble/curves/secp256k1';
