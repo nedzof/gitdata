@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import express from 'express';
 import request from 'supertest';
- //import { describe, test, expect } from 'vitest';
+import { describe, test, expect } from 'vitest';
 
 import { initSchema, upsertManifest, upsertDeclaration, replaceEdges } from '../../src/db';
 import { txidFromRawTx } from '../../src/spv/verify-envelope';
@@ -101,12 +101,12 @@ describe('/ready endpoint comprehensive tests', () => {
     };
 
     // DB insert minimal rows
-    upsertManifest(db, {
+    await upsertManifest({
       version_id: vidParent, manifest_hash: vidParent, content_hash: manifestParent.content.contentHash,
       title: null, license: 'cc-by-4.0', classification: 'public',
       created_at: manifestParent.provenance.createdAt, manifest_json: JSON.stringify(manifestParent)
     });
-    upsertManifest(db, {
+    await upsertManifest({
       version_id: vidChild, manifest_hash: vidChild, content_hash: manifestChild.content.contentHash,
       title: null, license: 'cc-by-4.0', classification: 'public',
       created_at: manifestChild.provenance.createdAt, manifest_json: JSON.stringify(manifestChild)
@@ -124,8 +124,8 @@ describe('/ready endpoint comprehensive tests', () => {
       proof: { txid: txidParent, merkleRoot: rootParent, path: [{ hash: sibling, position: 'right' }] },
       block: { blockHash: blockParent, blockHeight: 100 },
     };
-    upsertDeclaration(db, { version_id: vidChild, txid: 'c'.repeat(64), type: 'DLM1', status: 'pending', created_at: Math.floor(Date.now()/1000), block_hash: null, height: null, opret_vout: 0, raw_tx: rawTxChild, proof_json: JSON.stringify(envChild) } as any);
-    upsertDeclaration(db, { version_id: vidParent, txid: 'p'.repeat(64), type: 'DLM1', status: 'pending', created_at: Math.floor(Date.now()/1000), block_hash: null, height: null, opret_vout: 0, raw_tx: rawTxParent, proof_json: JSON.stringify(envParent) } as any);
+    await upsertDeclaration({ version_id: vidChild, txid: 'c'.repeat(64), type: 'DLM1', status: 'pending', created_at: Math.floor(Date.now()/1000), block_hash: null, height: null, opret_vout: 0, raw_tx: rawTxChild, proof_json: JSON.stringify(envChild) } as any);
+    await upsertDeclaration({ version_id: vidParent, txid: 'p'.repeat(64), type: 'DLM1', status: 'pending', created_at: Math.floor(Date.now()/1000), block_hash: null, height: null, opret_vout: 0, raw_tx: rawTxParent, proof_json: JSON.stringify(envParent) } as any);
 
     // 1) With minConfs = 1 (default), child has 1 conf, parent has 2 => ready true
     process.env.POLICY_MIN_CONFS = '1';

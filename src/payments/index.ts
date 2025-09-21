@@ -41,6 +41,14 @@ async function ensureColumn(db: any, table: string, column: string, ddlType: str
 export async function runPaymentsMigrations(db?: Database.Database) {
   // Use PostgreSQL for all migrations
   try {
+    const { getPostgreSQLClient } = await import('../db/postgresql');
+    const pgClient = getPostgreSQLClient();
+
+    // Fix quote_expires_at column type if it exists as wrong type
+    try {
+      await pgClient.query('ALTER TABLE receipts DROP COLUMN IF EXISTS quote_expires_at');
+    } catch (e) { /* ignore */ }
+
     // receipts: add payment fields if not present
     await ensureColumn(null, 'receipts', 'payment_txid', 'TEXT');
     await ensureColumn(null, 'receipts', 'paid_at', 'INTEGER');

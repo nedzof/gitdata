@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { initSchema, upsertManifest, insertReceipt } from '../../src/db';
-import { payRouter } from '../../src/routes/pay';
+import { paymentsRouter } from '../../src/routes/payments';
 
 describe('D21 Payments Integration Tests', () => {
   let app: express.Application;
@@ -11,15 +11,20 @@ describe('D21 Payments Integration Tests', () => {
     // Initialize PostgreSQL database
     await initSchema();
 
+    // Run payment migrations to ensure payment_events table exists
+    const { runPaymentsMigrations } = await import('../../src/payments');
+    await runPaymentsMigrations();
+
     // Create test app
     app = express();
     app.use(express.json({ limit: '1mb' }));
-    app.use(payRouter());
+    app.use('/payments', paymentsRouter());
 
     // Setup test data: producer, manifest, receipt
     const { getPostgreSQLClient } = await import('../../src/db/postgresql');
     const pgClient = getPostgreSQLClient();
     // Clean up any existing test data
+    await pgClient.query('DELETE FROM payment_events WHERE receipt_id = $1', ['receipt-1']);
     await pgClient.query('DELETE FROM receipts WHERE receipt_id = $1', ['receipt-1']);
     await pgClient.query('DELETE FROM manifests WHERE version_id = $1', ['ver-1']);
     await pgClient.query('DELETE FROM producers WHERE producer_id = $1', ['prod-1']);
@@ -85,6 +90,8 @@ describe('D21 Payments Integration Tests', () => {
     expect(r1.body.error).toBe('not-found');
 
     // Test with paid receipt
+    const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+    const pgClient = getPostgreSQLClient();
     await pgClient.query(`UPDATE receipts SET status='paid' WHERE receipt_id=$1`, ['receipt-1']);
 
     const r2 = await request(app)
@@ -123,6 +130,8 @@ describe('D21 Payments Integration Tests', () => {
     });
 
     // Verify receipt status was updated
+    const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+    const pgClient = getPostgreSQLClient();
     const receiptResult = await pgClient.query('SELECT * FROM receipts WHERE receipt_id = $1', ['receipt-1']);
     const receipt = receiptResult.rows[0];
     expect(receipt.status).toBe('paid');
@@ -155,6 +164,8 @@ describe('D21 Payments Integration Tests', () => {
   test('POST /payments/submit should validate quote expiration', async () => {
     // Create expired quote
     const pastTime = Math.floor(Date.now() / 1000) - 3600; // 1 hour ago
+    const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+    const pgClient = getPostgreSQLClient();
     await pgClient.query(`UPDATE receipts SET quote_expires_at=$1 WHERE receipt_id=$2`, [pastTime, 'receipt-1']);
 
     const rawTxHex = '0100000001000000000000000000000000000000000000000000000000000000000000000000000000ffffffff01f401000000000000001976a914deadbeef88ac00000000';
@@ -205,7 +216,7 @@ describe('D21 Payments Integration Tests', () => {
     // Create new app instance with updated environment
     const testApp = express();
     testApp.use(express.json({ limit: '1mb' }));
-    testApp.use(paymentsRouter(db));
+    testApp.use('/payments', paymentsRouter());
 
     const response = await request(testApp)
       .post('/payments/quote')
@@ -239,6 +250,8 @@ describe('D21 Payments Integration Tests', () => {
     await request(app).post('/payments/submit').send({ receiptId: 'receipt-1', rawTxHex });
 
     // Check payment events
+    const { getPostgreSQLClient } = await import('../../src/db/postgresql');
+    const pgClient = getPostgreSQLClient();
     const eventsResult = await pgClient.query('SELECT * FROM payment_events WHERE receipt_id = $1 ORDER BY created_at', ['receipt-1']);
     const events = eventsResult.rows;
 

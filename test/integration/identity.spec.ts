@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
- //import { initSchema } from '../../src/db';
+import { initSchema } from '../../src/db';
 import { submitDlm1Router } from '../../src/routes/submit-builder';
 import { requireIdentity } from '../../src/middleware/identity';
 import { secp256k1 } from '@noble/curves/secp256k1';
@@ -16,8 +16,7 @@ describe('Identity Integration Test', () => {
     const app = express();
     app.use(express.json({ limit: '1mb' }));
 
-    const db = new Database(':memory:');
-    initSchema(db);
+    await initSchema();
 
     // Mount builder (already requires identity via internal change)
     app.use(submitDlm1Router({}));

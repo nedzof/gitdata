@@ -15,14 +15,19 @@ describe('Pricebook Integration Test', () => {
   app.use(express.json({ limit: '1mb' }));
   app.use(priceRouter());
 
-  // Clean up any existing data
+  // Clean up any existing data (order matters due to foreign key constraints)
   const { getPostgreSQLClient } = await import('../../src/db/postgresql');
   const pgClient = getPostgreSQLClient();
   const vid = 'a'.repeat(64);
   const contentHash = 'c'.repeat(64);
-  await pgClient.query('DELETE FROM producers WHERE identity_key = $1', ['02abc'.padEnd(66,'a')]);
+  const identityKey = '02abc'.padEnd(66,'a');
+
+  // Delete in proper order to avoid foreign key constraint violations
+  await pgClient.query('DELETE FROM advisory_targets WHERE producer_id IN (SELECT producer_id FROM producers WHERE identity_key = $1)', [identityKey]);
+  await pgClient.query('DELETE FROM price_rules WHERE producer_id IN (SELECT producer_id FROM producers WHERE identity_key = $1)', [identityKey]);
   await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [vid]);
   await pgClient.query('DELETE FROM prices WHERE version_id = $1', [vid]);
+  await pgClient.query('DELETE FROM producers WHERE identity_key = $1', [identityKey]);
 
   // Prepare producer and manifests mapping
   const producerId = await upsertProducer({ identity_key: '02abc'.padEnd(66,'a'), name: 'Acme', website: 'https://acme.example' });

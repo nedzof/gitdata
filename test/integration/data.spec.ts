@@ -28,10 +28,9 @@ describe('Data Integration Test', () => {
 
   const app = express();
   app.use(express.json({ limit: '1mb' }));
-  const db = new Database(':memory:');
-  initSchema(db);
-  app.use(payRouter(db));
-  app.use(dataRouter(db));
+  await initSchema();
+  app.use(payRouter());
+  app.use(dataRouter());
 
   // Import storage driver and create test content
   const { getStorageDriver } = await import('../../src/storage');
@@ -44,7 +43,7 @@ describe('Data Integration Test', () => {
 
   // Insert manifest with contentHash so /pay will accept
   const versionId = 'b'.repeat(64);
-  upsertManifest(db, {
+  await upsertManifest({
     version_id: versionId,
     manifest_hash: versionId,
     content_hash: contentHash,

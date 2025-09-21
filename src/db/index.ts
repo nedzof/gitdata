@@ -644,27 +644,40 @@ async function getBestUnitPricePostgreSQL(versionId: string, quantity: number, d
   const { getPostgreSQLClient } = await import('./postgresql');
   const pgClient = getPostgreSQLClient();
 
-  // First check for direct price override in prices table
+  // Priority order: 1. Version rules, 2. Version overrides, 3. Producer rules, 4. Default
+
+  // First check version-specific rules (highest priority)
+  const versionRuleResult = await pgClient.query(`
+    SELECT satoshis, tier_from FROM price_rules
+    WHERE version_id = $1 AND tier_from <= $2
+    ORDER BY tier_from DESC LIMIT 1
+  `, [versionId, quantity]);
+
+  if (versionRuleResult.rows.length > 0) {
+    const row = versionRuleResult.rows[0];
+    return { satoshis: row.satoshis, source: 'version-rule', tier_from: row.tier_from };
+  }
+
+  // Then check for direct price override in prices table
   const priceResult = await pgClient.query(
     'SELECT satoshis FROM prices WHERE version_id = $1',
     [versionId]
   );
 
   if (priceResult.rows.length > 0) {
-    return { satoshis: priceResult.rows[0].satoshis, source: 'direct' };
+    return { satoshis: priceResult.rows[0].satoshis, source: 'version-override' };
   }
 
-  // Then check price rules
-  const ruleResult = await pgClient.query(`
+  // Check producer-specific rules
+  const producerRuleResult = await pgClient.query(`
     SELECT satoshis, tier_from FROM price_rules
-    WHERE (version_id = $1 OR producer_id = (SELECT producer_id FROM manifests WHERE version_id = $1))
-      AND tier_from <= $2
+    WHERE producer_id = (SELECT producer_id FROM manifests WHERE version_id = $1) AND tier_from <= $2
     ORDER BY tier_from DESC LIMIT 1
   `, [versionId, quantity]);
 
-  if (ruleResult.rows.length > 0) {
-    const row = ruleResult.rows[0];
-    return { satoshis: row.satoshis, source: 'rule', tier_from: row.tier_from };
+  if (producerRuleResult.rows.length > 0) {
+    const row = producerRuleResult.rows[0];
+    return { satoshis: row.satoshis, source: 'producer-rule', tier_from: row.tier_from };
   }
 
   return { satoshis: defaultSats, source: 'default' };
@@ -695,12 +708,27 @@ async function upsertPriceRulePostgreSQL(rule: { version_id?: string; producer_i
   const pgClient = getPostgreSQLClient();
 
   const now = Date.now();
-  await pgClient.query(`
-    INSERT INTO price_rules (version_id, producer_id, tier_from, satoshis, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    ON CONFLICT (version_id, tier_from)
-    DO UPDATE SET satoshis = EXCLUDED.satoshis, updated_at = EXCLUDED.updated_at
-  `, [rule.version_id, rule.producer_id, rule.tier_from, rule.satoshis, now, now]);
+
+  // Choose the correct conflict clause based on which ID is provided
+  if (rule.version_id) {
+    // Version-specific rule
+    await pgClient.query(`
+      INSERT INTO price_rules (version_id, producer_id, tier_from, satoshis, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (version_id, tier_from) WHERE version_id IS NOT NULL
+      DO UPDATE SET satoshis = EXCLUDED.satoshis, updated_at = EXCLUDED.updated_at
+    `, [rule.version_id, rule.producer_id, rule.tier_from, rule.satoshis, now, now]);
+  } else if (rule.producer_id) {
+    // Producer-specific rule
+    await pgClient.query(`
+      INSERT INTO price_rules (version_id, producer_id, tier_from, satoshis, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (producer_id, tier_from) WHERE producer_id IS NOT NULL
+      DO UPDATE SET satoshis = EXCLUDED.satoshis, updated_at = EXCLUDED.updated_at
+    `, [rule.version_id, rule.producer_id, rule.tier_from, rule.satoshis, now, now]);
+  } else {
+    throw new Error('Either version_id or producer_id must be provided for price rule');
+  }
 }
 
 // Overloaded function declarations for deletePriceRule
