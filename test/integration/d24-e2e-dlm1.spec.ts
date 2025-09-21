@@ -129,19 +129,23 @@ The consumer is granted the following rights: {{USAGE_RIGHTS}}
 
     // Step 3: Create sample data in the system for the rule to find
     const sampleManifest = {
-      type: 'datasetVersionManifest',
       datasetId: 'e2e-test-dataset',
       description: 'Sample dataset for end-to-end DLM1 testing',
       content: {
-        contentHash: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'
+        contentHash: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+        mediaType: 'application/json',
+        sizeBytes: 1024
       },
       provenance: {
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        issuer: '02aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899'
       },
       policy: {
         license: 'MIT',
         classification: 'public'
-      }
+      },
+      parents: [],
+      tags: ['e2e-test', 'dlm1']
     };
 
     const manifestSubmitResponse = await request(app)

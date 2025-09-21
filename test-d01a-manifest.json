@@ -1,0 +1,22 @@
+{
+  "manifest": {
+    "datasetId": "my-files",
+    "description": "Single file test according to D01A spec",
+    "provenance": {
+      "createdAt": "2025-01-01T12:00:00Z",
+      "issuer": "02aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+    },
+    "policy": {
+      "license": "cc-by-4.0",
+      "classification": "public"
+    },
+    "content": {
+      "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mediaType": "text/plain",
+      "sizeBytes": 42,
+      "url": "https://cdn.example.com/files/hello.txt"
+    },
+    "parents": [],
+    "tags": ["demo", "d01a-test"]
+  }
+}

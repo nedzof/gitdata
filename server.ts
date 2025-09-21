@@ -132,9 +132,8 @@ app.use(catalogRouter());
 // D38: OpenLineage API (/openlineage/lineage, /openlineage/nodes, etc.)
 app.use('/openlineage', rateLimit('openlineage'), openlineageRouter);
 
-// TODO: Update these routes to use hybrid database
-// D01 Builder route with rate limiting
-// app.use(rateLimit('submit'), submitDlm1Router(db));
+// D01 Builder route with rate limiting - Updated for D01A spec compliance
+app.use(rateLimit('submit'), submitDlm1Router());
 
 // Receiver (BRC-22-ish: rawTx + manifest [+ envelope]) with rate limiting
 // app.use(

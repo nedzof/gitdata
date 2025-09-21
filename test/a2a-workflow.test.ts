@@ -105,9 +105,9 @@ describe('A2A Workflow Integration', () => {
       .query({ capability: 'contract.review', status: 'active' });
 
     expect(response.status).toBe(200);
-    expect(response.body).toHaveProperty('agents');
-    expect(response.body.agents).toHaveLength(1);
-    expect(response.body.agents[0].agentId).toBe(agentId);
+    expect(response.body).toHaveProperty('items');
+    expect(response.body.items).toHaveLength(1);
+    expect(response.body.items[0].agentId).toBe(agentId);
   });
 
   test('3. Create Rule', async () => {
@@ -141,9 +141,9 @@ describe('A2A Workflow Integration', () => {
       .query({ enabled: 'true' });
 
     expect(response.status).toBe(200);
-    expect(response.body).toHaveProperty('rules');
-    expect(response.body.rules).toHaveLength(1);
-    expect(response.body.rules[0].ruleId).toBe(ruleId);
+    expect(response.body).toHaveProperty('items');
+    expect(response.body.items).toHaveLength(1);
+    expect(response.body.items[0].ruleId).toBe(ruleId);
   });
 
   test('5. Trigger Rule Execution', async () => {
@@ -165,10 +165,10 @@ describe('A2A Workflow Integration', () => {
       .query({ ruleId: ruleId });
 
     expect(response.status).toBe(200);
-    expect(response.body).toHaveProperty('jobs');
+    expect(response.body).toHaveProperty('items');
 
-    if (response.body.jobs.length > 0) {
-      const job = response.body.jobs[0];
+    if (response.body.items.length > 0) {
+      const job = response.body.items[0];
       expect(job.ruleId).toBe(ruleId);
       expect(job).toHaveProperty('jobId');
       expect(job).toHaveProperty('state');

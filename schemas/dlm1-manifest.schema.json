@@ -1,217 +1,81 @@
 {
-   "$id":"schemas/dlm1-manifest.schema.json",
-   "$schema":"http://json-schema.org/draft-07/schema#",
-   "title":"DLM1 Off-chain Manifest",
-   "type":"object",
-   "required":[
-      "type",
-      "datasetId",
-      "content",
-      "provenance",
-      "policy"
-   ],
-   "properties":{
-      "type":{
-         "const":"datasetVersionManifest"
-      },
-      "datasetId":{
-         "type":"string",
-         "minLength":3
-      },
-      "versionId":{
-         "type":"string",
-         "pattern":"^[0-9a-fA-F]{64}$"
-      },
-      "description":{
-         "type":"string"
-      },
-      "content":{
-         "type":"object",
-         "required":[
-            "contentHash"
-         ],
-         "properties":{
-            "contentHash":{
-               "type":"string",
-               "pattern":"^[0-9a-fA-F]{64}$"
-            },
-            "sizeBytes":{
-               "type":"integer",
-               "minimum":0
-            },
-            "mimeType":{
-               "type":"string"
-            },
-            "schema":{
-               "type":"object",
-               "properties":{
-                  "uri":{
-                     "type":"string"
-                  },
-                  "schemaHash":{
-                     "type":"string",
-                     "pattern":"^[0-9a-fA-F]{64}$"
-                  }
-               },
-               "additionalProperties":true
-            }
-         },
-         "additionalProperties":true
-      },
-      "lineage":{
-         "type":"object",
-         "properties":{
-            "parents":{
-               "type":"array",
-               "items":{
-                  "type":"string",
-                  "pattern":"^[0-9a-fA-F]{64}$"
-               }
-            },
-            "transforms":{
-               "type":"array",
-               "items":{
-                  "type":"object",
-                  "required":[
-                     "name"
-                  ],
-                  "properties":{
-                     "name":{
-                        "type":"string"
-                     },
-                     "parametersHash":{
-                        "type":"string",
-                        "pattern":"^[0-9a-fA-F]{8,}$"
-                     }
-                  },
-                  "additionalProperties":true
-               }
-            }
-         },
-         "additionalProperties":true
-      },
-      "provenance":{
-         "type":"object",
-         "required":[
-            "createdAt"
-         ],
-         "properties":{
-            "producer":{
-               "type":"object",
-               "properties":{
-                  "identityKey":{
-                     "type":"string",
-                     "pattern":"^[0-9a-fA-F]{66}$"
-                  }
-               },
-               "additionalProperties":true
-            },
-            "createdAt":{
-               "type":"string",
-               "format":"date-time"
-            },
-            "locations":{
-               "type":"array",
-               "items":{
-                  "type":"object",
-                  "required":[
-                     "type",
-                     "uri"
-                  ],
-                  "properties":{
-                     "type":{
-                        "type":"string"
-                     },
-                     "uri":{
-                        "type":"string"
-                     }
-                  },
-                  "additionalProperties":true
-               }
-            }
-         },
-         "additionalProperties":true
-      },
-      "policy":{
-         "type":"object",
-         "required":[
-            "license",
-            "classification"
-         ],
-         "properties":{
-            "license":{
-               "type":"string"
-            },
-            "classification":{
-               "type":"string",
-               "enum":[
-                  "public",
-                  "internal",
-                  "restricted",
-                  "clinical-research"
-               ]
-            },
-            "pii_flags":{
-               "type":"array",
-               "items":{
-                  "type":"string"
-               }
-            }
-         },
-         "additionalProperties":true
-      },
-      "signatures":{
-         "type":"object",
-         "properties":{
-            "producer":{
-               "type":"object",
-               "required":[
-                  "publicKey",
-                  "signature"
-               ],
-               "properties":{
-                  "publicKey":{
-                     "type":"string",
-                     "pattern":"^[0-9a-fA-F]{66}$"
-                  },
-                  "signature":{
-                     "type":"string",
-                     "minLength":10
-                  }
-               },
-               "additionalProperties":true
-            },
-            "endorsements":{
-               "type":"array",
-               "items":{
-                  "type":"object",
-                  "required":[
-                     "publicKey",
-                     "signature"
-                  ],
-                  "properties":{
-                     "role":{
-                        "type":"string"
-                     },
-                     "publicKey":{
-                        "type":"string",
-                        "pattern":"^[0-9a-fA-F]{66}$"
-                     },
-                     "signature":{
-                        "type":"string",
-                        "minLength":10
-                     },
-                     "expiresAt":{
-                        "type":"string",
-                        "format":"date-time"
-                     }
-                  },
-                  "additionalProperties":true
-               }
-            }
-         },
-         "additionalProperties":true
+  "$id": "schemas/dlm1-manifest.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DLM1 Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["datasetId", "provenance", "content"],
+  "properties": {
+    "datasetId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createdAt", "issuer"],
+      "properties": {
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "issuer": {
+          "type": "string",
+          "pattern": "^(02|03)[0-9a-fA-F]{64}$"
+        }
       }
-   },
-   "additionalProperties":false
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "license": {
+          "type": "string"
+        },
+        "classification": {
+          "type": "string"
+        }
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contentHash"],
+      "properties": {
+        "contentHash": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "parents": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{64}$"
+      },
+      "default": []
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    }
+  }
 }

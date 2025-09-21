@@ -90,6 +90,20 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
       // 4) Store the manifest in the database for searching (if db is provided)
       if (db) {
         try {
+          // Handle producer creation/lookup from issuer
+          let producerId: string | null = null;
+          if (manifest.provenance?.issuer) {
+            try {
+              producerId = await db.upsertProducer({
+                identity_key: manifest.provenance.issuer,
+                name: `Producer ${manifest.provenance.issuer.slice(0, 8)}...`,
+                website: null
+              });
+            } catch (error) {
+              console.warn('Failed to create/lookup producer:', error);
+            }
+          }
+
           await db.upsertManifest({
             version_id: versionId,
             manifest_hash: manifestHash,
@@ -100,8 +114,13 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
             classification: manifest.policy?.classification || null,
             created_at: manifest.provenance?.createdAt || new Date().toISOString(),
             manifest_json: JSON.stringify(manifest),
-            producer_id: null
+            producer_id: producerId
           });
+
+          // Store parent relationships if provided
+          if (manifest.parents && manifest.parents.length > 0) {
+            await db.replaceEdges(versionId, manifest.parents);
+          }
         } catch (error) {
           // Log error but don't fail the submission since this is for testing
           console.warn('Failed to store manifest in database:', error);
@@ -116,7 +135,7 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
         status: 'ok',
         versionId,
         manifestHash,
-        parents: built.parents,
+        parents: manifest.parents || built.parents || [],
         outputs,
         opReturnScriptHex: scriptHex,
         opReturnOutputBytes: outBytes,
