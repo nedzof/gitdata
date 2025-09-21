@@ -83,7 +83,7 @@ class A2AE2ETest {
     const pgClient = getPostgreSQLClient();
 
     // Clean up any existing test data first
-    await pgClient.query('DELETE FROM manifests WHERE version_id IN ($1, $2)', ['v1_contract_data', 'v1_intermediate_results']);
+    await pgClient.query('DELETE FROM manifests WHERE version_id IN ($1, $2, $3)', ['v1_contract_data', 'v1_intermediate_results', 'v1_final_output']);
 
     await pgClient.query(`
       INSERT INTO manifests (version_id, manifest_hash, manifest_json, dataset_id, created_at)
@@ -254,7 +254,7 @@ class A2AE2ETest {
       const response = await request(this.app).get('/jobs');
       expect(response.status).toBe(200);
 
-      const jobs = response.body.jobs;
+      const jobs = response.body.jobs || [];
       const pendingJobs = jobs.filter((job: any) =>
         job.state === 'queued' || job.state === 'running'
       );
@@ -351,7 +351,7 @@ class A2AE2ETest {
 - **Errors:** ${this.evidence.summary.errors.length}
 
 ## Agent Registry
-${this.evidence.agents.map(agent => `- **${agent.name}** (${agent.agentId}): ${agent.capabilities.join(', ')}`).join('\n')}
+${this.evidence.agents.map(agent => `- **${agent.name}** (${agent.agentId}): ${(agent.capabilities || []).join(', ')}`).join('\n')}
 
 ## Rules Executed
 ${this.evidence.rules.map(rule => `- **${rule.name}** (${rule.ruleId}): ${rule.enabled ? 'Enabled' : 'Disabled'}`).join('\n')}
