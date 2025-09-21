@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
- //import { initSchema, getTestDatabase, upsertManifest, setPrice } from '../../src/db';
+import { initSchema, upsertManifest, setPrice } from '../../src/db';
 import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
@@ -14,30 +14,28 @@ import { startJobsWorker } from '../../src/agents/worker';
 import { MockServer } from '../helpers/mock-server';
 
 let app: express.Application;
-let db: Database.Database;
 let workerCleanup: any;
 let mockServer: MockServer;
 
 beforeAll(async () => {
   await initSchema();
-  db = getTestDatabase();
 
   // Create Express app with full DLM1 infrastructure
   app = express();
   app.use(express.json());
 
-  // Mount all required routes
-  app.use('/agents', agentsRouter(db));
-  app.use('/rules', rulesRouter(db));
-  app.use('/jobs', jobsRouter(db));
-  app.use('/templates', templatesRouter(db));
-  app.use('/artifacts', createArtifactRoutes(db));
-  app.use(submitDlm1Router(db));
-  app.use(bundleRouter(db));
-  app.use(opsRouter(db));
+  // Mount all required routes - PostgreSQL only
+  app.use('/agents', agentsRouter());
+  app.use('/rules', rulesRouter());
+  app.use('/jobs', jobsRouter());
+  app.use('/templates', templatesRouter());
+  app.use('/artifacts', createArtifactRoutes());
+  app.use(submitDlm1Router());
+  app.use(bundleRouter());
+  app.use(opsRouter());
 
-  // Start worker for job processing
-  workerCleanup = startJobsWorker(db);
+  // Start worker for job processing - disabled for PostgreSQL-only tests
+  // workerCleanup = startJobsWorker(db);
 
   // Start mock webhook server for agent testing
   mockServer = new MockServer(9999);
@@ -50,7 +48,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (workerCleanup) workerCleanup();
   if (mockServer) await mockServer.stop();
-  if (db) db.close();
+  // PostgreSQL cleanup handled by connection pool
 });
 
 describe('D24 End-to-End Workflow with DLM1 Publishing', () => {

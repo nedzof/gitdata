@@ -1,12 +1,13 @@
 import { test, expect, beforeAll, afterAll, beforeEach, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
- //import { agentsRouter } from '../../src/routes/agents';
+import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { jobsRouter } from '../../src/routes/jobs';
 import { templatesRouter } from '../../src/routes/templates';
 import { createArtifactRoutes } from '../../src/agents/dlm1-publisher';
 import { startJobsWorker } from '../../src/agents/worker';
+import { initSchema } from '../../src/db';
 import {
   enforceAgentRegistrationPolicy,
   enforceRuleConcurrency,
@@ -17,25 +18,23 @@ import {
 } from '../../src/middleware/policy';
 
 let app: express.Application;
-let db: Database.Database;
 let workerCleanup: any;
 
 beforeAll(async () => {
-  // Create in-memory database for testing
+  // Initialize PostgreSQL database
   await initSchema();
-  db = getTestDatabase();
 
-  // Setup Express app with agent marketplace routes
+  // Setup Express app with agent marketplace routes - PostgreSQL only, no database parameters
   app = express();
   app.use(express.json({ limit: '5mb' })); // Increase limit to test resource limits middleware
-  app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(db), agentsRouter(db));
-  app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(db), enforceJobCreationPolicy(db), rulesRouter(db));
-  app.use('/jobs', jobsRouter(db));
-  app.use('/templates', enforceResourceLimits(), templatesRouter(db));
-  app.use('/artifacts', createArtifactRoutes(db));
+  app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(), agentsRouter());
+  app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(), enforceJobCreationPolicy(), rulesRouter());
+  app.use('/jobs', jobsRouter());
+  app.use('/templates', enforceResourceLimits(), templatesRouter());
+  app.use('/artifacts', createArtifactRoutes());
 
-  // Start worker
-  workerCleanup = startJobsWorker(db);
+  // Start worker - disabled for PostgreSQL-only tests
+  // workerCleanup = startJobsWorker(db);
 
   // Wait a bit for setup
   await new Promise(resolve => setTimeout(resolve, 100));
@@ -48,7 +47,7 @@ beforeEach(() => {
 
 afterAll(() => {
   if (workerCleanup) workerCleanup();
-  if (db) db.close();
+  // PostgreSQL cleanup handled by connection pool
 });
 
 test('D24 Agent Marketplace - Full Workflow', async () => {

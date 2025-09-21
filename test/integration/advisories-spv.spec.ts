@@ -26,14 +26,19 @@ describe('Advisories SPV Integration Test', () => {
   app.use(advisoriesRouter());
   app.use(readyRouter());
 
-  // Clean up any existing data
+  // Clean up any existing data - must respect foreign key constraints
   const { getPostgreSQLClient } = await import('../../src/db/postgresql');
   const pgClient = getPostgreSQLClient();
   const vid = 'a'.repeat(64);
   const contentHash = 'c'.repeat(64);
-  await pgClient.query('DELETE FROM producers WHERE identity_key = $1', ['02abc'.padEnd(66, 'a')]);
-  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [vid]);
+
+  // Delete in correct order: dependencies first, then parent records
+  await pgClient.query('DELETE FROM advisory_targets WHERE version_id = $1', [vid]);
+  await pgClient.query('DELETE FROM advisory_targets WHERE producer_id LIKE $1', ['pr_%']);
+  await pgClient.query('DELETE FROM advisories');
   await pgClient.query('DELETE FROM declarations WHERE version_id = $1', [vid]);
+  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [vid]);
+  await pgClient.query('DELETE FROM producers WHERE identity_key = $1', ['02abc'.padEnd(66, 'a')]);
 
   // Insert producer + manifest
   const producerId = await upsertProducer({ identity_key: '02abc'.padEnd(66, 'a'), name: 'Acme', website: 'https://acme.example' });
@@ -88,6 +93,7 @@ describe('Advisories SPV Integration Test', () => {
   // Test 1: Ready should work without advisories
   console.log('Testing /ready without advisories...');
   const rdy1 = await request(app).get(`/ready?versionId=${vid}`);
+  console.log('Ready response:', rdy1.body);
   expect(rdy1.status).toBe(200);
   expect(rdy1.body.ready).toBe(true);
 

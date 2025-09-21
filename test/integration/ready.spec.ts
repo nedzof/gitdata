@@ -53,9 +53,8 @@ describe('/ready endpoint comprehensive tests', () => {
     // Express app with in-memory DB
     const app = express();
     app.use(express.json({ limit: '1mb' }));
-    const db = new Database(':memory:');
-    initSchema(db);
-    app.use(readyRouter(db));
+    await initSchema();
+    app.use(readyRouter());
 
     // Build synthetic txids with different raw transactions
     const rawTxChild = '01'; // Different raw tx for child

@@ -1,7 +1,5 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
- //import { getDeclarationByVersion, getParents } from '../db';
-import { listAdvisoriesForVersionActive, listAdvisoriesForProducerActive, getProducerIdForVersion } from '../db';
 import {
   loadHeaders,
   verifyEnvelopeAgainstHeaders,
@@ -26,7 +24,7 @@ function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
 }
 
-async function getPolicy(db: any, policyId: string) {
+async function getPolicy(policyId: string) {
   try {
     const { getPostgreSQLClient } = await import('../db/postgresql');
     const pgClient = getPostgreSQLClient();
@@ -49,7 +47,7 @@ async function getPolicy(db: any, policyId: string) {
  * Response: { ready: boolean, reason?: string, confirmations?: number }
  * - confirmations (if present) is the minimum confirmations across all verified nodes at time of check.
  */
-export function readyRouter(db: Database.Database): Router {
+export function readyRouter(): Router {
   const router = makeRouter();
 
   router.get('/ready', async (req: Request, res: Response) => {
@@ -77,16 +75,19 @@ export function readyRouter(db: Database.Database): Router {
         if (seen.has(v)) continue;
         seen.add(v);
 
-        // Advisory check (active)
+        // Advisory check (active) - use async PostgreSQL functions
         const now = Math.floor(Date.now() / 1000);
-        const pid = getProducerIdForVersion(db, v);
-        const advV = listAdvisoriesForVersionActive(db, v, now);
-        const advP = pid ? listAdvisoriesForProducerActive(db, pid, now) : [];
+        const { listAdvisoriesForVersionActiveAsync, listAdvisoriesForProducerActiveAsync, getProducerIdForVersionAsync } = await import('../db');
+
+        const pid = await getProducerIdForVersionAsync(v);
+        const advV = await listAdvisoriesForVersionActiveAsync(v, now);
+        const advP = pid ? await listAdvisoriesForProducerActiveAsync(pid, now) : [];
         const hasBlock = [...advV, ...advP].some((a) => a.type === 'BLOCK');
         if (hasBlock) {
           return json(res, 200, { ready: false, reason: 'advisory-blocked' });
         }
 
+        const { getDeclarationByVersion } = await import('../db');
         const decl = await getDeclarationByVersion(v);
         if (!decl?.proof_json) {
           return json(res, 200, { ready: false, reason: `missing-envelope:${v}` });
@@ -108,7 +109,8 @@ export function readyRouter(db: Database.Database): Router {
 
         // Enqueue parents
         if (d < BUNDLE_MAX_DEPTH) {
-          const parents = getParents(db, v);
+          const { getParents } = await import('../db');
+          const parents = await getParents(v);
           for (const p of parents) {
             if (!seen.has(p)) stack.push({ v: p, d: d + 1 });
           }
@@ -128,7 +130,7 @@ export function readyRouter(db: Database.Database): Router {
 
       if (policyId) {
         try {
-          const policy = await getPolicy(db, policyId);
+          const policy = await getPolicy(policyId);
           if (!policy) {
             return json(res, 404, { ready: false, reason: 'policy-not-found' });
           }

@@ -1,9 +1,10 @@
 import { test, expect, beforeAll, afterAll, beforeEach, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
- //import { agentsRouter } from '../../src/routes/agents';
+import { agentsRouter } from '../../src/routes/agents';
 import { rulesRouter } from '../../src/routes/rules';
 import { templatesRouter } from '../../src/routes/templates';
+import { initSchema } from '../../src/db';
 import {
   enforceAgentRegistrationPolicy,
   enforceRuleConcurrency,
@@ -15,23 +16,21 @@ import {
 } from '../../src/middleware/policy';
 
 let app: express.Application;
-let db: Database.Database;
 
 beforeAll(async () => {
   await initSchema();
-  db = getTestDatabase();
 
   app = express();
   app.use(express.json({ limit: '5mb' })); // Increase limit to test resource limits middleware
 
-  // Apply all policy middlewares for testing
-  app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(db), agentsRouter(db));
-  app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(db), enforceJobCreationPolicy(db), rulesRouter(db));
-  app.use('/templates', enforceResourceLimits(), templatesRouter(db));
+  // Apply all policy middlewares for testing - PostgreSQL only
+  app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(), agentsRouter());
+  app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(), enforceJobCreationPolicy(), rulesRouter());
+  app.use('/templates', enforceResourceLimits(), templatesRouter());
 
   // Add metrics endpoint for policy testing
   app.get('/policy-metrics', (req, res) => {
-    res.json(getPolicyMetrics(db));
+    res.json(getPolicyMetrics());
   });
 });
 
@@ -41,7 +40,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  if (db) db.close();
+  // PostgreSQL cleanup handled by connection pool
 });
 
 describe('D24 Policy Enforcement - Edge Cases & Security', () => {
