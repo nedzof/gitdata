@@ -152,45 +152,159 @@
 
       <!-- Main Content -->
       <div class="main">
-        <!-- Simple Visual Graph -->
+        <!-- Enhanced Visual Graph -->
         <div class="graph">
           <svg width="100%" height="300" viewBox="0 0 800 300">
-            <!-- Upstream nodes -->
+            <defs>
+              <!-- Gradients for nodes -->
+              <linearGradient id="nodeGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.2"/>
+                <stop offset="100%" style="stop-color:#000000;stop-opacity:0.1"/>
+              </linearGradient>
+
+              <!-- Animated arrow marker -->
+              <marker id="arrow" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,8 L12,4 z" fill="#58a6ff" opacity="0.8"/>
+              </marker>
+
+              <!-- Drop shadow filter -->
+              <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.3"/>
+              </filter>
+
+              <!-- Glow effect for current node -->
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                <feMerge>
+                  <feMergeNode in="coloredBlur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+            </defs>
+
+            <!-- Background pattern -->
+            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#30363d" stroke-width="0.5" opacity="0.3"/>
+            </pattern>
+            <rect width="100%" height="100%" fill="url(#grid)"/>
+
+            <!-- Flow lines with better styling -->
             {#each visibleUpstream as node, i}
-              <g class="node" on:click={() => selectNode(node)} transform="translate(50, {50 + i * 40})">
-                <rect width="80" height="25" fill={getClassificationColor(node.classification)} rx="3"/>
-                <text x="40" y="17" text-anchor="middle" fill="white" font-size="12">
-                  {node.title.slice(0, 8)}...
+              <path
+                d="M 130 {62 + i * 40} Q 240 {62 + i * 40} 350 140"
+                stroke={getClassificationColor(node.classification)}
+                stroke-width="2"
+                fill="none"
+                opacity="0.6"
+                marker-end="url(#arrow)"
+                class="flow-line"
+              />
+            {/each}
+
+            {#each visibleDownstream as node, i}
+              <path
+                d="M 450 140 Q 560 {62 + i * 40} 640 {62 + i * 40}"
+                stroke={getClassificationColor(node.classification)}
+                stroke-width="2"
+                fill="none"
+                opacity="0.6"
+                marker-end="url(#arrow)"
+                class="flow-line"
+              />
+            {/each}
+
+            <!-- Upstream nodes with enhanced styling -->
+            {#each visibleUpstream as node, i}
+              <g class="node upstream" on:click={() => selectNode(node)} transform="translate(50, {50 + i * 40})">
+                <rect
+                  width="80"
+                  height="25"
+                  fill={getClassificationColor(node.classification)}
+                  rx="6"
+                  filter="url(#dropShadow)"
+                  class="node-bg"
+                />
+                <rect
+                  width="80"
+                  height="25"
+                  fill="url(#nodeGradient)"
+                  rx="6"
+                />
+                <text x="40" y="17" text-anchor="middle" fill="white" font-size="11" font-weight="500">
+                  {node.title.slice(0, 9)}...
                 </text>
-                <line x1="85" y1="12" x2="120" y2="12" stroke="#666" stroke-width="2" marker-end="url(#arrow)"/>
+                <!-- Status indicator -->
+                <circle cx="72" cy="8" r="3" fill="#58a6ff" opacity="0.8"/>
               </g>
             {/each}
 
-            <!-- Current node -->
+            <!-- Current node with special styling -->
             <g class="node current" on:click={() => selectNode(lineageData.current)} transform="translate(350, 120)">
-              <rect width="100" height="40" fill={getClassificationColor(lineageData.current.classification)} stroke="#fff" stroke-width="2" rx="5"/>
-              <text x="50" y="25" text-anchor="middle" fill="white" font-size="14" font-weight="bold">
-                {lineageData.current.title.slice(0, 10)}...
+              <rect
+                width="100"
+                height="40"
+                fill={getClassificationColor(lineageData.current.classification)}
+                rx="8"
+                filter="url(#glow)"
+                class="current-node-bg"
+              />
+              <rect
+                width="100"
+                height="40"
+                fill="url(#nodeGradient)"
+                rx="8"
+              />
+              <rect
+                width="100"
+                height="40"
+                stroke="#58a6ff"
+                stroke-width="2"
+                fill="none"
+                rx="8"
+                opacity="0.8"
+              />
+              <text x="50" y="25" text-anchor="middle" fill="white" font-size="13" font-weight="600">
+                {lineageData.current.title.slice(0, 11)}...
               </text>
+              <!-- Pulse indicator -->
+              <circle cx="85" cy="15" r="4" fill="#58a6ff" class="pulse"/>
             </g>
 
-            <!-- Downstream nodes -->
+            <!-- Downstream nodes with enhanced styling -->
             {#each visibleDownstream as node, i}
-              <g class="node" on:click={() => selectNode(node)} transform="translate(600, {50 + i * 40})">
-                <line x1="0" y1="12" x2="35" y2="12" stroke="#666" stroke-width="2" marker-end="url(#arrow)"/>
-                <rect x="40" width="80" height="25" fill={getClassificationColor(node.classification)} rx="3"/>
-                <text x="80" y="17" text-anchor="middle" fill="white" font-size="12">
-                  {node.title.slice(0, 8)}...
+              <g class="node downstream" on:click={() => selectNode(node)} transform="translate(650, {50 + i * 40})">
+                <rect
+                  width="80"
+                  height="25"
+                  fill={getClassificationColor(node.classification)}
+                  rx="6"
+                  filter="url(#dropShadow)"
+                  class="node-bg"
+                />
+                <rect
+                  width="80"
+                  height="25"
+                  fill="url(#nodeGradient)"
+                  rx="6"
+                />
+                <text x="40" y="17" text-anchor="middle" fill="white" font-size="11" font-weight="500">
+                  {node.title.slice(0, 9)}...
                 </text>
+                <!-- Status indicator -->
+                <circle cx="72" cy="8" r="3" fill="#f85149" opacity="0.8"/>
               </g>
             {/each}
 
-            <!-- Arrow marker -->
-            <defs>
-              <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-                <path d="M0,0 L0,6 L9,3 z" fill="#666"/>
-              </marker>
-            </defs>
+            <!-- Flow direction labels -->
+            <text x="150" y="25" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="600" opacity="0.7">
+              Sources
+            </text>
+            <text x="400" y="200" text-anchor="middle" fill="#238636" font-size="12" font-weight="600" opacity="0.7">
+              Current
+            </text>
+            <text x="650" y="25" text-anchor="middle" fill="#f85149" font-size="12" font-weight="600" opacity="0.7">
+              Outputs
+            </text>
           </svg>
         </div>
 
@@ -401,17 +515,52 @@
   }
 
   .graph svg {
-    background: #0d1117;
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
     border-radius: 4px;
   }
 
   .node {
     cursor: pointer;
+    transition: transform 0.2s ease, opacity 0.2s ease;
   }
 
-  .node:hover rect {
-    stroke: #fff;
-    stroke-width: 1;
+  .node:hover {
+    transform: scale(1.05);
+  }
+
+  .node-bg {
+    transition: filter 0.2s ease;
+  }
+
+  .node:hover .node-bg {
+    filter: brightness(1.2) url(#dropShadow);
+  }
+
+  .current-node-bg {
+    animation: currentPulse 3s ease-in-out infinite;
+  }
+
+  .flow-line {
+    transition: opacity 0.3s ease, stroke-width 0.3s ease;
+  }
+
+  .flow-line:hover {
+    opacity: 0.9;
+    stroke-width: 3;
+  }
+
+  .pulse {
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.2); }
+  }
+
+  @keyframes currentPulse {
+    0%, 100% { filter: url(#glow) brightness(1); }
+    50% { filter: url(#glow) brightness(1.1); }
   }
 
   .nodes {
