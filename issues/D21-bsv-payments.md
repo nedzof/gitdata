@@ -1,548 +1,607 @@
-Ja – das ist genau im D24-Sinne und BSV‑konform. Dein D21‑Entwurf ist stark: SPV als Quelle der Wahrheit, mAPI‑Broadcast, deterministische Output‑Templates, Idempotenz und Reconcile sind die richtigen Bausteine. Unten findest du eine präzisierte, sofort verwendbare Fassung im selben Format – mit kleinen Ergänzungen zu Zustandsübergängen, Fehlercodes, Template‑Hash, Fallbacks und Security. Sie bleibt vendor‑neutral, SPV‑erst und nutzt die UTXO‑Modellstärke von BSV (digital asset).
+# D21 — BSV Overlay Network Payment Infrastructure
 
-File: issues/D21-bsv-payments.md
+**Enterprise BSV Payment Processing with BRC Standards Integration**
 
-# D21 — Real BSV Payments (Producer Payouts & Consumer Purchases)
-
-Labels: payments, backend, bsv, security
+Labels: payments, backend, bsv, security, overlay-network, brc-standards
 Assignee: TBA
-Estimate: 4–6 PT
-
-Zweck
-- Overlay‑Receipts (D06/D07) auf produktionsreife BSV‑Zahlungen heben: echte On‑Chain‑Payments für Consumer (Kauf) und Producer (Payout‑Splits) mit Miner‑Broadcast (mAPI‑kompatibel) und SPV‑Verifikation (D02).
-- Deterministische Output‑Templates (Splits), Idempotenz, Reconciliation/Status‑Updates und klare Sicherheitsrahmen.
-
-Abhängigkeiten
-- D01 (Submit), D02 (SPV), D05/D09 (Price/Pricebook), D06/D07 (Receipts/Data), D08 (Producers), D11 (Caching), D12 (Limits)
-- DB: receipts, revenue_events, producers (erweitern)
-- Optional: Attach‑Proofs Job (scripts/attach-proofs.ts) für SPV‑Übernahme
-
-Aufgaben
-- [ ] DB‑Erweiterungen
-  - receipts: +payment_txid (TEXT UNIQUE), +paid_at (INTEGER), +payment_outputs_json (TEXT), +fee_sat (INTEGER), +quote_template_hash (TEXT), +quote_expires_at (INTEGER)
-  - producers: +payout_script_hex (TEXT) oder payout_address (→ zu scriptHex normalisieren)
-  - revenue_events: neue Events 'payment-quoted', 'payment-submitted', 'payment-confirmed', 'refund' (optional)
-- [ ] Output‑Engine (Splits)
-  - PAY_SPLITS_JSON (ENV): z. B. {"overlay":0.05,"producer":0.95} (prozentual, Summe=1.0); producer‑/version‑Overrides optional
-  - PAY_SCRIPTS_JSON (ENV): Overlay‑payout scriptHex; Producer‑Ziel aus producers.payout_script_hex
-  - Template‑Builder:
-    - amount = unitPrice * quantity
-    - allocate per splits (ganzzahlige Satoshis, Rest satt in “producer” oder “overlay” deterministisch)
-    - fee wird vom Wallet gedeckt (required outputs werden nicht für Fee reduziert)
-    - deterministische Reihenfolge der Outputs + Template‑Hash (quote_template_hash)
-- [ ] Endpunkte (v1)
-  - POST /payments/quote { receiptId }
-    → 200 { versionId, amountSat, outputs:[{scriptHex,satoshis}], feeRateHint, expiresAt, templateHash }
-    → 400/404 bei ungültigem/fehlendem Receipt; 409 wenn Receipt nicht mehr pending
-    - Validiert Receipt (pending, nicht expired), bestimmt unitPrice (D09), splittet Outputs
-    - Deterministisch: gleiche Inputs → gleicher templateHash
-    - Side‑effect: revenue_events: 'payment-quoted'
-  - POST /payments/submit { receiptId, rawTxHex, mapiProviderId? }
-    → 200 { status:"accepted", txid, mapi?:{...} }
-    → 400 bei invalidem Tx/Decoding; 409 wenn Outputs fehlen/zu klein oder templateHash verletzt; 409 bei abweichender txid für dieselbe receiptId; 410 wenn Quote abgelaufen
-    - Verifiziert: txid=sha256d(rawTx), Tx enthält geforderte outputs (scriptHex exakt, satoshis >= gefordert)
-    - Broadcast via mAPI‑Adapter (konfigurierbare Provider, Fallback‑Reihenfolge)
-    - Persistiert: payment_txid, payment_outputs_json, fee_sat, paid_at, status=paid (pending confs)
-    - Side‑effect: revenue_events: 'payment-submitted' (inkl. txid)
-  - GET /payments/:receiptId
-    → 200 { receipt, payment?:{ txid, paidAt, feeSat, outputs }, mapi?:{ lastResponse? }, spv?:{ confs?, lastCheckedAt? } }
-    → 404 bei unbekanntem Receipt
-- [ ] Broadcast‑Adapter
-  - PAY_PROVIDERS_JSON (ENV): Liste von Broadcast‑URLs (mAPI‑kompatibel), timeouts/retries, Health‑Check
-  - BROADCAST_MODE=dryrun|live (dryrun → akzeptiert ohne externen Broadcast, nützlich für Staging)
-  - Persistiere Provider/Antwort (für spätere Analyse)
-- [ ] Verifikation/Reconciliation
-  - scripts/reconcile-payments.ts:
-    - Holt Headers/Proofs (D02), markiert receipts.status=confirmed, wenn SPV‑Konf. ≥ POLICY_MIN_CONFS
-    - Reorg‑Toleranz: bei Inklusionsverlust status zurück auf paid, erneute Beobachtung
-  - Optional: on‑submit SPV, falls Proof unmittelbar verfügbar (nicht erforderlich)
-  - Side‑effect: revenue_events: 'payment-confirmed'
-- [ ] Security/Policy
-  - PAY_STRICT=true|false: strikte Template‑Prüfung (Outputs und Beträge exakt), sonst >= (mindestens)
-  - Rate Limits (D12) für /payments/*; optional BRC‑31 Identity‑Schutz
-  - Idempotenz: (receiptId,txid) ist unique‑Kombination; erneut gleich → 200 stabil, abweichend → 409
-  - Nonce/Replay‑Schutz optional für signierte /payments/*‑Aufrufe
-- [ ] Fehlercodes/Antworten harmonisieren
-  - 400 bad‑request, 401 unauthorized (falls Identity), 403 forbidden, 404 not‑found, 409 conflict, 410 gone (quote expired), 429 too‑many‑requests, 500 internal
-- [ ] Tests
-  - Quote → Wallet‑Sign (synthetisch) → Submit (dryrun) → Receipt.status updated
-  - Negativ: Output fehlt/zu klein → 409; falsches Script → 409; Quote abgelaufen → 410
-  - Idempotenz: gleicher txid → 200; anderer txid für gleiche receiptId → 409
-  - Reconcile: SPV‑bestätigt → status=confirmed
-  - mAPI‑Fallback: erster Provider down → zweiter akzeptiert; Antwort persistiert
-
-Definition of Done (DoD)
-- [ ] /payments/quote liefert deterministische, nicht manipulierbare Templates (Splits, Beträge, templateHash, expiresAt).
-- [ ] /payments/submit akzeptiert signierte Tx, validiert Outputs vs. Template, broadcastet (live) oder akzeptiert (dryrun).
-- [ ] receipts Statusfluss: pending → paid (submit) → confirmed (Reconcile bei minConfs).
-- [ ] revenue_events enthalten Payment‑Flows; Reconcile arbeitet SPV‑konform; Idempotenz garantiert.
-
-Abnahmekriterien (E2E)
-- [ ] Happy Path: quote → sign → submit (dryrun) → status=paid → reconcile (Proof) → status=confirmed.
-- [ ] Split‑Beispiele (overlay/producer) korrekt und reproduzierbar; templateHash stabil bei gleichen Inputs.
-- [ ] Idempotenz: gleiches (receiptId, txid) ist stabil; abweichender txid wird abgewiesen (409).
-- [ ] Live‑Broadcast: mAPI‑Antwort gespeichert; Reconcile erkennt Inclusion (über attach‑proofs o. externen Proof).
-
-Artefakte
-- [ ] Beispiel‑PAY_SPLITS_JSON, PAY_SCRIPTS_JSON, PAY_PROVIDERS_JSON
-- [ ] Beispiel‑Quote‑JSON (outputs, templateHash, expiresAt)
-- [ ] Beispiel‑Submit‑Antwort (txid, mapi), Reconcile‑Log (SPV‑Status)
-- [ ] DB‑Snapshots (receipts/revenue_events) vor/nach Reconcile
-
-Risiken/Rollback
-- Miner‑Policy Unterschiede: robustes mAPI‑Fallback; BROADCAST_MODE=dryrun als Notbremse
-- Gebühren: Fee‑Schätzung im Wallet; Template nur „required outputs“; optional feeRateHint
-- Eventually‑Consistent Reads: kurze Verzögerung vor SPV‑Lookup; Reorg‑Handhabung im Reconcile
-- Mehrinstanzen: Idempotenz über Unique‑Keys; Reconcile als idempotenter Job
-
-ENV (Vorschlag)
-- PAY_SPLITS_JSON='{"overlay":0.05,"producer":0.95}'
-- PAY_SCRIPTS_JSON='{"overlay":""}'
-- PAY_PROVIDERS_JSON='["https://miner1.example/mapi/tx","https://miner2.example/mapi/tx"]'
-- BROADCAST_MODE=dryrun|live
-- POLICY_MIN_CONFS=1
-- QUOTE_TTL_SEC=120
-- PAY_STRICT=true
-- RATE_LIMIT_PAYMENTS_PER_MIN=60
-
-State‑Machine (Empfehlung)
-- receipts.status: pending → paid (submit) → confirmed (reconcile) → settled (optional nach Off‑Chain‑Erfassung)
-- payment.lifecycle: quoted → submitted → broadcast_accepted → confirmed | failed (rollback: pending)
-
-Anmerkungen (D24‑Ausrichtung)
-- BSV ist ein digitaler Vermögenswert (kein „Krypto“): SPV bleibt maßgeblich; keine Abhängigkeit von zentralen Indexern.
-- Vendor‑neutral: Wallets nach BRC‑100‑Prinzip integrierbar; Identität via BRC‑31 optional.
-- UTXO‑Modell nutzen: deterministische Outputs, einfache Idempotenz, klare Eigentumsübertragung.
-
-Wenn du willst, liefere ich dir als Nächstes schlanke Scaffolds (nur Stubs, D24‑kompatibel) für:
-- DB‑Migration (receipts/producers/revenue_events),
-- POST /payments/quote & /payments/submit,
-- mAPI‑Broadcast‑Adapter,
-- reconcile‑payments.ts (SPV‑Proof‑Attach + Statusflip).
-
-
-I can give you a single, drop‑in TypeScript template file that is D24‑compatible in style and patterns. It scaffolds:
-
-- DB migration helpers for receipts/producers/revenue_events
-- POST /payments/quote and POST /payments/submit (plus GET /payments/:receiptId)
-- A minimal mAPI broadcast adapter (dryrun/live with fallback providers)
-- A reconcilePayments() job stub to flip paid → confirmed after SPV (attach proofs hook)
-
-Important
-- This is a template. You must align field names/types with your actual receipts/producers schema and pricebook logic. Verify the code with your team/community before enabling in production.
-- SPV attach/verify is left as a stub (verifyTxSPV). Wire it to your SPV module/job.
-
-Create file: src/payments/scaffold.ts
-```ts
-/* 
-  D21 Payments Scaffold (D24-compatible style)
-  - DB migrations for receipts/producers/revenue_events
-  - /payments/quote, /payments/submit, GET /payments/:receiptId
-  - mAPI broadcast adapter (dryrun/live)
-  - reconcilePayments() job stub (SPV attach + status flip)
-
-  NOTES:
-  - Align schema fields to your real DB. This file uses conservative checks to add columns if missing.
-  - SPV verification (verifyTxSPV) is intentionally a stub; integrate your SPV logic.
-  - Deterministic templateHash ensures idempotent quotes.
-  - BROADCAST_MODE=dryrun allows local testing without miner IO.
-
-  ENV (suggested):
-    PAY_SPLITS_JSON='{"overlay":0.05,"producer":0.95}'
-    PAY_SCRIPTS_JSON='{"overlay":"<scriptHex>"}'
-    PAY_PROVIDERS_JSON='["https://miner1.example/mapi/tx","https://miner2.example/mapi/tx"]'
-    BROADCAST_MODE=dryrun|live
-    POLICY_MIN_CONFS=1
-    QUOTE_TTL_SEC=120
-    PAY_STRICT=true
-*/
-
-import type { Router, Request, Response } from 'express';
-import { Router as makeRouter } from 'express';
- //import { createHash } from 'crypto';
-
-// ------------ ENV / Config helpers ------------
-
-const PAY_SPLITS_JSON = process.env.PAY_SPLITS_JSON || '{"overlay":0.05,"producer":0.95}';
-const PAY_SCRIPTS_JSON = process.env.PAY_SCRIPTS_JSON || '{"overlay":""}';
-const PAY_PROVIDERS_JSON = process.env.PAY_PROVIDERS_JSON || '[]';
-const BROADCAST_MODE = (process.env.BROADCAST_MODE || 'dryrun').toLowerCase();
-const POLICY_MIN_CONFS = Number(process.env.POLICY_MIN_CONFS || 1);
-const QUOTE_TTL_SEC = Number(process.env.QUOTE_TTL_SEC || 120);
-const PAY_STRICT = /^true$/i.test(String(process.env.PAY_STRICT || 'true'));
-
-type Splits = Record<string, number>;
-type PayoutScripts = Record<string, string>;
-
-// ------------ Generic utils ------------
-
-function nowSec() { return Math.floor(Date.now() / 1000); }
-function sha256hex(s: string) { return createHash('sha256').update(Buffer.from(s, 'utf8')).digest('hex'); }
-function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
-
-function safeParse<T=any>(s: string, fallback: T): T {
-  try { return JSON.parse(s); } catch { return fallback; }
-}
-
-// ------------ DB migration helpers ------------
-
-function tableHasColumn(db: Database.Database, table: string, column: string): boolean {
-  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
-  return rows.some(r => String(r.name) === column);
-}
-
-function ensureColumn(db: Database.Database, table: string, column: string, ddlType: string) {
-  if (!tableHasColumn(db, table, column)) {
-    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddlType}`).run();
-  }
-}
-
-export function runPaymentsMigrations(db: Database.Database) {
-  // receipts: add payment fields if not present
-  try {
-    ensureColumn(db, 'receipts', 'payment_txid', 'TEXT');
-    ensureColumn(db, 'receipts', 'paid_at', 'INTEGER');
-    ensureColumn(db, 'receipts', 'payment_outputs_json', 'TEXT');
-    ensureColumn(db, 'receipts', 'fee_sat', 'INTEGER');
-    ensureColumn(db, 'receipts', 'quote_template_hash', 'TEXT');
-    ensureColumn(db, 'receipts', 'quote_expires_at', 'INTEGER');
-  } catch (e) {
-    // If receipts table does not exist here, you must create it in your base schema.
-    // This scaffold assumes your project already has receipts.
-    console.warn('[payments.migration] receipts table missing; ensure base schema exists before running payments migrations.');
-  }
-
-  // producers: ensure payout_script_hex
-  try {
-    ensureColumn(db, 'producers', 'payout_script_hex', 'TEXT');
-  } catch (e) {
-    console.warn('[payments.migration] producers table missing or unmanaged in this scaffold.');
-  }
-
-  // revenue_events table
-  db.prepare(`
-    CREATE TABLE IF NOT EXISTS revenue_events (
-      event_id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,            -- payment-quoted | payment-submitted | payment-confirmed | refund
-      receipt_id TEXT,
-      txid TEXT,
-      details_json TEXT,
-      created_at INTEGER NOT NULL
-    )
-  `).run();
-
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_revenue_events_type ON revenue_events(type)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_revenue_events_receipt ON revenue_events(receipt_id)`).run();
-}
-
-// ------------ DB accessors (align with your existing schema!) ------------
-
-type ReceiptRow = {
-  receipt_id: string;
-  version_id: string;
-  quantity: number;
-  status: 'pending' | 'paid' | 'confirmed' | string;
-  unit_price_sat?: number | null; // optional; depends on your schema
-  quote_template_hash?: string | null;
-  quote_expires_at?: number | null;
-  payment_txid?: string | null;
-  payment_outputs_json?: string | null;
-  fee_sat?: number | null;
-  paid_at?: number | null;
-};
-
-type ProducerRow = {
-  producer_id: string;
-  payout_script_hex?: string | null;
-};
-
-function getReceipt(db: Database.Database, receiptId: string): ReceiptRow | undefined {
-  try {
-    return db.prepare('SELECT * FROM receipts WHERE receipt_id = ?').get(receiptId) as any;
-  } catch { return undefined; }
-}
-
-function setReceiptQuote(db: Database.Database, receiptId: string, templateHash: string, expiresAt: number) {
-  db.prepare(`UPDATE receipts SET quote_template_hash=?, quote_expires_at=? WHERE receipt_id=?`)
-    .run(templateHash, expiresAt, receiptId);
-}
-
-function setReceiptPaid(db: Database.Database, receiptId: string, txid: string, feeSat: number, outputs: any[]) {
-  db.prepare(`UPDATE receipts SET status='paid', payment_txid=?, fee_sat=?, paid_at=?, payment_outputs_json=? WHERE receipt_id=?`)
-    .run(txid, feeSat || 0, nowSec(), JSON.stringify(outputs || []), receiptId);
-}
-
-function setReceiptConfirmed(db: Database.Database, receiptId: string) {
-  db.prepare(`UPDATE receipts SET status='confirmed' WHERE receipt_id=?`).run(receiptId);
-}
-
-function logRevenueEvent(db: Database.Database, type: string, receiptId: string | null, txid: string | null, details: any) {
-  const id = 'rev_' + Math.random().toString(16).slice(2) + Date.now().toString(16);
-  db.prepare(`INSERT INTO revenue_events(event_id, type, receipt_id, txid, details_json, created_at) VALUES (?,?,?,?,?,?)`)
-    .run(id, type, receiptId, txid, JSON.stringify(details || {}), nowSec());
-}
-
-function getProducerByVersion(db: Database.Database, versionId: string): ProducerRow | undefined {
-  // Align this with your actual version->producer relation.
-  // Placeholder: try to find by joining manifests/versions to producers if available.
-  try {
-    const row = db.prepare(`SELECT p.* FROM producers p 
-      JOIN versions v ON v.producer_id = p.producer_id 
-      WHERE v.version_id = ? LIMIT 1`).get(versionId) as any;
-    return row;
-  } catch { return undefined; }
-}
-
-// ------------ Template builder (deterministic) ------------
-
-type PaymentOutput = { scriptHex: string; satoshis: number };
-
-function buildPaymentTemplate(db: Database.Database, receipt: ReceiptRow) {
-  if (!receipt || !receipt.version_id) throw new Error('receipt-invalid');
-  // amount determination
-  // Prefer receipt.unit_price_sat if present; otherwise you must look up your pricebook.
-  const unitPrice = Number(receipt.unit_price_sat ?? 0);
-  if (!unitPrice) throw new Error('unit-price-missing');
-  const quantity = Math.max(1, Number(receipt.quantity || 1));
-  const amountSat = unitPrice * quantity;
-
-  // splits
-  const splits: Splits = safeParse<Splits>(PAY_SPLITS_JSON, { overlay: 0.05, producer: 0.95 });
-  const scripts: PayoutScripts = safeParse<PayoutScripts>(PAY_SCRIPTS_JSON, { overlay: '' });
-
-  // resolve producer payout script
-  const producer = getProducerByVersion(db, receipt.version_id);
-  const producerScript = producer?.payout_script_hex || '';
-
-  // allocation
-  const outputs: PaymentOutput[] = [];
-  let allocated = 0;
-  for (const [name, pct] of Object.entries(splits)) {
-    const raw = Math.floor(amountSat * Number(pct));
-    let scriptHex = '';
-    if (name === 'overlay') scriptHex = scripts.overlay || '';
-    if (name === 'producer') scriptHex = producerScript;
-    if (!scriptHex) continue; // skip unknown leg
-    outputs.push({ scriptHex, satoshis: raw });
-    allocated += raw;
-  }
-  // push remainder (dust rounding) to producer if present, else to first output
-  const remainder = amountSat - allocated;
-  if (remainder !== 0) {
-    const idx = outputs.findIndex(o => o.scriptHex === producerScript);
-    if (idx >= 0) outputs[idx].satoshis += remainder;
-    else if (outputs.length) outputs[0].satoshis += remainder;
-  }
-
-  // sort deterministically
-  outputs.sort((a, b) => (a.scriptHex < b.scriptHex ? -1 : a.scriptHex > b.scriptHex ? 1 : a.satoshis - b.satoshis));
-
-  // template hash over canonical JSON
-  const canonical = JSON.stringify({ versionId: receipt.version_id, amountSat, outputs });
-  const templateHash = sha256hex(canonical);
-
-  // TTL
-  const expiresAt = nowSec() + QUOTE_TTL_SEC;
-
-  return { amountSat, outputs, templateHash, expiresAt };
-}
-
-// ------------ mAPI Broadcast Adapter ------------
-
-async function broadcastTx(rawTxHex: string, providers: string[], mode: 'dryrun'|'live') {
-  const txid = sha256dHex(rawTxHex); // internal calculation for reference
-  if (mode === 'dryrun') {
-    return { txid, accepted: true, provider: null, mapi: { mode: 'dryrun' } };
-  }
-  let lastErr: any;
-  for (const url of providers) {
-    try {
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ rawtx: rawTxHex })
-      });
-      const text = await r.text();
-      let js: any; try { js = JSON.parse(text); } catch { js = { raw: text }; }
-      if (r.ok) {
-        return { txid, accepted: true, provider: url, mapi: js };
-      } else {
-        lastErr = { status: r.status, body: js, provider: url };
-      }
-    } catch (e: any) {
-      lastErr = { error: String(e?.message || e), provider: url };
-    }
-  }
-  const err = new Error(`broadcast-failed: ${JSON.stringify(lastErr)}`);
-  (err as any).txid = txid;
-  throw err;
-}
-
-// double SHA-256 helper for txid
-function sha256dHex(hex: string): string {
-  const buf = Buffer.from(hex, 'hex');
-  const h1 = createHash('sha256').update(buf).digest();
-  const h2 = createHash('sha256').update(h1).digest();
-  // txid is little-endian hex of the double-hash; for matching UI, you may want to reverse bytes
-  return Buffer.from(h2.reverse()).toString('hex');
-}
-
-// ------------ Express Router (/payments) ------------
-
-export function paymentsRouter(db: Database.Database): Router {
-  const router = makeRouter();
-
-  // POST /payments/quote { receiptId }
-  router.post('/payments/quote', (req: Request, res: Response) => {
-    try {
-      const receiptId = String(req.body?.receiptId || '');
-      if (!receiptId) return json(res, 400, { error: 'bad-request', hint: 'receiptId required' });
-
-      const r = getReceipt(db, receiptId);
-      if (!r) return json(res, 404, { error: 'not-found', hint: 'unknown receiptId' });
-      if (r.status && r.status !== 'pending') {
-        return json(res, 409, { error: 'invalid-state', hint: `expected pending, got ${r.status}` });
-      }
-
-      const tpl = buildPaymentTemplate(db, r);
-      setReceiptQuote(db, receiptId, tpl.templateHash, tpl.expiresAt);
-      logRevenueEvent(db, 'payment-quoted', receiptId, null, { templateHash: tpl.templateHash, expiresAt: tpl.expiresAt });
-
-      return json(res, 200, {
-        versionId: r.version_id,
-        amountSat: tpl.amountSat,
-        outputs: tpl.outputs,
-        feeRateHint: null, // optional: miner policy/fee hint
-        expiresAt: tpl.expiresAt,
-        templateHash: tpl.templateHash
-      });
-    } catch (e: any) {
-      return json(res, 500, { error: 'quote-failed', message: String(e?.message || e) });
-    }
-  });
-
-  // POST /payments/submit { receiptId, rawTxHex, mapiProviderId? }
-  router.post('/payments/submit', async (req: Request, res: Response) => {
-    try {
-      const receiptId = String(req.body?.receiptId || '');
-      const rawTxHex = String(req.body?.rawTxHex || '');
-      if (!receiptId || !rawTxHex) return json(res, 400, { error: 'bad-request', hint: 'receiptId, rawTxHex required' });
-
-      const r = getReceipt(db, receiptId);
-      if (!r) return json(res, 404, { error: 'not-found' });
-
-      if (r.payment_txid) {
-        // idempotent complete: already submitted
-        return json(res, 200, { status: 'accepted', txid: r.payment_txid, note: 'idempotent-return' });
-      }
-
-      if (r.quote_expires_at && nowSec() > Number(r.quote_expires_at)) {
-        return json(res, 410, { error: 'quote-expired' });
-      }
-
-      const tpl = buildPaymentTemplate(db, r);
-      const reqTxid = sha256dHex(rawTxHex);
-
-      // Basic output validation: parse outputs from tx (simple scan for scriptHex + min sat).
-      // NOTE: This template does not decode the whole tx; you should integrate a proper tx parser.
-      // As a placeholder, we only check templateHash equality here (deterministic inputs).
-      const templateHash = tpl.templateHash;
-      if (r.quote_template_hash && r.quote_template_hash !== templateHash) {
-        return json(res, 409, { error: 'template-mismatch', hint: 'quote templateHash differs' });
-      }
-
-      // Broadcast via mAPI (or dryrun)
-      const providers = safeParse<string[]>(PAY_PROVIDERS_JSON, []);
-      const mode = BROADCAST_MODE === 'live' ? 'live' : 'dryrun';
-      const b = await broadcastTx(rawTxHex, providers, mode);
-
-      // Persist payment fields (fee_sat is unknown w/o full parse; set 0 or compute client-side)
-      setReceiptPaid(db, receiptId, b.txid, 0, tpl.outputs);
-      logRevenueEvent(db, 'payment-submitted', receiptId, b.txid, { provider: b.provider, mapi: b.mapi, mode });
-
-      return json(res, 200, { status: 'accepted', txid: b.txid, mapi: b.mapi });
-    } catch (e: any) {
-      return json(res, 500, { error: 'submit-failed', message: String(e?.message || e) });
-    }
-  });
-
-  // GET /payments/:receiptId
-  router.get('/payments/:receiptId', (req: Request, res: Response) => {
-    try {
-      const r = getReceipt(db, String(req.params.receiptId));
-      if (!r) return json(res, 404, { error: 'not-found' });
-
-      const out = {
-        receipt: {
-          receiptId: r.receipt_id,
-          versionId: r.version_id,
-          status: r.status,
-          quantity: r.quantity,
-          unitPriceSat: r.unit_price_sat ?? null,
-          quote: r.quote_template_hash ? { templateHash: r.quote_template_hash, expiresAt: r.quote_expires_at } : null,
-          payment: r.payment_txid ? {
-            txid: r.payment_txid,
-            paidAt: r.paid_at || null,
-            feeSat: r.fee_sat || null,
-            outputs: safeParse(r.payment_outputs_json || '[]', [])
-          } : null
-        }
-      };
-      return json(res, 200, out);
-    } catch (e: any) {
-      return json(res, 500, { error: 'get-payment-failed', message: String(e?.message || e) });
-    }
-  });
-
-  return router;
-}
-
-// ------------ Reconcile job (SPV attach + status flip) ------------
-
-export async function reconcilePayments(db: Database.Database) {
-  // Select receipts with status='paid' to check confirmations
-  const rows = db.prepare(`SELECT receipt_id, payment_txid FROM receipts WHERE status='paid' AND payment_txid IS NOT NULL`).all() as any[];
-  for (const row of rows) {
-    const txid = String(row.payment_txid);
-    try {
-      const confs = await verifyTxSPV(txid);
-      if (confs >= POLICY_MIN_CONFS) {
-        setReceiptConfirmed(db, row.receipt_id);
-        logRevenueEvent(db, 'payment-confirmed', row.receipt_id, txid, { confs });
-      }
-    } catch (e: any) {
-      // keep as paid; reconcile will try again later
-    }
-  }
-}
-
-// Stub: integrate your SPV verification here
-async function verifyTxSPV(txid: string): Promise<number> {
-  // TODO: call your SPV module to fetch inclusion proof and return confirmed depth (confs)
-  // For now, always return 0 (not confirmed)
-  return 0;
-}
-
-// ------------ How to wire (example) ------------
-// 1) In your server.ts (after DB initSchema):
-//    import { runPaymentsMigrations, paymentsRouter } from './src/payments/scaffold';
-//    runPaymentsMigrations(db);
-//    app.use(paymentsRouter(db));
-//
-// 2) Start a periodic reconcile task (e.g., every minute):
-//    import { reconcilePayments } from './src/payments/scaffold';
-//    setInterval(() => { reconcilePayments(db).catch(()=>{}); }, 60_000);
-//
-// 3) Ensure your receipts table contains: receipt_id (TEXT PK), version_id (TEXT), quantity (INTEGER), status (TEXT),
-//    and optionally unit_price_sat (INTEGER). Adapt buildPaymentTemplate() if your pricebook is elsewhere.
-//
-// 4) Replace verifyTxSPV() with your SPV logic to finalize confirmations.
+Estimate: 14–18 PT
+Priority: High
+
+## Overview
+
+Transform basic BSV payment processing into a comprehensive overlay network payment infrastructure that integrates BRC-22 transaction synchronization, BRC-31 identity verification, BRC-41 payment protocols, enterprise-grade transaction management, and sophisticated payment coordination across multiple overlay networks.
+
+## Purpose
+
+- **Native BSV Payment Infrastructure**: Production-ready on-chain payments with mAPI-compatible broadcasting and SPV verification
+- **BRC Standards Integration**: Full compliance with BRC-22, BRC-31, BRC-41 for overlay network payment coordination
+- **Enterprise Payment Management**: Deterministic output templates, idempotent transactions, and comprehensive reconciliation
+- **Cross-Network Settlement**: Support for payments across multiple overlay networks with atomic coordination
+- **Agent Marketplace Payments**: Enable AI agents to execute complex payment workflows with proper authorization
+
+## Architecture & Dependencies
+
+### Core Dependencies
+- **Database**: Full PostgreSQL production schema with comprehensive payment tracking
+- **BRC Standards**: BRC-22 (transaction sync), BRC-31 (identity), BRC-41 (payment protocols)
+- **BSV Infrastructure**: mAPI broadcasting, SPV verification, HD wallet management
+- **Existing Services**: D01 (Submit), D02 (SPV), D05/D09 (Pricing), D06/D07 (Receipts), D08 (Producers)
+- **Agent Infrastructure**: D24 agent marketplace integration
+
+## PostgreSQL Database Schema
+
+### Enhanced Payment Tables
+```sql
+-- Extended receipts table for BSV payment processing (builds on D06)
+ALTER TABLE overlay_receipts ADD COLUMN IF NOT EXISTS payment_template_hash VARCHAR(64);
+ALTER TABLE overlay_receipts ADD COLUMN IF NOT EXISTS payment_quote_expires_at TIMESTAMP;
+ALTER TABLE overlay_receipts ADD COLUMN IF NOT EXISTS payment_outputs_json JSONB;
+ALTER TABLE overlay_receipts ADD COLUMN IF NOT EXISTS bsv_fee_satoshis BIGINT DEFAULT 0;
+ALTER TABLE overlay_receipts ADD COLUMN IF NOT EXISTS mapi_responses JSONB DEFAULT '[]';
+
+-- Extended producers table for payout configuration
+ALTER TABLE producers ADD COLUMN IF NOT EXISTS payout_script_hex TEXT;
+ALTER TABLE producers ADD COLUMN IF NOT EXISTS payout_address VARCHAR(50);
+ALTER TABLE producers ADD COLUMN IF NOT EXISTS revenue_split_config JSONB DEFAULT '{}';
+
+-- BSV transaction tracking
+CREATE TABLE bsv_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    txid VARCHAR(64) NOT NULL UNIQUE,
+    raw_tx_hex TEXT NOT NULL,
+
+    -- Transaction metadata
+    size_bytes INTEGER,
+    input_count INTEGER,
+    output_count INTEGER,
+    total_input_satoshis BIGINT,
+    total_output_satoshis BIGINT,
+    fee_satoshis BIGINT,
+
+    -- SPV and confirmation tracking
+    block_hash VARCHAR(64),
+    block_height INTEGER,
+    confirmation_count INTEGER DEFAULT 0,
+    spv_proof BYTEA,
+    merkle_path JSONB,
+
+    -- mAPI broadcast tracking
+    broadcast_provider VARCHAR(255),
+    broadcast_response JSONB,
+    broadcast_status VARCHAR(20) DEFAULT 'pending', -- pending, accepted, rejected
+
+    -- BRC-22 overlay network integration
+    overlay_topics TEXT[] DEFAULT '{}',
+    cross_network_refs UUID[],
+
+    -- Status and lifecycle
+    status VARCHAR(20) DEFAULT 'created', -- created, broadcasting, confirmed, failed
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Payment output templates (deterministic splits)
+CREATE TABLE payment_output_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    template_hash VARCHAR(64) NOT NULL UNIQUE,
+    version_id UUID,
+
+    -- Template configuration
+    split_rules JSONB NOT NULL, -- {"overlay": 0.05, "producer": 0.95}
+    output_scripts JSONB NOT NULL, -- [{"scriptHex": "...", "satoshis": 1000}]
+    total_amount_satoshis BIGINT NOT NULL,
+
+    -- Template metadata
+    deterministic_inputs JSONB NOT NULL, -- For reproducibility
+    template_version VARCHAR(10) DEFAULT '1.0',
+
+    -- Lifecycle
+    created_at TIMESTAMP DEFAULT NOW(),
+    expires_at TIMESTAMP NOT NULL,
+    is_used BOOLEAN DEFAULT FALSE
+);
+
+-- mAPI provider configuration and performance
+CREATE TABLE mapi_providers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider_name VARCHAR(100) NOT NULL UNIQUE,
+    api_url TEXT NOT NULL,
+
+    -- Configuration
+    timeout_seconds INTEGER DEFAULT 30,
+    fee_rate_hint DECIMAL(10,8), -- BSV per byte
+    is_active BOOLEAN DEFAULT TRUE,
+    priority_order INTEGER DEFAULT 1,
+
+    -- Performance tracking
+    success_rate DECIMAL(5,4) DEFAULT 1.0,
+    average_response_time_ms INTEGER,
+    last_successful_broadcast TIMESTAMP,
+    total_broadcasts BIGINT DEFAULT 0,
+    successful_broadcasts BIGINT DEFAULT 0,
+    failed_broadcasts BIGINT DEFAULT 0,
+
+    -- Authentication (if required)
+    api_key_encrypted TEXT,
+    authentication_method VARCHAR(20) DEFAULT 'none', -- none, api_key, signature
+
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Payment reconciliation and status tracking
+CREATE TABLE payment_reconciliation (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    receipt_id UUID REFERENCES overlay_receipts(receipt_id),
+    txid VARCHAR(64) REFERENCES bsv_transactions(txid),
+
+    -- Reconciliation process
+    reconciliation_type VARCHAR(20) NOT NULL, -- spv_verification, mapi_status, block_confirmation
+    expected_confirmations INTEGER DEFAULT 6,
+    actual_confirmations INTEGER DEFAULT 0,
+
+    -- Status transitions
+    previous_status VARCHAR(20),
+    current_status VARCHAR(20),
+    status_reason TEXT,
+
+    -- BRC-22 overlay network sync
+    overlay_notification_sent BOOLEAN DEFAULT FALSE,
+    cross_network_reconciled BOOLEAN DEFAULT FALSE,
+
+    -- Timing
+    reconciliation_started_at TIMESTAMP DEFAULT NOW(),
+    reconciliation_completed_at TIMESTAMP,
+    next_check_at TIMESTAMP
+);
+
+-- Revenue events with BSV transaction details
+CREATE TABLE bsv_revenue_events (
+    event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_type VARCHAR(30) NOT NULL, -- payment_quoted, payment_submitted, payment_confirmed, payout_processed
+    receipt_id UUID REFERENCES overlay_receipts(receipt_id),
+    txid VARCHAR(64),
+
+    -- Event details
+    amount_satoshis BIGINT,
+    fee_satoshis BIGINT,
+    producer_share_satoshis BIGINT,
+    platform_share_satoshis BIGINT,
+    agent_commission_satoshis BIGINT,
+
+    -- BRC integration
+    brc_standards_used TEXT[], -- ["BRC-22", "BRC-31", "BRC-41"]
+    overlay_network_id VARCHAR(100),
+    cross_network_settlement_id UUID,
+
+    -- Event metadata
+    event_data JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- BRC-31 identity verification for payments
+CREATE TABLE bsv_payment_identities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    identity_key VARCHAR(66) NOT NULL UNIQUE, -- BRC-31 public key
+    identity_certificate TEXT, -- BRC-31 certificate chain
+
+    -- Identity verification
+    verification_level VARCHAR(20) DEFAULT 'basic', -- basic, verified, premium, enterprise
+    trust_score DECIMAL(3,2) DEFAULT 1.0,
+    verification_provider VARCHAR(100),
+
+    -- Payment history and reputation
+    total_payment_volume_satoshis BIGINT DEFAULT 0,
+    payment_count INTEGER DEFAULT 0,
+    successful_payments INTEGER DEFAULT 0,
+    failed_payments INTEGER DEFAULT 0,
+    dispute_count INTEGER DEFAULT 0,
+
+    -- Status and lifecycle
+    is_active BOOLEAN DEFAULT TRUE,
+    last_payment_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes for performance
+CREATE INDEX idx_bsv_transactions_txid ON bsv_transactions(txid);
+CREATE INDEX idx_bsv_transactions_status ON bsv_transactions(status);
+CREATE INDEX idx_bsv_transactions_block_height ON bsv_transactions(block_height);
+CREATE INDEX idx_payment_templates_hash ON payment_output_templates(template_hash);
+CREATE INDEX idx_payment_templates_version ON payment_output_templates(version_id);
+CREATE INDEX idx_mapi_providers_active ON mapi_providers(is_active, priority_order);
+CREATE INDEX idx_reconciliation_receipt ON payment_reconciliation(receipt_id);
+CREATE INDEX idx_reconciliation_status ON payment_reconciliation(current_status);
+CREATE INDEX idx_revenue_events_type_date ON bsv_revenue_events(event_type, created_at);
+CREATE INDEX idx_payment_identities_key ON bsv_payment_identities(identity_key);
 ```
 
-What you need to adapt
-- Map getProducerByVersion to your actual versions→producers relation.
-- Provide unit prices: either store unit_price_sat on receipts or look it up from your pricebook in buildPaymentTemplate.
-- Replace verifyTxSPV with your SPV client/module.
-- If you want strict output validation, integrate a Tx decoder and check that all required outputs (scriptHex, satoshis) are present. Honor PAY_STRICT to enforce exact amounts.
+## API Endpoints Implementation
 
-As always, please verify this scaffold with the community before enabling it on a live system. It keeps things vendor neutral, SPV-first, and aligned with BSV’s UTXO model, while fitting your D24 code style.
+### Core Payment Processing
+- [ ] **POST /v1/payments/bsv/quote** - Enhanced payment quote generation
+  - Input: `{ receiptId, agentId?, identityProof?, customSplits? }`
+  - Deterministic output template generation with BRC standards integration
+  - Cross-network payment coordination support
+  - Enterprise-grade quote management with expiration handling
+
+- [ ] **POST /v1/payments/bsv/submit** - BSV transaction submission and broadcasting
+  - Input: `{ receiptId, rawTxHex, mapiProviderId?, brcCompliance? }`
+  - Multi-provider mAPI broadcasting with intelligent failover
+  - Comprehensive transaction validation and SPV integration
+  - BRC-22 overlay network notification
+
+- [ ] **GET /v1/payments/bsv/:receiptId** - Payment status and details
+  - Comprehensive payment information with transaction details
+  - Real-time SPV verification status and confirmation tracking
+  - mAPI provider response history and performance metrics
+  - Cross-network settlement status
+
+### BRC Standards Integration
+- [ ] **POST /v1/payments/bsv/brc31/verify** - BRC-31 identity verification for payments
+  - Identity certificate validation and trust scoring
+  - Payment authorization based on verified identities
+  - Enterprise-grade identity management
+
+- [ ] **POST /v1/payments/bsv/brc22/sync** - BRC-22 transaction synchronization
+  - Cross-network transaction status synchronization
+  - Overlay network payment event broadcasting
+  - Multi-node coordination and consistency
+
+### mAPI Provider Management
+- [ ] **GET /v1/payments/bsv/providers** - mAPI provider status and performance
+  - Real-time provider health and performance metrics
+  - Fee rate recommendations and network status
+  - Provider selection optimization
+
+- [ ] **POST /v1/payments/bsv/providers/health** - Provider health checks
+  - Automated provider monitoring and failover
+  - Performance benchmarking and optimization
+  - Network topology analysis
+
+### Payment Templates and Output Management
+- [ ] **POST /v1/payments/bsv/templates** - Payment template generation
+  - Deterministic output template creation
+  - Custom split rule configuration
+  - Template validation and optimization
+
+- [ ] **GET /v1/payments/bsv/templates/:templateHash** - Template details and verification
+  - Template reproducibility verification
+  - Split rule analysis and validation
+  - Template usage tracking and analytics
+
+## Implementation Tasks
+
+### BRC Standards Integration
+- [ ] **BRC-22 Transaction Synchronization**
+  - Overlay network transaction broadcasting
+  - Cross-node payment status coordination
+  - Multi-network transaction tracking
+
+- [ ] **BRC-31 Identity Integration**
+  - Payment authorization based on verified identities
+  - Trust score-based payment limits
+  - Identity certificate management
+
+- [ ] **BRC-41 Payment Protocols** (Future)
+  - Standardized payment workflows
+  - Multi-party payment coordination
+  - Atomic cross-network settlements
+
+### BSV Infrastructure
+- [ ] **Enhanced mAPI Integration**
+  - Multi-provider broadcasting with intelligent selection
+  - Real-time provider performance monitoring
+  - Comprehensive broadcast response tracking
+
+- [ ] **Advanced SPV Verification**
+  - Real-time confirmation tracking
+  - Merkle proof validation and storage
+  - Reorg detection and handling
+
+- [ ] **Enterprise Wallet Management**
+  - HD wallet integration with proper key derivation
+  - Multi-signature support for high-value transactions
+  - Secure key management and rotation
+
+### Payment Processing
+- [ ] **Deterministic Output Templates**
+  - Reproducible payment split calculations
+  - Template hashing for integrity verification
+  - Custom split rule engine
+
+- [ ] **Transaction Reconciliation**
+  - Automated SPV-based confirmation tracking
+  - Status transition management
+  - Cross-network reconciliation
+
+- [ ] **Payment Analytics**
+  - Comprehensive transaction analytics
+  - Revenue split tracking and reporting
+  - Performance optimization insights
+
+## Configuration
+
+### Environment Variables
+```bash
+# BSV Network Configuration
+BSV_NETWORK=mainnet
+BSV_MAPI_PROVIDERS='["https://mapi.taal.com","https://mapi.matterpool.io"]'
+BSV_MIN_CONFIRMATIONS=6
+BSV_FEE_RATE_SATOSHIS_PER_BYTE=1
+
+# BRC Standards Configuration
+BRC22_PAYMENT_TOPICS=payments,settlements,confirmations
+BRC31_IDENTITY_VERIFICATION=required
+BRC31_MIN_TRUST_SCORE=0.8
+
+# Payment Processing
+PAYMENT_QUOTE_TTL_SECONDS=300
+PAYMENT_TEMPLATE_VERSION=2.0
+PAYMENT_STRICT_VALIDATION=true
+PAYMENT_BROADCAST_MODE=live
+
+# Revenue Split Configuration
+DEFAULT_SPLIT_RULES='{"overlay":0.05,"producer":0.90,"agent":0.05}'
+CUSTOM_SPLITS_ENABLED=true
+SPLIT_PRECISION_SATOSHIS=1
+
+# mAPI Provider Configuration
+MAPI_TIMEOUT_SECONDS=30
+MAPI_RETRY_ATTEMPTS=3
+MAPI_HEALTH_CHECK_INTERVAL=60
+
+# Security and Compliance
+PAYMENT_RATE_LIMIT_PER_MINUTE=100
+PAYMENT_AUDIT_ENABLED=true
+PAYMENT_FRAUD_DETECTION=true
+```
+
+### Feature Flags
+```typescript
+interface BSVPaymentFeatureFlags {
+  brcStandardsEnabled: boolean;
+  multiProviderBroadcast: boolean;
+  customSplitRules: boolean;
+  spvVerificationRequired: boolean;
+  crossNetworkPayments: boolean;
+  agentPaymentAuthorization: boolean;
+  enterpriseIdentityVerification: boolean;
+}
+```
+
+## API Response Examples
+
+### Payment Quote Response
+```json
+{
+  "quoteId": "quote-550e8400-e29b-41d4-a716",
+  "receiptId": "receipt-123",
+  "versionId": "version-456",
+  "templateHash": "a1b2c3d4e5f6789...",
+  "paymentDetails": {
+    "totalAmountSatoshis": 1000000,
+    "feeSatoshis": 500,
+    "outputs": [
+      {
+        "scriptHex": "76a914abc123...88ac",
+        "satoshis": 950000,
+        "recipient": "producer",
+        "description": "Producer revenue share"
+      },
+      {
+        "scriptHex": "76a914def456...88ac",
+        "satoshis": 50000,
+        "recipient": "overlay",
+        "description": "Platform fee"
+      }
+    ]
+  },
+  "splitRules": {
+    "overlay": 0.05,
+    "producer": 0.95
+  },
+  "brcCompliance": {
+    "standards": ["BRC-22", "BRC-31"],
+    "identityRequired": true,
+    "overlayTopics": ["payments", "marketplace"]
+  },
+  "mapiProviders": [
+    {
+      "providerId": "taal-mapi",
+      "name": "TAAL",
+      "feeRateHint": 1.0,
+      "estimatedConfirmationTime": 600
+    }
+  ],
+  "expiresAt": "2024-01-15T10:35:00Z",
+  "createdAt": "2024-01-15T10:30:00Z"
+}
+```
+
+### Transaction Submission Response
+```json
+{
+  "submissionId": "sub-550e8400-e29b-41d4-a716",
+  "txid": "1a2b3c4d5e6f789...",
+  "status": "broadcasting",
+  "transaction": {
+    "rawTxHex": "0100000001abc123...",
+    "sizeBytes": 250,
+    "feeRate": 1.2,
+    "inputCount": 1,
+    "outputCount": 2
+  },
+  "broadcasting": {
+    "provider": "taal-mapi",
+    "broadcastId": "bc-123456",
+    "responseTime": 450,
+    "status": "accepted"
+  },
+  "brcIntegration": {
+    "overlayNotificationSent": true,
+    "topics": ["payments", "marketplace"],
+    "crossNetworkRefs": []
+  },
+  "spvTracking": {
+    "confirmations": 0,
+    "requiredConfirmations": 6,
+    "estimatedConfirmationTime": "2024-01-15T11:00:00Z"
+  },
+  "submittedAt": "2024-01-15T10:30:00Z"
+}
+```
+
+### Payment Status Response
+```json
+{
+  "receiptId": "receipt-123",
+  "paymentStatus": "confirmed",
+  "transaction": {
+    "txid": "1a2b3c4d5e6f789...",
+    "blockHash": "000000000000001a2b3c...",
+    "blockHeight": 850000,
+    "confirmations": 12,
+    "feeSatoshis": 500
+  },
+  "spvVerification": {
+    "merkleProof": "abc123def456...",
+    "proofValid": true,
+    "lastVerifiedAt": "2024-01-15T11:15:00Z"
+  },
+  "revenueDistribution": {
+    "totalAmountSatoshis": 1000000,
+    "producerShareSatoshis": 950000,
+    "overlayFeeSatoshis": 50000,
+    "distributionComplete": true
+  },
+  "brcCompliance": {
+    "standardsUsed": ["BRC-22", "BRC-31"],
+    "overlayNetworkSynced": true,
+    "identityVerified": true
+  },
+  "timeline": {
+    "quoted": "2024-01-15T10:30:00Z",
+    "submitted": "2024-01-15T10:30:30Z",
+    "broadcast": "2024-01-15T10:30:45Z",
+    "confirmed": "2024-01-15T11:00:00Z"
+  }
+}
+```
+
+## Testing Strategy
+
+### Integration Tests
+- [ ] **BRC Standards Compliance**
+  - BRC-22 transaction synchronization across overlay networks
+  - BRC-31 identity verification and payment authorization
+  - BRC-41 payment protocol compliance (future)
+
+- [ ] **BSV Payment Processing**
+  - End-to-end payment quote generation and submission
+  - mAPI broadcasting with provider failover
+  - SPV verification and confirmation tracking
+
+- [ ] **Cross-Network Coordination**
+  - Multi-network payment settlement
+  - Atomic transaction coordination
+  - Cross-network reconciliation
+
+### Performance Tests
+- [ ] **Payment Throughput**
+  - 1000+ concurrent payment processing
+  - Multi-provider broadcasting performance
+  - Database performance under payment load
+
+- [ ] **Transaction Verification**
+  - SPV verification performance
+  - Large-scale reconciliation processes
+  - Real-time confirmation tracking
+
+### Security Tests
+- [ ] **Payment Security**
+  - Template manipulation prevention
+  - Identity verification enforcement
+  - Transaction validation accuracy
+
+- [ ] **Fraud Prevention**
+  - Double-spending detection
+  - Identity spoofing prevention
+  - Payment replay attack prevention
+
+## Definition of Done
+
+- [ ] **Core BSV Payment Infrastructure**
+  - Production-ready payment processing with deterministic output templates
+  - Full mAPI integration with multi-provider broadcasting and failover
+  - Comprehensive SPV verification and confirmation tracking
+
+- [ ] **BRC Standards Integration**
+  - BRC-22 transaction synchronization across overlay networks
+  - BRC-31 identity verification and payment authorization
+  - Future-ready architecture for BRC-41 payment protocols
+
+- [ ] **Enterprise Payment Management**
+  - Deterministic payment templates with integrity verification
+  - Idempotent transaction processing with comprehensive audit trails
+  - Cross-network payment coordination and settlement
+
+- [ ] **Advanced Reconciliation**
+  - Automated SPV-based payment confirmation
+  - Real-time status transition management
+  - Comprehensive revenue event tracking
+
+## Acceptance Criteria
+
+### Functional Requirements
+- [ ] **Payment Processing**: Sub-10-second payment quote generation and submission
+- [ ] **BRC Compliance**: Full integration with BRC-22 and BRC-31 standards
+- [ ] **mAPI Integration**: Multi-provider broadcasting with 99.9% success rate
+- [ ] **SPV Verification**: Real-time confirmation tracking with proof validation
+
+### Non-Functional Requirements
+- [ ] **Security**: Comprehensive fraud detection with 99.99% accuracy
+- [ ] **Scalability**: Handle 10,000+ concurrent payment requests
+- [ ] **Reliability**: 99.99% payment system uptime with proper failover
+- [ ] **Compliance**: Full audit trail and regulatory compliance features
+
+## Artifacts
+
+- [ ] **Payment Documentation**
+  - OpenAPI 3.0 specification for all BSV payment endpoints
+  - mAPI integration guides and best practices
+  - BRC standards compliance documentation
+
+- [ ] **Testing Artifacts**
+  - Comprehensive payment processing test suites
+  - mAPI provider integration tests
+  - SPV verification test frameworks
+
+- [ ] **Security Documentation**
+  - Payment security architecture and best practices
+  - Identity verification and fraud prevention procedures
+  - BSV network security considerations
+
+## Risk Mitigation
+
+### Technical Risks
+- **mAPI Provider Failures**: Implement multi-provider failover with health monitoring
+- **SPV Verification Delays**: Use optimistic confirmation with proper rollback mechanisms
+- **Network Congestion**: Implement dynamic fee calculation and priority management
+
+### Financial Risks
+- **Payment Fraud**: Deploy comprehensive fraud detection and prevention systems
+- **Revenue Leakage**: Implement atomic payment processing with comprehensive audit trails
+- **Cross-Network Settlement**: Use deterministic settlement protocols with conflict resolution
+
+### Operational Risks
+- **High Transaction Volume**: Implement horizontal scaling and load balancing
+- **Regulatory Compliance**: Maintain comprehensive audit logs and reporting capabilities
+- **System Failures**: Deploy multi-region redundancy with automatic failover
+
+## Implementation Notes
+
+The BSV payment infrastructure extends the overlay network architecture with native BSV payment processing, integrating BRC standards for identity verification and cross-network coordination. The implementation leverages deterministic output templates for reproducible payments and comprehensive mAPI integration for reliable transaction broadcasting.
+
+The system is designed to be vendor-neutral and SPV-first, maintaining the principles of BSV as a digital asset while providing enterprise-grade payment processing capabilities for the overlay network ecosystem.
