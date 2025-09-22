@@ -13,6 +13,7 @@ import { Router, Request, Response } from 'express';
 import { requireIdentity } from '../middleware/identity';
 import { PostgreSQLClient } from '../db/postgresql';
 import { generateBRC31Headers, verifyBRC31Signature } from '../brc31/signer';
+import { secp256k1 } from '@noble/curves/secp256k1';
 import crypto from 'crypto';
 
 const router = Router();
@@ -287,17 +288,33 @@ router.post('/wallet/verify', async (req: Request, res: Response) => {
 
     const session = sessionResult.rows[0];
 
-    // Verify BRC-31 signature
-    const message = `wallet_verification:${sessionId}`;
+    // For wallet verification, we expect a specific signed message format
+    // The message signed should be: wallet_verification:sessionId
+    const verificationMessage = `wallet_verification:${sessionId}`;
 
-    // Use existing BRC-31 verification
-    const headers = {
-      'X-Identity-Key': identityKey,
-      'X-Nonce': nonce,
-      'X-Signature': signature
-    };
+    // Reconstruct the full message that was signed: message + nonce
+    const fullMessage = verificationMessage + nonce;
+    const messageHash = crypto.createHash('sha256').update(fullMessage, 'utf8').digest();
 
-    const isValidSignature = verifyBRC31Signature(headers, message);
+    // Verify ECDSA signature
+    const msg = messageHash;
+    const pub = Buffer.from(identityKey, 'hex');
+    const sig = Buffer.from(signature, 'hex');
+
+    let isValidSignature = false;
+    try {
+      // Try DER first
+      isValidSignature = secp256k1.verify(sig, msg, pub);
+    } catch {
+      // Try compact 64-byte r||s if DER fails
+      try {
+        if (sig.length === 64) {
+          isValidSignature = secp256k1.verify(sig, msg, pub);
+        }
+      } catch {
+        // ignore
+      }
+    }
 
     if (!isValidSignature) {
       return res.status(401).json({

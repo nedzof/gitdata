@@ -347,7 +347,6 @@ describe('D19 Identity Producer Registration', () => {
       const sessionId = connectResult.sessionId;
 
       // Then verify the connection
-      const nonce = crypto.randomBytes(16).toString('hex');
       const message = `wallet_verification:${sessionId}`;
       const headers = generateBRC31Headers(testPrivateKey, message);
 
@@ -605,13 +604,17 @@ describe('D19 Identity Producer Registration', () => {
         })
       });
 
-      // Get wallet sessions
-      body = '';
-      headers = generateBRC31Headers(testPrivateKey, body);
+      // Get wallet sessions (GET request with empty body for BRC-31)
+      // The middleware uses JSON.stringify(req.body ?? {}) which becomes "{}" for GET requests
+      const emptyBody = '{}';
+      const sessionHeaders = generateBRC31Headers(testPrivateKey, emptyBody);
 
       const sessionsResponse = await fetch(`${baseUrl}/identity/wallet/sessions`, {
         method: 'GET',
-        headers: { ...headers }
+        headers: {
+          'Content-Type': 'application/json',
+          ...sessionHeaders
+        }
       });
 
       expect(sessionsResponse.ok).toBe(true);
