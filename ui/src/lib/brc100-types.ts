@@ -530,6 +530,10 @@ declare global {
     };
     // Other potential wallet injection patterns
     wallet?: Wallet;
+    // MetaNet Desktop Wallet patterns
+    metanet?: Wallet;
+    metaNet?: Wallet;
+    MetaNet?: Wallet;
   }
 }
 

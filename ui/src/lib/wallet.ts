@@ -11,15 +11,21 @@ class WalletService {
    * Detects if a BRC-100 compatible wallet is available
    */
   async detectWallet(): Promise<Wallet | null> {
+    console.log('🔍 Detecting wallets...');
+
     // Check for standard BRC-100 wallet injection patterns
     if (typeof window !== 'undefined') {
+      console.log('🌐 Window object available, checking for wallets...');
+
       // Standard BSV wallet injection
       if (window.bsv?.wallet) {
+        console.log('✅ Found BSV standard wallet');
         return window.bsv.wallet;
       }
 
       // Alternative wallet injection
       if (window.wallet) {
+        console.log('✅ Found generic wallet');
         return window.wallet;
       }
 
@@ -29,11 +35,31 @@ class WalletService {
 
       for (const provider of walletProviders) {
         if ((window as any)[provider]?.wallet) {
+          console.log(`✅ Found ${provider} wallet`);
           return (window as any)[provider].wallet;
         }
       }
+
+      // MetaNet Desktop Wallet - check multiple possible namespace patterns
+      console.log('🔍 Checking for MetaNet Desktop wallet...');
+      if (window.metanet || window.metaNet || window.MetaNet) {
+        const metanetWallet = window.metanet || window.metaNet || window.MetaNet;
+        console.log('✅ Found MetaNet Desktop wallet');
+        return metanetWallet;
+      }
+
+      // Debug: Log all available window properties that might be wallets
+      const windowProps = Object.keys(window).filter(key =>
+        key.toLowerCase().includes('wallet') ||
+        key.toLowerCase().includes('metanet') ||
+        key.toLowerCase().includes('bsv')
+      );
+      console.log('🔍 Available wallet-related window properties:', windowProps);
+    } else {
+      console.log('❌ Window object not available');
     }
 
+    console.log('❌ No wallet detected');
     return null;
   }
 
@@ -41,12 +67,16 @@ class WalletService {
    * Connects to the detected wallet and establishes a session
    */
   async connect(): Promise<WalletConnection> {
+    console.log('🔗 Starting wallet connection...');
     try {
       const wallet = await this.detectWallet();
 
       if (!wallet) {
+        console.log('❌ No wallet found, throwing error');
         throw new Error('No BRC-100 compatible wallet found. Please install a compatible wallet.');
       }
+
+      console.log('✅ Wallet detected, proceeding with connection...');
 
       // Test wallet availability
       if (wallet.isAvailable) {
@@ -60,6 +90,9 @@ class WalletService {
       const publicKeyResult = await wallet.getPublicKey({
         identityKey: true
       });
+
+      // Authenticate with the backend BRC-31 identity system
+      await this.authenticateWithBackend(wallet, publicKeyResult.publicKey);
 
       this.walletConnection = {
         wallet,
@@ -551,6 +584,42 @@ class WalletService {
   }
 
   /**
+   * Generates BRC-31 authentication headers for API requests
+   */
+  async generateAuthHeaders(body: string = ''): Promise<Record<string, string>> {
+    if (!this.walletConnection?.publicKey) {
+      throw new Error('No wallet connected or no public key available');
+    }
+
+    const wallet = this.getWallet();
+    if (!wallet) {
+      throw new Error('No wallet available');
+    }
+
+    try {
+      const nonce = this.generateNonce();
+      const message = body + nonce;
+
+      // Sign with the connected wallet
+      const signResult = await wallet.createSignature({
+        data: btoa(message), // Convert to base64
+        protocolID: [2, 'gitdata-identity'],
+        keyID: 'identity',
+        privilegedReason: 'Authenticate API request with Gitdata platform'
+      });
+
+      return {
+        'X-Identity-Key': this.walletConnection.publicKey,
+        'X-Nonce': nonce,
+        'X-Signature': signResult.signature,
+        'Content-Type': 'application/json'
+      };
+    } catch (error) {
+      throw new Error(`Failed to generate auth headers: ${error.message}`);
+    }
+  }
+
+  /**
    * Signs arbitrary data for verification
    */
   async signData(data: string, protocolID: string = 'gitdata-auth'): Promise<string> {
@@ -782,6 +851,101 @@ class WalletService {
   }
 
   /**
+   * Authenticates with the backend BRC-31 identity system
+   */
+  private async authenticateWithBackend(wallet: Wallet, publicKey: string): Promise<void> {
+    try {
+      // Step 1: Initialize session with backend
+      const initResponse = await fetch('http://localhost:8787/identity/wallet/connect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          walletType: this.detectWalletType(wallet),
+          capabilities: ['sign', 'pay', 'identity']
+        })
+      });
+
+      if (!initResponse.ok) {
+        throw new Error(`Failed to initialize session: ${initResponse.statusText}`);
+      }
+
+      const { sessionId } = await initResponse.json();
+
+      // Step 2: Create verification signature
+      const nonce = this.generateNonce();
+      const message = `wallet_verification:${sessionId}`;
+      const messageWithNonce = message + nonce;
+
+      // Sign the message for verification
+      const signResult = await wallet.createSignature({
+        data: btoa(messageWithNonce), // Convert to base64
+        protocolID: [2, 'gitdata-identity'],
+        keyID: 'identity',
+        privilegedReason: 'Verify wallet ownership for Gitdata platform'
+      });
+
+      // Step 3: Verify with backend
+      const verifyResponse = await fetch('http://localhost:8787/identity/wallet/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          sessionId,
+          identityKey: publicKey,
+          signature: signResult.signature,
+          nonce
+        })
+      });
+
+      if (!verifyResponse.ok) {
+        const errorData = await verifyResponse.json();
+        throw new Error(`Authentication failed: ${errorData.error || verifyResponse.statusText}`);
+      }
+
+      console.log('Successfully authenticated with backend identity system');
+    } catch (error) {
+      console.error('Backend authentication failed:', error);
+      throw new Error(`Backend authentication failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Detects the wallet type for backend registration
+   */
+  private detectWalletType(wallet: Wallet): string {
+    if (typeof window !== 'undefined') {
+      // Check for MetaNet Desktop patterns
+      if (window.metanet || window.metaNet || window.MetaNet) {
+        return 'metanet';
+      }
+
+      // Check for other specific wallet patterns
+      if ((window as any).handcash?.wallet === wallet) return 'handcash';
+      if ((window as any).yours?.wallet === wallet) return 'yours';
+      if ((window as any).panda?.wallet === wallet) return 'panda';
+      if ((window as any).moneybutton?.wallet === wallet) return 'moneybutton';
+
+      // Check for standard BSV wallet injection
+      if (window.bsv?.wallet === wallet) return 'bsv-standard';
+      if (window.wallet === wallet) return 'generic';
+    }
+
+    return 'unknown';
+  }
+
+  /**
+   * Generates a random nonce for authentication
+   */
+  private generateNonce(): string {
+    const array = new Uint8Array(16);
+    crypto.getRandomValues(array);
+    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  /**
    * Notifies all listeners of connection state changes
    */
   private notifyConnectionChange(connected: boolean): void {
@@ -898,6 +1062,10 @@ export function getConnectedWallet(): Wallet | null {
 
 export function getWalletPublicKey(): string | null {
   return walletService.getPublicKey();
+}
+
+export async function generateAuthHeaders(body: string = ''): Promise<Record<string, string>> {
+  return walletService.generateAuthHeaders(body);
 }
 
 // Re-export types for convenience
