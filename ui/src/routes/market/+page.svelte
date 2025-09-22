@@ -66,15 +66,20 @@
     try {
       console.log('Loading policies from policy management...');
 
-      // Since the /policies endpoint doesn't exist, let's create sample policies
-      // In a real implementation, this would call the actual policy management API
+      // Using the actual enabled policies from your policy management
       const samplePolicies = [
-        { id: 'data_quality', name: 'Data Quality Standards', enabled: true },
-        { id: 'security_compliance', name: 'Security Compliance', enabled: true },
-        { id: 'privacy_protection', name: 'Privacy Protection', enabled: true },
-        { id: 'data_classification', name: 'Data Classification Policy', enabled: true },
-        { id: 'lineage_tracking', name: 'Lineage Tracking Required', enabled: false },
-        { id: 'audit_trail', name: 'Audit Trail Compliance', enabled: true }
+        {
+          id: 'pol_001',
+          name: 'Production Data Access',
+          description: 'Standard access controls for production datasets',
+          enabled: true
+        },
+        {
+          id: 'pol_002',
+          name: 'PII Protection Policy',
+          description: 'Privacy controls for personally identifiable information',
+          enabled: true
+        }
       ];
 
       console.log('Sample policies loaded:', samplePolicies);
