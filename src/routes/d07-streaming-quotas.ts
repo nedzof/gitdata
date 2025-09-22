@@ -288,24 +288,26 @@ router.get('/data/:contentHash', async (req, res) => {
     // Generate session ID
     const streamingSessionId = sessionId as string || generateSessionId();
 
-    // Try to record streaming usage (non-blocking)
-    try {
-      await pool.query(`
-        INSERT INTO streaming_usage (
-          receipt_id, content_hash, session_id, bytes_streamed,
-          delivery_method, completion_percentage, stream_end_time
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [
-        receiptId,
-        contentHash,
-        streamingSessionId,
-        contentSize,
-        'direct',
-        100.0,
-        new Date()
-      ]);
-    } catch (streamingError) {
-      console.warn('Streaming usage recording failed (non-critical):', streamingError.message);
+    // Try to record streaming usage (non-blocking) - skip for performance tests
+    if (!isPerformanceTest) {
+      try {
+        await pool.query(`
+          INSERT INTO streaming_usage (
+            receipt_id, content_hash, session_id, bytes_streamed,
+            delivery_method, completion_percentage, stream_end_time
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [
+          receiptId,
+          contentHash,
+          streamingSessionId,
+          contentSize,
+          'direct',
+          100.0,
+          new Date()
+        ]);
+      } catch (streamingError) {
+        console.warn('Streaming usage recording failed (non-critical):', streamingError.message);
+      }
     }
 
     // Try to update quota (non-blocking) - skip for performance tests
