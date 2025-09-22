@@ -89,6 +89,8 @@
       <div class="nav-left">
         <a href="/" class="logo">Gitdata</a>
         <a href="/docs" class="primary-btn">📚 Docs</a>
+        <a href="/payments" class="nav-link">💰 Payments</a>
+        <a href="/market" class="nav-link">🛒 Market</a>
       </div>
 
       <div class="nav-center">
@@ -226,5 +228,23 @@
     border-left: 4px solid transparent;
     border-right: 4px solid transparent;
     border-bottom: 4px solid #da3633;
+  }
+
+  .nav-link {
+    color: #e6edf3;
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .nav-link:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #58a6ff;
   }
 </style>

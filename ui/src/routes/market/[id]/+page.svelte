@@ -229,52 +229,70 @@
 		}
 
 		try {
-			// Initialize AuthFetch if not already done
-			if (!authFetch) {
-				authFetch = new AuthFetch();
+			// Import wallet service
+			const { walletService, generateAuthHeaders } = await import('$lib/wallet');
+
+			// Check if wallet is connected
+			if (!walletService.isConnected()) {
+				const connectConfirmed = confirm('You need to connect your wallet to make a purchase. Connect now?');
+				if (connectConfirmed) {
+					await walletService.connect();
+				} else {
+					return;
+				}
 			}
 
-			// Calculate total price in satoshis (assuming pricePerKB is in USD, convert to satoshis)
+			// Calculate total price in satoshis
 			const priceInUSD = asset.pricePerKB * (asset.dataSizeBytes / 1024); // Total price in USD
 			const satoshisPerUSD = 100000; // Example conversion rate - should be fetched from API
 			const totalSatoshis = Math.floor(priceInUSD * satoshisPerUSD);
 
-			// Create payment request
-			const paymentRequest = {
-				assetId: asset.datasetId || asset.id,
-				amount: totalSatoshis,
-				description: `Purchase access to ${asset.title || asset.datasetId}`,
-				metadata: {
-					datasetId: asset.datasetId,
-					pricePerKB: asset.pricePerKB,
-					sizeBytes: asset.dataSizeBytes
-				}
-			};
-
-			console.log('Processing BSV payment:', paymentRequest);
-
-			// For now, show a detailed confirmation
+			// Show confirmation dialog
 			const confirmed = confirm(
-				`Confirm BSV Payment:\n\n` +
+				`Confirm D06 BSV Payment:\n\n` +
 				`Asset: ${asset.title || asset.datasetId}\n` +
 				`Price: $${asset.pricePerKB.toFixed(3)}/KB\n` +
 				`Size: ${(asset.dataSizeBytes / 1024 / 1024).toFixed(2)} MB\n` +
 				`Total: $${priceInUSD.toFixed(4)} (${totalSatoshis} satoshis)\n\n` +
-				`Proceed with BSV payment?`
+				`Process payment via D06 Payment API?`
 			);
 
-			if (confirmed) {
-				// TODO: Implement actual BSV payment processing using authFetch
-				// This would involve creating a transaction and waiting for confirmation
-				alert(`BSV payment processing initiated for ${asset.title || asset.datasetId}\n\nPayment will be processed via BSV blockchain...`);
+			if (!confirmed) {
+				return;
+			}
 
-				// Simulate payment processing
-				console.log('BSV payment would be processed here with AuthFetch');
+			// Generate authentication headers
+			const paymentRequest = {
+				versionId: asset.versionId || asset.datasetId || asset.id,
+				quantity: 1,
+				paymentMethod: 'bsv'
+			};
+
+			const authHeaders = await generateAuthHeaders(JSON.stringify(paymentRequest));
+
+			// Process payment via D06 API
+			console.log('Processing D06 payment:', paymentRequest);
+			const paymentResult = await api.processPayment(paymentRequest, authHeaders);
+
+			if (paymentResult.success) {
+				alert(`Payment successful!\n\nReceipt ID: ${paymentResult.receiptId}\nTotal: ${paymentResult.totalSatoshis} satoshis\n\nYour purchase has been processed via the D06 payment system.`);
+
+				// Optionally redirect to receipt details or refresh the page
+				console.log('Payment result:', paymentResult);
+			} else {
+				alert(`Payment failed: ${paymentResult.reason || 'Unknown error'}`);
 			}
 
 		} catch (error) {
 			console.error('Payment error:', error);
-			alert(`Payment failed: ${error.message}`);
+
+			if (error.message.includes('unauthorized')) {
+				alert(`Payment failed: Authentication required. Please ensure your wallet is connected and properly authenticated.`);
+			} else if (error.message.includes('signature-invalid')) {
+				alert(`Payment failed: Invalid signature. Please try reconnecting your wallet.`);
+			} else {
+				alert(`Payment failed: ${error.message}`);
+			}
 		}
 	}
 </script>

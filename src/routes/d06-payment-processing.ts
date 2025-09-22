@@ -93,9 +93,9 @@ export function d06PaymentProcessingRouter(database: Pool): Router {
   bsvProcessor.startConfirmationMonitoring().catch(console.error);
 
   /**
-   * POST /v1/payments/pay - Enhanced payment processing
+   * POST /pay - Enhanced payment processing
    */
-  router.post('/v1/payments/pay', requireIdentity(true), async (req: Request, res: Response) => {
+  router.post('/pay', requireIdentity(true), async (req: Request, res: Response) => {
     try {
       const { versionId, quantity = 1, paymentMethod = 'bsv', agentId, identityProof } = req.body as PaymentRequest;
 
@@ -256,9 +256,9 @@ export function d06PaymentProcessingRouter(database: Pool): Router {
   });
 
   /**
-   * GET /v1/payments/receipts/:receiptId - Comprehensive receipt details
+   * GET /receipts/:receiptId - Comprehensive receipt details
    */
-  router.get('/v1/payments/receipts/:receiptId', async (req: Request, res: Response) => {
+  router.get('/receipts/:receiptId', async (req: Request, res: Response) => {
     try {
       const { receiptId } = req.params;
 
@@ -344,9 +344,9 @@ export function d06PaymentProcessingRouter(database: Pool): Router {
   });
 
   /**
-   * POST /v1/payments/verify - Payment verification and confirmation
+   * POST /verify - Payment verification and confirmation
    */
-  router.post('/v1/payments/verify', async (req: Request, res: Response) => {
+  router.post('/verify', async (req: Request, res: Response) => {
     try {
       const { receiptId, rawTx, spvProof } = req.body;
 
@@ -437,9 +437,9 @@ export function d06PaymentProcessingRouter(database: Pool): Router {
   });
 
   /**
-   * POST /v1/payments/brc31/verify - BRC-31 identity verification
+   * POST /brc31/verify - BRC-31 identity verification
    */
-  router.post('/v1/payments/brc31/verify', async (req: Request, res: Response) => {
+  router.post('/brc31/verify', async (req: Request, res: Response) => {
     try {
       const { identityKey, certificate } = req.body;
 
@@ -463,9 +463,9 @@ export function d06PaymentProcessingRouter(database: Pool): Router {
   });
 
   /**
-   * POST /v1/payments/brc22/notify - BRC-22 payment notifications
+   * POST /brc22/notify - BRC-22 payment notifications
    */
-  router.post('/v1/payments/brc22/notify', async (req: Request, res: Response) => {
+  router.post('/brc22/notify', async (req: Request, res: Response) => {
     try {
       const { eventType, receiptId, paymentTxid, agentId, topics = [], details = {} } = req.body;
 

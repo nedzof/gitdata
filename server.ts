@@ -40,6 +40,11 @@ import { agentMarketplaceRouter } from './src/routes/agent-marketplace';
 import { getPostgreSQLClient } from './src/db/postgresql';
 import identityRouter, { initializeIdentityRoutes } from './src/routes/identity';
 
+// D06: BSV Overlay Network Payment Processing & Revenue Management
+import { d06PaymentProcessingRouter } from './src/routes/d06-payment-processing';
+import { d06AgentPaymentsRouter } from './src/routes/d06-agent-payments';
+import { d06RevenueManagementRouter } from './src/routes/d06-revenue-management';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -130,6 +135,8 @@ app.use('/advisories', metricsRoute('advisories'));
 app.use('/producers', metricsRoute('producers'));
 app.use('/listings', metricsRoute('listings'));
 app.use('/payments', metricsRoute('payments'));
+app.use('/v1/payments', metricsRoute('d06-payments'));
+app.use('/v1/revenue', metricsRoute('d06-revenue'));
 app.use('/api/models', metricsRoute('models'));
 app.use('/policies', metricsRoute('policies'));
 app.use('/openlineage', metricsRoute('openlineage'));
@@ -152,6 +159,12 @@ app.use(producersRegisterRouter());
 // D19: BRC-31 Identity Management with BRC-100 Wallet Integration
 const pgClient = getPostgreSQLClient();
 app.use('/identity', rateLimit('identity'), initializeIdentityRoutes(pgClient));
+
+// D06: BSV Overlay Network Payment Processing & Revenue Management
+const pgPool = pgClient.getPool();
+app.use('/v1/payments/agents', rateLimit('payments'), d06AgentPaymentsRouter(pgPool));
+app.use('/v1/payments', rateLimit('payments'), d06PaymentProcessingRouter(pgPool));
+app.use('/v1/revenue', rateLimit('payments'), d06RevenueManagementRouter(pgPool));
 
 // D24: Agent marketplace is now handled via overlay network through /overlay routes
 app.use('/templates', enforceResourceLimits(), templatesRouter());
@@ -291,6 +304,8 @@ app.get('*', (req, res, next) => {
       req.path.startsWith('/advisories') ||
       req.path.startsWith('/ops') ||
       req.path.startsWith('/payments') ||
+      req.path.startsWith('/v1/payments') ||
+      req.path.startsWith('/v1/revenue') ||
       req.path.startsWith('/storage') ||
       req.path.startsWith('/ingest') ||
       req.path.startsWith('/policies') ||

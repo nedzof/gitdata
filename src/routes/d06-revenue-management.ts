@@ -28,7 +28,7 @@ export function d06RevenueManagementRouter(database: Pool): Router {
   /**
    * GET /v1/revenue/analytics - Comprehensive revenue analytics
    */
-  router.get('/v1/revenue/analytics', requireIdentity(), async (req: Request, res: Response) => {
+  router.get('/analytics', requireIdentity(), async (req: Request, res: Response) => {
     try {
       const {
         startDate,
@@ -92,7 +92,7 @@ export function d06RevenueManagementRouter(database: Pool): Router {
   /**
    * GET /v1/revenue/summary - Quick revenue summary
    */
-  router.get('/v1/revenue/summary', requireIdentity(), async (req: Request, res: Response) => {
+  router.get('/summary', requireIdentity(), async (req: Request, res: Response) => {
     try {
       const timeframe = (req.query.timeframe as string) || 'month';
 
@@ -160,7 +160,7 @@ export function d06RevenueManagementRouter(database: Pool): Router {
   /**
    * GET /v1/revenue/producers/:producerId - Producer-specific revenue analytics
    */
-  router.get('/v1/revenue/producers/:producerId', requireIdentity(), async (req: Request, res: Response) => {
+  router.get('/producers/:producerId', requireIdentity(), async (req: Request, res: Response) => {
     try {
       const { producerId } = req.params;
       const {
@@ -264,7 +264,7 @@ export function d06RevenueManagementRouter(database: Pool): Router {
   /**
    * POST /v1/revenue/settlements - Cross-network settlement management
    */
-  router.post('/v1/revenue/settlements', requireIdentity(), async (req: Request, res: Response) => {
+  router.post('/settlements', requireIdentity(), async (req: Request, res: Response) => {
     try {
       const {
         sourceNetwork,
@@ -319,7 +319,7 @@ export function d06RevenueManagementRouter(database: Pool): Router {
   /**
    * GET /v1/revenue/settlements/:settlementBatchId - Get settlement status
    */
-  router.get('/v1/revenue/settlements/:settlementBatchId', requireIdentity(), async (req: Request, res: Response) => {
+  router.get('/settlements/:settlementBatchId', requireIdentity(), async (req: Request, res: Response) => {
     try {
       const { settlementBatchId } = req.params;
 
@@ -351,7 +351,7 @@ export function d06RevenueManagementRouter(database: Pool): Router {
   /**
    * GET /v1/revenue/settlements - List settlements with filtering
    */
-  router.get('/v1/revenue/settlements', requireIdentity(), async (req: Request, res: Response) => {
+  router.get('/settlements', requireIdentity(), async (req: Request, res: Response) => {
     try {
       const {
         status,
@@ -423,7 +423,7 @@ export function d06RevenueManagementRouter(database: Pool): Router {
   /**
    * GET /v1/revenue/export - Export revenue data
    */
-  router.get('/v1/revenue/export', requireIdentity(), async (req: Request, res: Response) => {
+  router.get('/export', requireIdentity(), async (req: Request, res: Response) => {
     try {
       const {
         startDate,

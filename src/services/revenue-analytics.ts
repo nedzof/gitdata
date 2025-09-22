@@ -5,6 +5,7 @@
 
 import { Pool } from 'pg';
 import { EventEmitter } from 'events';
+import crypto from 'crypto';
 
 export interface RevenueMetrics {
   totalRevenueSatoshis: number;

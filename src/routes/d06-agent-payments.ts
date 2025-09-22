@@ -18,9 +18,9 @@ export function d06AgentPaymentsRouter(database: Pool): Router {
   const agentPaymentService = new AgentPaymentService(database);
 
   /**
-   * POST /v1/payments/agents/authorize - Agent payment authorization
+   * POST /authorize - Agent payment authorization
    */
-  router.post('/v1/payments/agents/authorize', requireIdentity(), async (req: Request & { identityKey?: string }, res: Response) => {
+  router.post('/authorize', requireIdentity(), async (req: Request & { identityKey?: string }, res: Response) => {
     try {
       const {
         agentId,
@@ -87,7 +87,7 @@ export function d06AgentPaymentsRouter(database: Pool): Router {
   /**
    * GET /v1/payments/agents/:agentId/authorization - Get agent authorization status
    */
-  router.get('/v1/payments/agents/:agentId/authorization', async (req: Request, res: Response) => {
+  router.get('/:agentId/authorization', async (req: Request, res: Response) => {
     try {
       const { agentId } = req.params;
 
@@ -134,7 +134,7 @@ export function d06AgentPaymentsRouter(database: Pool): Router {
   /**
    * GET /v1/payments/agents/:agentId/spending - Agent spending analytics
    */
-  router.get('/v1/payments/agents/:agentId/spending', async (req: Request, res: Response) => {
+  router.get('/:agentId/spending', async (req: Request, res: Response) => {
     try {
       const { agentId } = req.params;
       const timeframe = (req.query.timeframe as string) || 'month';
@@ -177,7 +177,7 @@ export function d06AgentPaymentsRouter(database: Pool): Router {
   /**
    * POST /v1/payments/agents/:agentId/pay - Autonomous agent payment
    */
-  router.post('/v1/payments/agents/:agentId/pay', async (req: Request, res: Response) => {
+  router.post('/:agentId/pay', async (req: Request, res: Response) => {
     try {
       const { agentId } = req.params;
       const { versionId, quantity = 1, purpose, priority = 'normal' } = req.body;
@@ -236,7 +236,7 @@ export function d06AgentPaymentsRouter(database: Pool): Router {
   /**
    * POST /v1/payments/agents/:agentId/suspend - Suspend agent payment authorization
    */
-  router.post('/v1/payments/agents/:agentId/suspend', requireIdentity(), async (req: Request & { identityKey?: string }, res: Response) => {
+  router.post('/:agentId/suspend', requireIdentity(), async (req: Request & { identityKey?: string }, res: Response) => {
     try {
       const { agentId } = req.params;
       const { reason } = req.body;
@@ -290,7 +290,7 @@ export function d06AgentPaymentsRouter(database: Pool): Router {
   /**
    * GET /v1/payments/agents/summary - Get overview of all agent payment authorizations
    */
-  router.get('/v1/payments/agents/summary', requireIdentity(), async (req: Request, res: Response) => {
+  router.get('/summary', requireIdentity(), async (req: Request, res: Response) => {
     try {
       const summaryResult = await database.query(`
         SELECT * FROM agent_payment_summary

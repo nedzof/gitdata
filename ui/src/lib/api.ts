@@ -176,6 +176,113 @@ class APIClient {
   async getHealth() {
     return this.request('/health');
   }
+
+  // D06: Payment Processing endpoints
+  async processPayment(paymentRequest: {
+    versionId: string;
+    quantity?: number;
+    paymentMethod?: string;
+    agentId?: string;
+    identityProof?: any;
+  }, authHeaders?: Record<string, string>) {
+    return this.request('/v1/payments/pay', {
+      method: 'POST',
+      headers: authHeaders,
+      body: paymentRequest
+    });
+  }
+
+  async getReceipt(receiptId: string) {
+    return this.request(`/v1/payments/receipts/${receiptId}`);
+  }
+
+  async verifyPayment(paymentData: {
+    receiptId: string;
+    rawTx: string;
+    spvProof?: any;
+  }) {
+    return this.request('/v1/payments/verify', {
+      method: 'POST',
+      body: paymentData
+    });
+  }
+
+  // D06: Agent Payment endpoints
+  async authorizeAgent(authData: {
+    agentId: string;
+    maxPaymentSatoshis: number;
+    dailyLimitSatoshis: number;
+    monthlyLimitSatoshis: number;
+    expiresAt?: Date;
+  }, authHeaders?: Record<string, string>) {
+    return this.request('/v1/payments/agents/authorize', {
+      method: 'POST',
+      headers: authHeaders,
+      body: authData
+    });
+  }
+
+  async getAgentAuthorization(agentId: string) {
+    return this.request(`/v1/payments/agents/${agentId}/authorization`);
+  }
+
+  async getAgentSpending(agentId: string, timeframe?: string) {
+    const params = timeframe ? `?timeframe=${timeframe}` : '';
+    return this.request(`/v1/payments/agents/${agentId}/spending${params}`);
+  }
+
+  async processAgentPayment(agentId: string, paymentRequest: {
+    versionId: string;
+    quantity?: number;
+    purpose?: string;
+    priority?: string;
+  }) {
+    return this.request(`/v1/payments/agents/${agentId}/pay`, {
+      method: 'POST',
+      body: paymentRequest
+    });
+  }
+
+  async getAgentSummary() {
+    return this.request('/v1/payments/agents/summary');
+  }
+
+  // D06: Revenue Management endpoints
+  async getRevenueAnalytics(params?: {
+    startDate?: string;
+    endDate?: string;
+    granularity?: string;
+    includeTimeSeries?: boolean;
+  }) {
+    const queryParams = params ? `?${new URLSearchParams(params)}` : '';
+    return this.request(`/v1/revenue/analytics${queryParams}`);
+  }
+
+  async getRevenueSummary(timeframe?: string) {
+    const params = timeframe ? `?timeframe=${timeframe}` : '';
+    return this.request(`/v1/revenue/summary${params}`);
+  }
+
+  async getProducerRevenue(producerId: string) {
+    return this.request(`/v1/revenue/producers/${producerId}`);
+  }
+
+  async initiateSettlement(settlementData: {
+    sourceNetwork: string;
+    targetNetwork: string;
+    receiptIds: string[];
+    settlementFeeSatoshis?: number;
+  }, authHeaders?: Record<string, string>) {
+    return this.request('/v1/revenue/settlements', {
+      method: 'POST',
+      headers: authHeaders,
+      body: settlementData
+    });
+  }
+
+  async getSettlement(settlementBatchId: string) {
+    return this.request(`/v1/revenue/settlements/${settlementBatchId}`);
+  }
 }
 
 export const api = new APIClient();
