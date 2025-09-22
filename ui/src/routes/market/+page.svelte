@@ -201,7 +201,7 @@
     console.log('Opening asset details for:', asset);
     const assetId = asset.versionId || asset.datasetId || asset.id;
     if (assetId) {
-      window.open(`/catalog/${assetId}`, '_blank');
+      window.open(`/market/${assetId}`, '_blank');
     }
   }
 
@@ -297,13 +297,13 @@
 </script>
 
 <svelte:head>
-  <title>Catalog - Gitdata</title>
+  <title>Market - Gitdata</title>
 </svelte:head>
 
 <div class="explorer">
   <div class="page-header">
     <div>
-      <h1>📋 Catalog</h1>
+      <h1>📋 Market</h1>
       <p class="subtitle">Discover and publish data and AI assets</p>
     </div>
     <button

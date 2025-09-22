@@ -26,7 +26,7 @@
 
   <div class="links">
     <a href="/docs">📚 Docs</a>
-    <a href="/catalog">📋 Catalog</a>
+    <a href="/market">📋 Market</a>
     <a href="/policy">🛡️ Policy</a>
   </div>
 </main>

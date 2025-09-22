@@ -13,10 +13,10 @@
       <div class="docs-content">
         <p>Get started with Gitdata in minutes. Verify data trust and explore the AI economy.</p>
         <div class="quick-links">
-          <a href="/catalog" class="link-card">
+          <a href="/market" class="link-card">
             <span class="link-icon">📋</span>
             <div>
-              <strong>Browse Catalog</strong>
+              <strong>Browse Market</strong>
               <p>Discover available data and AI assets</p>
             </div>
           </a>
@@ -143,7 +143,7 @@
 
   <div class="actions">
     <a href="/" class="button">← Back to Home</a>
-    <a href="/catalog" class="button primary">Explore Catalog →</a>
+    <a href="/market" class="button primary">Explore Market →</a>
   </div>
 </div>
 

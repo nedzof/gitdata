@@ -218,7 +218,7 @@
 </script>
 
 <svelte:head>
-	<title>{asset?.title || 'Asset Details'} - Data Catalog</title>
+	<title>{asset?.title || 'Asset Details'} - Market</title>
 </svelte:head>
 
 <div class="asset-details">
@@ -231,11 +231,11 @@
 		<div class="error">
 			<h2>Error Loading Asset</h2>
 			<p>{error}</p>
-			<a href="/catalog" class="back-link">← Back to Catalog</a>
+			<a href="/market" class="back-link">← Back to Market</a>
 		</div>
 	{:else if asset}
 		<div class="header">
-			<a href="/catalog" class="back-link">← Back to Catalog</a>
+			<a href="/market" class="back-link">← Back to Market</a>
 			<div class="title-section">
 				<h1>{asset.title || 'Untitled Asset'}</h1>
 				{#if policyCompliance}
@@ -335,7 +335,7 @@
 		<div class="error">
 			<h2>Asset Not Found</h2>
 			<p>The requested asset could not be found.</p>
-			<a href="/catalog" class="back-link">← Back to Catalog</a>
+			<a href="/market" class="back-link">← Back to Market</a>
 		</div>
 	{/if}
 </div>
