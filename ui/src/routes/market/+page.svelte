@@ -7,19 +7,26 @@
   let availableAssets = []; // For parent selection
   let loading = true;
   let searchQuery = '';
+  let showPublishForm = false;
+
+  // Basic filters (always visible)
+  let selectedFormat = 'all'; // Primary format filter
+  let maxPricePerData = ''; // Price per data unit
+  let updatedSince = 'all'; // When last updated
+
+  // Advanced filters (hidden by default)
+  let showAdvancedFilters = false;
   let selectedType = 'all'; // 'all', 'data', 'ai'
   let selectedClassification = 'all';
   let selectedLicense = 'all';
   let selectedProducer = 'all';
   let selectedPolicy = 'none';
-  let showPublishForm = false;
-
-  // Compact filter state
   let selectedGeoOrigin = 'all';
-  let selectedMimeType = 'all';
   let minConfirmations = '';
-  let maxPricePerByte = '';
   let selectedPiiFlags = 'all';
+
+  // View mode toggle
+  let viewMode = 'cards'; // 'cards' or 'table'
 
   // Policy options for dropdown - loaded from policy management
   let availablePolicies = [
@@ -145,7 +152,7 @@
   }
 
   // Reactive statement to reload assets when filters change
-  $: if (searchQuery !== undefined || selectedType !== undefined || selectedClassification !== undefined || selectedLicense !== undefined || selectedProducer !== undefined || selectedPolicy !== undefined || selectedGeoOrigin !== undefined || selectedMimeType !== undefined || minConfirmations !== undefined || maxPricePerByte !== undefined || selectedPiiFlags !== undefined) {
+  $: if (searchQuery !== undefined || selectedFormat !== undefined || maxPricePerData !== undefined || updatedSince !== undefined || selectedType !== undefined || selectedClassification !== undefined || selectedLicense !== undefined || selectedProducer !== undefined || selectedPolicy !== undefined || selectedGeoOrigin !== undefined || minConfirmations !== undefined || selectedPiiFlags !== undefined) {
     loadAssets();
   }
 
@@ -425,7 +432,7 @@
     </div>
   {/if}
 
-  <!-- Search and Filter Bar -->
+  <!-- Search and Basic Filter Bar -->
   <div class="filter-bar">
     <!-- Search -->
     <div class="search-container">
@@ -437,121 +444,166 @@
       />
     </div>
 
-    <!-- Policy Dropdown -->
+    <!-- Basic Filters -->
     <div class="filter-item">
-      <select bind:value={selectedPolicy} class="filter-select">
-        {#each availablePolicies as policy}
-          <option value={policy.id}>{policy.name}</option>
-        {/each}
-      </select>
-    </div>
-
-    <!-- Type Filter -->
-    <div class="filter-item">
-      <select bind:value={selectedType} class="filter-select">
-        <option value="all">All Types</option>
-        <option value="data">📊 Data</option>
-        <option value="ai">🤖 AI</option>
-      </select>
-    </div>
-
-    <!-- Classification Filter -->
-    <div class="filter-item">
-      <select bind:value={selectedClassification} class="filter-select">
-        <option value="all">All Classifications</option>
-        <option value="public">🌐 Public</option>
-        <option value="internal">🏢 Internal</option>
-        <option value="restricted">🔒 Restricted</option>
-      </select>
-    </div>
-
-    <!-- License Filter -->
-    <div class="filter-item">
-      <select bind:value={selectedLicense} class="filter-select">
-        <option value="all">All Licenses</option>
-        <option value="cc-by-4.0">📄 CC-BY-4.0</option>
-        <option value="internal">🏢 Internal</option>
-        <option value="proprietary">🔐 Proprietary</option>
-      </select>
-    </div>
-
-    <!-- Producer Filter -->
-    <div class="filter-item">
-      <select bind:value={selectedProducer} class="filter-select">
-        <option value="all">All Producers</option>
-        <option value="verified">✅ Verified</option>
-        <option value="internal">🏢 Internal</option>
-        <option value="partner">🤝 Partner</option>
-      </select>
-    </div>
-  </div>
-
-  <!-- Additional Filters Row -->
-  <div class="additional-filters">
-    <div class="filter-item">
-      <select bind:value={selectedGeoOrigin} class="filter-select-small">
-        <option value="all">All Regions</option>
-        <option value="EU">🇪🇺 EU</option>
-        <option value="US">🇺🇸 US</option>
-        <option value="Asia">🌏 Asia</option>
-      </select>
-    </div>
-
-    <div class="filter-item">
-      <select bind:value={selectedMimeType} class="filter-select-small">
-        <option value="all">All Formats</option>
-        <option value="application/json">JSON</option>
-        <option value="text/csv">CSV</option>
-        <option value="application/parquet">Parquet</option>
-      </select>
-    </div>
-
-    <div class="filter-item">
-      <select bind:value={selectedPiiFlags} class="filter-select-small">
-        <option value="all">Any PII</option>
-        <option value="none">No PII</option>
-        <option value="has_customer_name">Names</option>
-        <option value="has_financial">Financial</option>
+      <select bind:value={selectedFormat} class="filter-select">
+        <option value="all">📄 All Formats</option>
+        <option value="application/json">📋 JSON</option>
+        <option value="text/csv">📊 CSV</option>
+        <option value="application/parquet">🗃️ Parquet</option>
+        <option value="text/plain">📝 Text</option>
+        <option value="image/jpeg">🖼️ JPEG</option>
+        <option value="image/png">🎨 PNG</option>
+        <option value="application/pdf">📑 PDF</option>
       </select>
     </div>
 
     <div class="filter-item">
       <input
         type="number"
-        bind:value={minConfirmations}
-        placeholder="Min Confs"
-        class="filter-input-small"
+        bind:value={maxPricePerData}
+        placeholder="💰 Max Price/MB"
+        step="0.001"
+        class="filter-input"
       />
     </div>
 
     <div class="filter-item">
-      <input
-        type="number"
-        bind:value={maxPricePerByte}
-        placeholder="Max Price"
-        step="0.0001"
-        class="filter-input-small"
-      />
+      <select bind:value={updatedSince} class="filter-select">
+        <option value="all">🕐 Any Time</option>
+        <option value="1d">📅 Last 24h</option>
+        <option value="7d">📅 Last Week</option>
+        <option value="30d">📅 Last Month</option>
+        <option value="90d">📅 Last Quarter</option>
+        <option value="365d">📅 Last Year</option>
+      </select>
     </div>
 
     <button
-      class="clear-filters-btn"
-      on:click={() => {
-        selectedType = 'all';
-        selectedClassification = 'all';
-        selectedLicense = 'all';
-        selectedProducer = 'all';
-        selectedPolicy = 'none';
-        selectedGeoOrigin = 'all';
-        selectedMimeType = 'all';
-        selectedPiiFlags = 'all';
-        minConfirmations = '';
-        maxPricePerByte = '';
-        searchQuery = '';
-      }}
+      class="advanced-toggle-btn"
+      on:click={() => showAdvancedFilters = !showAdvancedFilters}
     >
-      Clear All
+      {showAdvancedFilters ? '🔼 Hide Advanced' : '🔽 Advanced Filters'}
     </button>
+  </div>
+
+  <!-- Advanced Filters (Collapsible) -->
+  {#if showAdvancedFilters}
+    <div class="advanced-filters">
+      <div class="advanced-filters-grid">
+        <div class="filter-item">
+          <select bind:value={selectedType} class="filter-select-small">
+            <option value="all">All Types</option>
+            <option value="data">📊 Data</option>
+            <option value="ai">🤖 AI</option>
+          </select>
+        </div>
+
+        <div class="filter-item">
+          <select bind:value={selectedClassification} class="filter-select-small">
+            <option value="all">All Classifications</option>
+            <option value="public">🌐 Public</option>
+            <option value="internal">🏢 Internal</option>
+            <option value="restricted">🔒 Restricted</option>
+          </select>
+        </div>
+
+        <div class="filter-item">
+          <select bind:value={selectedLicense} class="filter-select-small">
+            <option value="all">All Licenses</option>
+            <option value="cc-by-4.0">📄 CC-BY-4.0</option>
+            <option value="internal">🏢 Internal</option>
+            <option value="proprietary">🔐 Proprietary</option>
+          </select>
+        </div>
+
+        <div class="filter-item">
+          <select bind:value={selectedProducer} class="filter-select-small">
+            <option value="all">All Producers</option>
+            <option value="verified">✅ Verified</option>
+            <option value="internal">🏢 Internal</option>
+            <option value="partner">🤝 Partner</option>
+          </select>
+        </div>
+
+        <div class="filter-item">
+          <select bind:value={selectedGeoOrigin} class="filter-select-small">
+            <option value="all">All Regions</option>
+            <option value="EU">🇪🇺 EU</option>
+            <option value="US">🇺🇸 US</option>
+            <option value="Asia">🌏 Asia</option>
+          </select>
+        </div>
+
+        <div class="filter-item">
+          <select bind:value={selectedPiiFlags} class="filter-select-small">
+            <option value="all">Any PII</option>
+            <option value="none">No PII</option>
+            <option value="has_customer_name">Names</option>
+            <option value="has_financial">Financial</option>
+          </select>
+        </div>
+
+        <div class="filter-item">
+          <input
+            type="number"
+            bind:value={minConfirmations}
+            placeholder="Min Confirmations"
+            class="filter-input-small"
+          />
+        </div>
+
+        <div class="filter-item">
+          <select bind:value={selectedPolicy} class="filter-select-small">
+            {#each availablePolicies as policy}
+              <option value={policy.id}>{policy.name}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+
+      <div class="advanced-filters-actions">
+        <button
+          class="clear-filters-btn"
+          on:click={() => {
+            selectedFormat = 'all';
+            maxPricePerData = '';
+            updatedSince = 'all';
+            selectedType = 'all';
+            selectedClassification = 'all';
+            selectedLicense = 'all';
+            selectedProducer = 'all';
+            selectedPolicy = 'none';
+            selectedGeoOrigin = 'all';
+            selectedPiiFlags = 'all';
+            minConfirmations = '';
+            searchQuery = '';
+          }}
+        >
+          Clear All Filters
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- View Toggle -->
+  <div class="view-controls">
+    <div class="view-toggle">
+      <button
+        class="view-btn {viewMode === 'cards' ? 'active' : ''}"
+        on:click={() => viewMode = 'cards'}
+      >
+        <span class="view-icon">⊞</span>
+        Cards
+      </button>
+      <button
+        class="view-btn {viewMode === 'table' ? 'active' : ''}"
+        on:click={() => viewMode = 'table'}
+      >
+        <span class="view-icon">☰</span>
+        Table
+      </button>
+    </div>
   </div>
 
   <!-- Assets Grid -->
@@ -566,46 +618,97 @@
       <p class="empty-hint">Try adjusting your search or publish a new asset</p>
     </div>
   {:else}
-    <div class="assets-grid">
-      {#each filteredAssets() as asset}
-        <div class="asset-card" on:click={() => openAssetDetails(asset)}>
-          <div class="asset-header">
-            <div class="asset-title">
-              <span class="asset-icon">📊</span>
-              <h3>{asset.title || asset.datasetId || 'Untitled Asset'}</h3>
+    {#if viewMode === 'cards'}
+      <!-- Card View -->
+      <div class="assets-grid">
+        {#each filteredAssets() as asset}
+          <div class="asset-card" on:click={() => openAssetDetails(asset)}>
+            <div class="asset-header">
+              <div class="asset-title">
+                <span class="asset-icon">📊</span>
+                <h3>{asset.title || asset.datasetId || 'Untitled Asset'}</h3>
+              </div>
+              <span class="asset-type">{asset.classification || 'data'}</span>
             </div>
-            <span class="asset-type">{asset.classification || 'data'}</span>
-          </div>
 
-          <div class="asset-metadata">
-            <div class="metadata-row">
-              <span class="metadata-label">Dataset ID:</span>
-              <span class="metadata-value">{asset.datasetId}</span>
+            <div class="asset-metadata">
+              <div class="metadata-row">
+                <span class="metadata-label">Format:</span>
+                <span class="metadata-value format-badge">{(asset.content?.mediaType || 'unknown').split('/')[1]?.toUpperCase() || 'N/A'}</span>
+              </div>
+              <div class="metadata-row">
+                <span class="metadata-label">Price/MB:</span>
+                <span class="metadata-value price-value">{asset.pricePerMB ? '$' + asset.pricePerMB.toFixed(3) : 'Free'}</span>
+              </div>
+              <div class="metadata-row">
+                <span class="metadata-label">Updated:</span>
+                <span class="metadata-value">{asset.updatedAt ? new Date(asset.updatedAt).toLocaleDateString() : new Date(asset.createdAt).toLocaleDateString()}</span>
+              </div>
+              <div class="metadata-row">
+                <span class="metadata-label">License:</span>
+                <span class="metadata-value">{asset.license || 'N/A'}</span>
+              </div>
             </div>
-            <div class="metadata-row">
-              <span class="metadata-label">License:</span>
-              <span class="metadata-value">{asset.license}</span>
-            </div>
-            <div class="metadata-row">
-              <span class="metadata-label">Created:</span>
-              <span class="metadata-value">{new Date(asset.createdAt).toLocaleDateString()}</span>
-            </div>
-          </div>
 
-          <div class="asset-footer">
-            <span class="asset-id">ID: {asset.versionId?.slice(0, 12)}...</span>
-            <div class="asset-actions">
-              <button
-                on:click|stopPropagation={() => viewLineage(asset)}
-                class="asset-link-btn"
-              >
-                View Lineage
-              </button>
+            <div class="asset-footer">
+              <span class="asset-id">ID: {asset.versionId?.slice(0, 12)}...</span>
             </div>
           </div>
-        </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {:else}
+      <!-- Table View -->
+      <div class="assets-table-container">
+        <table class="assets-table">
+          <thead>
+            <tr>
+              <th class="rank-col">#</th>
+              <th class="asset-col">Asset</th>
+              <th class="format-col">Format</th>
+              <th class="price-col">Price/MB</th>
+              <th class="updated-col">Updated</th>
+              <th class="classification-col">Classification</th>
+              <th class="size-col">Size</th>
+              <th class="producer-col">Producer</th>
+              <th class="confirmations-col">Confirmations</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each filteredAssets() as asset, index}
+              <tr class="asset-row" on:click={() => openAssetDetails(asset)}>
+                <td class="rank-cell">{index + 1}</td>
+                <td class="asset-cell">
+                  <div class="asset-info">
+                    <span class="asset-icon-small">📊</span>
+                    <div class="asset-details">
+                      <div class="asset-name">{asset.title || asset.datasetId || 'Untitled Asset'}</div>
+                      <div class="asset-id-small">ID: {asset.versionId?.slice(0, 16)}...</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="format-cell">
+                  <span class="format-badge">{(asset.content?.mediaType || 'unknown').split('/')[1]?.toUpperCase() || 'N/A'}</span>
+                </td>
+                <td class="price-cell">
+                  <span class="price-value">{asset.pricePerMB ? '$' + asset.pricePerMB.toFixed(3) : 'Free'}</span>
+                </td>
+                <td class="updated-cell">{asset.updatedAt ? new Date(asset.updatedAt).toLocaleDateString() : new Date(asset.createdAt).toLocaleDateString()}</td>
+                <td class="classification-cell">
+                  <span class="classification-badge classification-{asset.classification || 'public'}">
+                    {asset.classification || 'public'}
+                  </span>
+                </td>
+                <td class="size-cell">{asset.dataSizeBytes ? (asset.dataSizeBytes / 1024 / 1024).toFixed(1) + ' MB' : 'N/A'}</td>
+                <td class="producer-cell">{asset.producer || 'Unknown'}</td>
+                <td class="confirmations-cell">
+                  <span class="confirmations-count">{asset.confirmations || 0}</span>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
   {/if}
 
   <!-- Lineage Visualization Section -->
@@ -1730,6 +1833,335 @@
 
     .lineage-graph svg {
       height: 250px;
+    }
+  }
+
+  /* View Controls */
+  .view-controls {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 20px;
+  }
+
+  .view-toggle {
+    display: flex;
+    background: #21262d;
+    border-radius: 6px;
+    border: 1px solid #30363d;
+    overflow: hidden;
+  }
+
+  .view-btn {
+    background: transparent;
+    border: none;
+    color: #8b949e;
+    padding: 8px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+  }
+
+  .view-btn:hover {
+    background: #30363d;
+    color: #f0f6fc;
+  }
+
+  .view-btn.active {
+    background: #238636;
+    color: #ffffff;
+  }
+
+  .view-icon {
+    font-size: 12px;
+  }
+
+  /* Table Styles */
+  .assets-table-container {
+    background: #0d1117;
+    border-radius: 8px;
+    border: 1px solid #30363d;
+    overflow: hidden;
+  }
+
+  .assets-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  .assets-table thead {
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+  }
+
+  .assets-table th {
+    text-align: left;
+    padding: 12px 16px;
+    color: #8b949e;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .assets-table tbody tr {
+    border-bottom: 1px solid #21262d;
+    transition: background-color 0.2s ease;
+  }
+
+  .assets-table tbody tr:hover {
+    background: #161b22;
+    cursor: pointer;
+  }
+
+  .assets-table td {
+    padding: 12px 16px;
+    color: #e6edf3;
+    vertical-align: middle;
+  }
+
+  /* Column Specific Styles */
+  .rank-col {
+    width: 60px;
+  }
+
+  .rank-cell {
+    color: #8b949e;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .asset-col {
+    width: 300px;
+    min-width: 250px;
+  }
+
+  .asset-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .asset-icon-small {
+    font-size: 16px;
+  }
+
+  .asset-details {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .asset-name {
+    font-weight: 600;
+    color: #f0f6fc;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .asset-id-small {
+    color: #8b949e;
+    font-size: 12px;
+  }
+
+  .type-badge {
+    background: #1f6feb;
+    color: #ffffff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+  }
+
+  .type-badge.type-data {
+    background: #1f6feb;
+  }
+
+  .type-badge.type-ai {
+    background: #9a6cf2;
+  }
+
+  .classification-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: capitalize;
+  }
+
+  .classification-badge.classification-public {
+    background: #238636;
+    color: #ffffff;
+  }
+
+  .classification-badge.classification-internal {
+    background: #d29922;
+    color: #000000;
+  }
+
+  .classification-badge.classification-restricted {
+    background: #da3633;
+    color: #ffffff;
+  }
+
+  .confirmations-count {
+    color: #39d353;
+    font-weight: 600;
+  }
+
+  /* Advanced Filters */
+  .advanced-filters {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    animation: slideDown 0.3s ease;
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .advanced-filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .advanced-filters-actions {
+    display: flex;
+    justify-content: center;
+    padding-top: 16px;
+    border-top: 1px solid #30363d;
+  }
+
+  .advanced-toggle-btn {
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .advanced-toggle-btn:hover {
+    background: #30363d;
+    color: #f0f6fc;
+  }
+
+  .filter-input {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    color: #e6edf3;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: border-color 0.2s ease;
+  }
+
+  .filter-input:focus {
+    outline: none;
+    border-color: #1f6feb;
+  }
+
+  /* Format and Price badges in cards */
+  .format-badge {
+    background: #1f6feb;
+    color: #ffffff;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .price-value {
+    color: #39d353;
+    font-weight: 600;
+  }
+
+  /* Table column specific styles */
+  .format-col,
+  .format-cell {
+    width: 80px;
+  }
+
+  .price-col,
+  .price-cell {
+    width: 100px;
+  }
+
+  .updated-col,
+  .updated-cell {
+    width: 100px;
+  }
+
+  .format-badge {
+    background: #6f42c1;
+    color: #ffffff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  /* Responsive Table */
+  @media (max-width: 1200px) {
+    .producer-col,
+    .producer-cell,
+    .confirmations-col,
+    .confirmations-cell {
+      display: none;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .size-col,
+    .size-cell,
+    .classification-col,
+    .classification-cell {
+      display: none;
+    }
+  }
+
+  @media (max-width: 700px) {
+    .updated-col,
+    .updated-cell {
+      display: none;
+    }
+
+    .advanced-filters-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 600px) {
+    .view-controls {
+      justify-content: center;
+    }
+
+    .assets-table {
+      font-size: 12px;
+    }
+
+    .assets-table th,
+    .assets-table td {
+      padding: 8px 12px;
     }
   }
 </style>
