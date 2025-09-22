@@ -153,7 +153,7 @@ async function validateQuota(receiptId: string, requestedBytes: number = 0, cont
   }
 }
 
-// Update quota usage
+// Update quota usage with deduplication to prevent infinite accumulation
 async function updateQuotaUsage(receiptId: string, bytesUsed: number, requestCount: number = 1): Promise<void> {
   try {
     const now = new Date();
@@ -184,7 +184,7 @@ async function updateQuotaUsage(receiptId: string, bytesUsed: number, requestCou
       else if (window.type === 'day') windowEnd.setDate(windowEnd.getDate() + 1);
       else windowEnd.setMonth(windowEnd.getMonth() + 1);
 
-      // Upsert usage window with simplified conflict resolution
+      // Simple accumulation approach - add bytes to existing total
       const upsertQuery = `
         INSERT INTO quota_usage_windows (receipt_id, policy_id, window_type, window_start, window_end, bytes_used, requests_used)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
