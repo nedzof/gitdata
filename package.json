@@ -45,12 +45,14 @@
   "dependencies": {
     "@noble/curves": "^1.4.0",
     "@noble/secp256k1": "^3.0.0",
+    "@types/multer": "^2.0.0",
     "@types/pg": "^8.15.5",
     "ajv": "^8.12.0",
     "ajv-formats": "^3.0.1",
     "cbor": "^9.0.2",
     "express": "^4.18.0",
     "ioredis": "^5.7.0",
+    "multer": "^2.0.2",
     "pg": "^8.16.3",
     "redis": "^5.8.2",
     "zod": "^4.1.9"

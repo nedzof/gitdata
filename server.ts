@@ -44,6 +44,8 @@ import openlineageRouter from './src/routes/openlineage.js';
 import { walletRouter } from './src/routes/wallet';
 import { initializeOverlayServices } from './src/overlay';
 import { overlayRouter } from './src/routes/overlay';
+import { enhancedOverlayRouter } from './src/routes/overlay-brc';
+import { getPostgreSQLClient } from './src/db/postgresql';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,22 +77,47 @@ app.use(express.static(path.join(__dirname, 'ui/build')));
 // Modern PostgreSQL/Redis Hybrid Database
 initSchema().catch(console.error);
 
-// BSV Overlay Network Integration
+// BSV Overlay Network Integration with PostgreSQL Support
 let overlayServices = null;
 const overlayEnvironment = process.env.OVERLAY_ENV || 'development';
-if (process.env.OVERLAY_ENABLED === 'true') {
-  try {
-    // Note: In a hybrid PostgreSQL system, we'd need to adapt this
-    // For now, we'll initialize with a placeholder database connection
-    console.log(`[OVERLAY] Initializing BSV overlay services in ${overlayEnvironment} mode...`);
-    // overlayServices = await initializeOverlayServices(db, overlayEnvironment);
-    console.log('[OVERLAY] BSV overlay services would be initialized here');
-    console.log('[OVERLAY] Set OVERLAY_ENABLED=true and ensure wallet is connected to enable overlay integration');
-  } catch (error) {
-    console.warn('[OVERLAY] Failed to initialize overlay services:', error.message);
-    console.warn('[OVERLAY] Overlay features will be disabled. Check wallet connection and network settings.');
+
+async function initializeOverlayIntegration() {
+  if (process.env.OVERLAY_ENABLED === 'true') {
+    try {
+      console.log(`[OVERLAY] Initializing BSV overlay services in ${overlayEnvironment} mode...`);
+
+      // Get PostgreSQL client for overlay services
+      const pgClient = getPostgreSQLClient();
+      const pgPool = pgClient.getPool();
+
+      // Initialize overlay services with PostgreSQL
+      overlayServices = await initializeOverlayServices(
+        pgPool,
+        overlayEnvironment,
+        process.env.OVERLAY_DOMAIN || 'localhost:8788',
+        {
+          storageBasePath: process.env.OVERLAY_STORAGE_PATH || './data/uhrp-storage',
+          baseUrl: process.env.OVERLAY_BASE_URL || `http://localhost:${process.env.OVERLAY_PORT || 8788}`
+        }
+      );
+
+      console.log('[OVERLAY] BSV overlay services initialized successfully');
+      console.log('[OVERLAY] Services available: BRC-22, BRC-24, BRC-64, BRC-88, BRC-26 (UHRP File Storage)');
+      console.log('[OVERLAY] File storage endpoint: /overlay/files/store');
+      console.log('[OVERLAY] File download endpoint: /overlay/files/download/:hash');
+
+    } catch (error) {
+      console.warn('[OVERLAY] Failed to initialize overlay services:', error.message);
+      console.warn('[OVERLAY] Overlay features will be disabled. Check wallet connection and network settings.');
+      overlayServices = null;
+    }
+  } else {
+    console.log('[OVERLAY] Overlay integration disabled. Set OVERLAY_ENABLED=true to enable.');
   }
 }
+
+// Initialize overlay services asynchronously
+initializeOverlayIntegration().catch(console.error);
 
 // TODO: Migrate these initialization functions to work with PostgreSQL
 // For now, commenting out to get the hybrid system running
@@ -167,14 +194,28 @@ app.use('/openlineage', rateLimit('openlineage'), openlineageRouter);
 // BRC100 Wallet Integration API (/wallet/purchases, /wallet/balance, /assets/:id/status, /notifications/*)
 app.use(rateLimit('wallet'), walletRouter());
 
-// BSV Overlay Network API (/overlay/status, /overlay/publish, /overlay/search, etc.)
-const overlayRouterInstance = overlayRouter();
-app.use('/overlay', rateLimit('overlay'), overlayRouterInstance.router);
+// BSV Overlay Network API with Enhanced BRC Standards Support
+// Use enhanced router with file storage and all BRC services
+const enhancedOverlayRouterInstance = enhancedOverlayRouter();
+app.use('/overlay', rateLimit('overlay'), enhancedOverlayRouterInstance.router);
 
-// Connect overlay services to router when available
-if (overlayServices && overlayRouterInstance.setOverlayServices) {
-  overlayRouterInstance.setOverlayServices(overlayServices.overlayManager, overlayServices.paymentService);
-}
+// Also provide legacy overlay router for backward compatibility
+const legacyOverlayRouterInstance = overlayRouter();
+app.use('/overlay/legacy', rateLimit('overlay'), legacyOverlayRouterInstance.router);
+
+// Connect overlay services to routers when available
+setTimeout(() => {
+  if (overlayServices) {
+    if (enhancedOverlayRouterInstance.setOverlayServices) {
+      enhancedOverlayRouterInstance.setOverlayServices(overlayServices);
+      console.log('[OVERLAY] Enhanced BRC services connected to /overlay routes');
+    }
+    if (legacyOverlayRouterInstance.setOverlayServices) {
+      legacyOverlayRouterInstance.setOverlayServices(overlayServices.overlayManager, overlayServices.paymentService);
+      console.log('[OVERLAY] Legacy services connected to /overlay/legacy routes');
+    }
+  }
+}, 2000); // Wait 2 seconds for async initialization
 
 // D01 Builder route with rate limiting - Updated for D01A spec compliance
 app.use(rateLimit('submit'), submitDlm1Router());
@@ -275,7 +316,8 @@ app.get('*', (req, res, next) => {
       req.path.startsWith('/openlineage') ||
       req.path.startsWith('/wallet') ||
       req.path.startsWith('/assets') ||
-      req.path.startsWith('/notifications')) {
+      req.path.startsWith('/notifications') ||
+      req.path.startsWith('/overlay')) {
     return next();
   }
 
