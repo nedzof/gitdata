@@ -148,7 +148,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
       }
 
       const transaction = { rawTx, inputs, topics, mapiResponses };
-      const result = await overlayServices!.brc22Service.processSubmission(transaction);
+      const result = await overlayServices!.brc22Service!.processSubmission(transaction);
 
       res.json({
         success: true,
@@ -177,7 +177,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
         });
       }
 
-      const results = await overlayServices!.brc24Service.processLookup(provider, query);
+      const results = await overlayServices!.brc24Service!.processLookup(provider, query);
 
       res.json({
         success: true,
@@ -198,7 +198,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
   // Get available lookup providers
   router.get('/lookup/providers', requireOverlay, (req: Request, res: Response) => {
     try {
-      const providers = overlayServices!.brc24Service.getAvailableProviders();
+      const providers = overlayServices!.brc24Service!.getAvailableProviders();
       res.json({
         success: true,
         providers
@@ -218,7 +218,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
       const { utxoId } = req.params;
       const { topic, depth = 5, direction = 'both' } = req.query;
 
-      const history = await overlayServices!.brc64Service.queryHistory({
+      const history = await overlayServices!.brc64Service!.queryHistory({
         utxoId,
         topic: topic as string,
         depth: parseInt(depth as string),
@@ -245,7 +245,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
       const { utxoId } = req.params;
       const { topic, depth = 5 } = req.query;
 
-      const graph = await overlayServices!.brc64Service.generateLineageGraph(
+      const graph = await overlayServices!.brc64Service!.generateLineageGraph(
         utxoId,
         topic as string,
         parseInt(depth as string)
@@ -269,7 +269,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
 
   router.get('/services/ship', requireOverlay, async (req: Request, res: Response) => {
     try {
-      const advertisements = await overlayServices!.brc88Service.getSHIPAdvertisements();
+      const advertisements = await overlayServices!.brc88Service!.getSHIPAdvertisements();
       res.json({
         success: true,
         advertisements
@@ -284,7 +284,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
 
   router.get('/services/slap', requireOverlay, async (req: Request, res: Response) => {
     try {
-      const advertisements = await overlayServices!.brc88Service.getSLAPAdvertisements();
+      const advertisements = await overlayServices!.brc88Service!.getSLAPAdvertisements();
       res.json({
         success: true,
         advertisements
@@ -302,10 +302,10 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
       const { type, topicName, serviceId } = req.body;
 
       if (type === 'SHIP' && topicName) {
-        const ad = await overlayServices!.brc88Service.createSHIPAdvertisement(topicName);
+        const ad = await overlayServices!.brc88Service!.createSHIPAdvertisement(topicName);
         res.json({ success: true, type: 'SHIP', advertisement: ad });
       } else if (type === 'SLAP' && serviceId) {
-        const ad = await overlayServices!.brc88Service.createSLAPAdvertisement(serviceId);
+        const ad = await overlayServices!.brc88Service!.createSLAPAdvertisement(serviceId);
         res.json({ success: true, type: 'SLAP', advertisement: ad });
       } else {
         res.status(400).json({

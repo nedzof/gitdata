@@ -2,7 +2,7 @@
 // Implements standardized transaction submission with topic-based UTXO tracking
 
 import { EventEmitter } from 'events';
-import Database from 'better-sqlite3';
+import { DatabaseAdapter } from './brc26-uhrp';
 import { walletService } from '../../ui/src/lib/wallet';
 
 export interface BRC22Transaction {
@@ -47,52 +47,58 @@ export interface TopicManager {
 }
 
 class BRC22SubmitService extends EventEmitter {
-  private database: Database.Database;
+  private database: DatabaseAdapter;
   private topicManagers = new Map<string, TopicManager>();
   private trackedUTXOs = new Map<string, Set<string>>(); // topic -> set of "txid:vout"
 
-  constructor(database: Database.Database) {
+  constructor(database: DatabaseAdapter) {
     super();
     this.database = database;
-    this.setupDatabase();
+    this.initialize();
+  }
+
+  private async initialize(): Promise<void> {
+    await this.setupDatabase();
     this.setupDefaultTopicManagers();
   }
 
   /**
    * Set up database tables for BRC-22 UTXO tracking
    */
-  private setupDatabase(): void {
-    this.database.exec(`
+  private async setupDatabase(): Promise<void> {
+    await this.database.execute(`
       CREATE TABLE IF NOT EXISTS brc22_utxos (
-        utxo_id TEXT PRIMARY KEY, -- txid:vout format
+        id SERIAL PRIMARY KEY,
+        utxo_id TEXT UNIQUE NOT NULL, -- txid:vout format
         topic TEXT NOT NULL,
         txid TEXT NOT NULL,
         vout INTEGER NOT NULL,
         output_script TEXT NOT NULL,
-        satoshis INTEGER NOT NULL,
-        admitted_at INTEGER NOT NULL,
-        spent_at INTEGER,
+        satoshis BIGINT NOT NULL,
+        admitted_at BIGINT NOT NULL,
+        spent_at BIGINT,
         spent_by_txid TEXT,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(topic, txid, vout)
       )
     `);
 
-    this.database.exec(`
+    await this.database.execute(`
       CREATE TABLE IF NOT EXISTS brc22_transactions (
-        txid TEXT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
+        txid TEXT UNIQUE NOT NULL,
         raw_tx TEXT NOT NULL,
         topics_json TEXT NOT NULL,
         inputs_json TEXT,
         mapi_responses_json TEXT,
         proof TEXT,
-        processed_at INTEGER NOT NULL,
+        processed_at BIGINT NOT NULL,
         status TEXT DEFAULT 'success',
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    this.database.exec(`
+    await this.database.execute(`
       CREATE INDEX IF NOT EXISTS idx_brc22_utxos_topic ON brc22_utxos(topic);
       CREATE INDEX IF NOT EXISTS idx_brc22_utxos_spent ON brc22_utxos(spent_at);
       CREATE INDEX IF NOT EXISTS idx_brc22_utxos_txid_vout ON brc22_utxos(txid, vout);
