@@ -6,6 +6,11 @@ import { OverlayAgentRegistry, OverlayAgent, AgentSearchQuery } from '../agents/
 import { OverlayRuleEngine, OverlayRule, OverlayJob } from '../agents/overlay-rule-engine';
 import { AgentExecutionService, AgentExecution } from '../agents/agent-execution-service';
 import { rateLimit } from '../middleware/limits';
+import {
+  handleMarketPurchaseWithStreaming,
+  createStreamingSubscription,
+  deliverContentToWebhook
+} from '../services/streaming-delivery';
 
 export interface AgentMarketplaceRouter {
   router: Router;
@@ -657,6 +662,229 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
     }
   });
 
+  // ==================== Marketplace Purchase & Streaming ====================
+
+  /**
+   * POST /overlay/marketplace/purchase
+   * Purchase content from marketplace with webhook streaming delivery
+   */
+  router.post('/marketplace/purchase', requireServices, rateLimit('marketplace-purchase'), async (req: Request, res: Response) => {
+    try {
+      const {
+        offerId,
+        versionId,
+        contentHash,
+        agentId,
+        webhookUrl,
+        paymentProof,
+        streamingOptions = {}
+      } = req.body;
+
+      // Validate required fields
+      if (!offerId || !versionId || !agentId) {
+        return res.status(400).json({
+          error: 'invalid-purchase-request',
+          message: 'offerId, versionId, and agentId are required'
+        });
+      }
+
+      // Validate webhook URL if streaming is requested
+      if (webhookUrl) {
+        try {
+          new URL(webhookUrl);
+        } catch {
+          return res.status(400).json({
+            error: 'invalid-webhook-url',
+            message: 'webhookUrl must be a valid HTTP/HTTPS URL'
+          });
+        }
+      }
+
+      // Generate receipt ID for the purchase
+      const receiptId = `receipt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      console.log(`🛒 [MARKETPLACE] Processing purchase: ${offerId} for agent ${agentId}`);
+
+      // If webhook URL provided, set up streaming delivery
+      if (webhookUrl) {
+        console.log(`📡 [MARKETPLACE] Setting up streaming delivery to ${webhookUrl}`);
+
+        try {
+          await handleMarketPurchaseWithStreaming(
+            receiptId,
+            versionId,
+            webhookUrl,
+            agentId
+          );
+
+          res.json({
+            success: true,
+            receiptId,
+            offerId,
+            versionId,
+            agentId,
+            streamingEnabled: true,
+            webhookUrl,
+            message: 'Purchase completed with streaming delivery initiated',
+            deliveryMethod: 'webhook-streaming'
+          });
+
+        } catch (streamingError) {
+          console.error('[MARKETPLACE] Streaming setup failed:', streamingError);
+
+          // Return success but note streaming failure
+          res.json({
+            success: true,
+            receiptId,
+            offerId,
+            versionId,
+            agentId,
+            streamingEnabled: false,
+            streamingError: streamingError.message,
+            message: 'Purchase completed but streaming delivery failed',
+            deliveryMethod: 'direct-download'
+          });
+        }
+      } else {
+        // Regular purchase without streaming
+        res.json({
+          success: true,
+          receiptId,
+          offerId,
+          versionId,
+          agentId,
+          streamingEnabled: false,
+          message: 'Purchase completed - content available for direct download',
+          deliveryMethod: 'direct-download'
+        });
+      }
+
+    } catch (error) {
+      console.error('[MARKETPLACE] Purchase failed:', error);
+      res.status(500).json({
+        error: 'purchase-failed',
+        message: error.message
+      });
+    }
+  });
+
+  /**
+   * POST /overlay/marketplace/streaming/setup
+   * Set up streaming subscription for purchased content
+   */
+  router.post('/marketplace/streaming/setup', requireServices, rateLimit('streaming-setup'), async (req: Request, res: Response) => {
+    try {
+      const {
+        receiptId,
+        webhookUrl,
+        contentHash,
+        agentId,
+        deliveryConfig = {}
+      } = req.body;
+
+      if (!receiptId || !webhookUrl || !contentHash || !agentId) {
+        return res.status(400).json({
+          error: 'invalid-streaming-request',
+          message: 'receiptId, webhookUrl, contentHash, and agentId are required'
+        });
+      }
+
+      // Validate webhook URL
+      try {
+        new URL(webhookUrl);
+      } catch {
+        return res.status(400).json({
+          error: 'invalid-webhook-url',
+          message: 'webhookUrl must be a valid HTTP/HTTPS URL'
+        });
+      }
+
+      console.log(`📡 [MARKETPLACE] Setting up streaming subscription for receipt ${receiptId}`);
+
+      const sessionId = await createStreamingSubscription(
+        receiptId,
+        webhookUrl,
+        contentHash,
+        agentId
+      );
+
+      res.json({
+        success: true,
+        receiptId,
+        sessionId,
+        agentId,
+        webhookUrl,
+        contentHash,
+        deliveryConfig,
+        message: 'Streaming subscription created successfully'
+      });
+
+    } catch (error) {
+      console.error('[MARKETPLACE] Streaming setup failed:', error);
+      res.status(500).json({
+        error: 'streaming-setup-failed',
+        message: error.message
+      });
+    }
+  });
+
+  /**
+   * POST /overlay/marketplace/content/deliver
+   * Manually trigger content delivery via webhook
+   */
+  router.post('/marketplace/content/deliver', requireServices, rateLimit('content-delivery'), async (req: Request, res: Response) => {
+    try {
+      const {
+        receiptId,
+        webhookUrl,
+        contentHash,
+        agentId,
+        contentData,
+        deliveryConfig = {}
+      } = req.body;
+
+      if (!receiptId || !webhookUrl || !contentHash || !agentId || !contentData) {
+        return res.status(400).json({
+          error: 'invalid-delivery-request',
+          message: 'receiptId, webhookUrl, contentHash, agentId, and contentData are required'
+        });
+      }
+
+      console.log(`🚚 [MARKETPLACE] Delivering content to ${webhookUrl} for receipt ${receiptId}`);
+
+      const subscription = {
+        receiptId,
+        webhookUrl,
+        agentId,
+        contentHash,
+        deliveryConfig
+      };
+
+      const deliveryResult = await deliverContentToWebhook(subscription, contentData);
+
+      res.json({
+        success: deliveryResult.success,
+        receiptId,
+        agentId,
+        webhookUrl,
+        bytesDelivered: deliveryResult.bytesDelivered,
+        deliveryTime: deliveryResult.deliveryTime,
+        hostUsed: deliveryResult.hostUsed,
+        error: deliveryResult.error,
+        message: deliveryResult.success
+          ? 'Content delivered successfully via webhook'
+          : 'Content delivery failed'
+      });
+
+    } catch (error) {
+      console.error('[MARKETPLACE] Content delivery failed:', error);
+      res.status(500).json({
+        error: 'content-delivery-failed',
+        message: error.message
+      });
+    }
+  });
+
   return {
     router,
     setServices
@@ -672,5 +900,8 @@ const rateLimitConfigs = {
   'rule-create': { maxRequests: 10, windowMs: 60000 }, // 10 rule creations per minute
   'rule-trigger': { maxRequests: 20, windowMs: 60000 }, // 20 rule triggers per minute
   'evidence-store': { maxRequests: 100, windowMs: 60000 }, // 100 evidence submissions per minute
-  'agent-coordinate': { maxRequests: 5, windowMs: 60000 } // 5 coordinations per minute
+  'agent-coordinate': { maxRequests: 5, windowMs: 60000 }, // 5 coordinations per minute
+  'marketplace-purchase': { maxRequests: 20, windowMs: 60000 }, // 20 purchases per minute
+  'streaming-setup': { maxRequests: 10, windowMs: 60000 }, // 10 streaming setups per minute
+  'content-delivery': { maxRequests: 50, windowMs: 60000 } // 50 content deliveries per minute
 };
