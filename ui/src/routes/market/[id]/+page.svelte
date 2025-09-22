@@ -215,6 +215,17 @@
 			return dateString;
 		}
 	}
+
+	// Handle purchase functionality
+	function handlePurchase(asset) {
+		console.log('Purchase initiated for asset:', asset);
+		// TODO: Implement actual purchase logic
+		// This could involve:
+		// 1. Opening payment modal
+		// 2. Processing payment
+		// 3. Granting access to asset
+		alert(`Purchase initiated for ${asset.title || asset.datasetId}${asset.pricePerKB ? ` - $${asset.pricePerKB.toFixed(3)}/KB` : ' (Free)'}`);
+	}
 </script>
 
 <svelte:head>
@@ -238,11 +249,19 @@
 			<a href="/market" class="back-link">← Back to Market</a>
 			<div class="title-section">
 				<h1>{asset.title || 'Untitled Asset'}</h1>
-				{#if policyCompliance}
-					<div class="compliance-badge">
-						{policyCompliance.compliantPolicies}/{policyCompliance.totalPolicies} Policies Compliant
-					</div>
-				{/if}
+				<div class="title-badges">
+					{#if policyCompliance}
+						<div class="compliance-badge">
+							{policyCompliance.compliantPolicies}/{policyCompliance.totalPolicies} Policies Compliant
+						</div>
+					{/if}
+					<button
+						class="buy-btn-detail"
+						on:click={() => handlePurchase(asset)}
+					>
+						{asset.pricePerKB ? `💳 Buy - $${asset.pricePerKB.toFixed(3)}/KB` : '💾 Get Free'}
+					</button>
+				</div>
 			</div>
 			{#if asset.description}
 				<p class="description">{asset.description}</p>
@@ -413,9 +432,17 @@
 
 	.title-section {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
+		justify-content: space-between;
 		gap: 1rem;
 		margin-bottom: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.title-badges {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
 		flex-wrap: wrap;
 	}
 
@@ -435,6 +462,29 @@
 		background: rgba(56, 139, 253, 0.15);
 		color: #58a6ff;
 		border: 1px solid #58a6ff;
+	}
+
+	.buy-btn-detail {
+		background: #238636;
+		border: 1px solid #238636;
+		color: #ffffff;
+		padding: 0.75rem 1.5rem;
+		border-radius: 1.5rem;
+		font-size: 0.9rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		white-space: nowrap;
+	}
+
+	.buy-btn-detail:hover {
+		background: #2ea043;
+		border-color: #2ea043;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(35, 134, 54, 0.3);
 	}
 
 	.description {
@@ -699,6 +749,16 @@
 			flex-direction: column;
 			align-items: flex-start;
 			gap: 0.75rem;
+		}
+
+		.title-badges {
+			width: 100%;
+			justify-content: flex-start;
+		}
+
+		.buy-btn-detail {
+			font-size: 0.85rem;
+			padding: 0.6rem 1.2rem;
 		}
 
 		.policy-columns {

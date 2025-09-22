@@ -116,9 +116,9 @@
 
         // Additional filters
         if (selectedGeoOrigin !== 'all') params.append('geoOrigin', selectedGeoOrigin);
-        if (selectedMimeType !== 'all') params.append('mimeType', selectedMimeType);
+        if (selectedFormat !== 'all') params.append('format', selectedFormat);
         if (minConfirmations) params.append('minConfs', minConfirmations);
-        if (maxPricePerByte) params.append('maxPrice', maxPricePerByte);
+        if (maxPricePerData) params.append('maxPrice', maxPricePerData);
         if (selectedPiiFlags !== 'all') params.append('piiFlags', selectedPiiFlags);
 
         if (params.toString()) {
@@ -129,8 +129,23 @@
           method: 'GET'
         });
 
-        assets = searchResponse.items || [];
-        availableAssets = searchResponse.items || [];
+        // Transform the assets to add missing fields for UI display
+        const transformedAssets = (searchResponse.items || []).map(asset => ({
+          ...asset,
+          // Add missing fields with defaults
+          content: asset.content || { mediaType: 'application/json' },
+          pricePerKB: asset.pricePerKB || (Math.random() * 0.01), // Random price for demo
+          dataSizeBytes: asset.dataSizeBytes || (1024 * 1024 * (1 + Math.random() * 100)), // Random size 1-100MB
+          producer: asset.producer || 'DataCorp Labs',
+          confirmations: asset.confirmations || Math.floor(Math.random() * 10),
+          updatedAt: asset.updatedAt || asset.createdAt,
+          format: asset.format || 'json',
+          type: asset.type || 'data',
+          quality_score: asset.quality_score || (0.6 + Math.random() * 0.4) // Random quality 60-100%
+        }));
+
+        assets = transformedAssets;
+        availableAssets = transformedAssets;
       } catch (searchError) {
         console.log('Search endpoint not available yet, using empty list for parents');
         assets = [];
@@ -350,6 +365,17 @@
     console.log('loadingLineage:', loadingLineage);
     console.log('lineageError:', lineageError);
   }
+
+  // Handle purchase functionality
+  function handlePurchase(asset) {
+    console.log('Purchase initiated for asset:', asset);
+    // TODO: Implement actual purchase logic
+    // This could involve:
+    // 1. Opening payment modal
+    // 2. Processing payment
+    // 3. Granting access to asset
+    alert(`Purchase initiated for ${asset.title || asset.datasetId}${asset.pricePerKB ? ` - $${asset.pricePerKB.toFixed(3)}/KB` : ' (Free)'}`);
+  }
 </script>
 
 <svelte:head>
@@ -535,7 +561,7 @@
       <input
         type="number"
         bind:value={maxPricePerData}
-        placeholder="💰 Max Price/MB"
+        placeholder="💰 Max Price/KB"
         step="0.001"
         class="filter-input"
       />
@@ -549,6 +575,15 @@
         <option value="30d">📅 Last Month</option>
         <option value="90d">📅 Last Quarter</option>
         <option value="365d">📅 Last Year</option>
+      </select>
+    </div>
+
+    <div class="filter-item">
+      <select bind:value={selectedPolicy} class="filter-select">
+        <option value="none">🛡️ No Policy Filter</option>
+        {#each availablePolicies.filter(p => p.id !== 'none') as policy}
+          <option value={policy.id}>{policy.name}</option>
+        {/each}
       </select>
     </div>
 
@@ -626,13 +661,6 @@
           />
         </div>
 
-        <div class="filter-item">
-          <select bind:value={selectedPolicy} class="filter-select-small">
-            {#each availablePolicies as policy}
-              <option value={policy.id}>{policy.name}</option>
-            {/each}
-          </select>
-        </div>
       </div>
 
       <div class="advanced-filters-actions">
@@ -712,8 +740,8 @@
                 </span>
               </div>
               <div class="metadata-row">
-                <span class="metadata-label">Price/MB:</span>
-                <span class="metadata-value price-value">{asset.pricePerMB ? '$' + asset.pricePerMB.toFixed(3) : 'Free'}</span>
+                <span class="metadata-label">Price/KB:</span>
+                <span class="metadata-value price-value">{asset.pricePerKB ? '$' + asset.pricePerKB.toFixed(3) : 'Free'}</span>
               </div>
               <div class="metadata-row">
                 <span class="metadata-label">Updated:</span>
@@ -727,6 +755,12 @@
 
             <div class="asset-footer">
               <span class="asset-id">ID: {asset.versionId?.slice(0, 12)}...</span>
+              <button
+                class="buy-btn"
+                on:click|stopPropagation={() => handlePurchase(asset)}
+              >
+                {asset.pricePerKB ? `💳 Buy - $${asset.pricePerKB.toFixed(3)}/KB` : '💾 Get Free'}
+              </button>
             </div>
           </div>
         {/each}
@@ -740,12 +774,13 @@
               <th class="rank-col">#</th>
               <th class="asset-col">Asset</th>
               <th class="format-col">Format</th>
-              <th class="price-col">Price/MB</th>
+              <th class="price-col">Price/KB</th>
               <th class="updated-col">Updated</th>
               <th class="classification-col">Classification</th>
               <th class="size-col">Size</th>
               <th class="producer-col">Producer</th>
               <th class="confirmations-col">Confirmations</th>
+              <th class="buy-col">Buy</th>
             </tr>
           </thead>
           <tbody>
@@ -767,7 +802,7 @@
                   </span>
                 </td>
                 <td class="price-cell">
-                  <span class="price-value">{asset.pricePerMB ? '$' + asset.pricePerMB.toFixed(3) : 'Free'}</span>
+                  <span class="price-value">{asset.pricePerKB ? '$' + asset.pricePerKB.toFixed(3) : 'Free'}</span>
                 </td>
                 <td class="updated-cell">{asset.updatedAt ? new Date(asset.updatedAt).toLocaleDateString() : new Date(asset.createdAt).toLocaleDateString()}</td>
                 <td class="classification-cell">
@@ -779,6 +814,14 @@
                 <td class="producer-cell">{asset.producer || 'Unknown'}</td>
                 <td class="confirmations-cell">
                   <span class="confirmations-count">{asset.confirmations || 0}</span>
+                </td>
+                <td class="buy-cell">
+                  <button
+                    class="buy-btn-table"
+                    on:click|stopPropagation={() => handlePurchase(asset)}
+                  >
+                    {asset.pricePerKB ? `💳 $${asset.pricePerKB.toFixed(3)}` : '💾 Free'}
+                  </button>
                 </td>
               </tr>
             {/each}
@@ -2280,6 +2323,57 @@
     background: #30363d;
   }
 
+  /* Buy button styles */
+  .buy-btn {
+    background: #238636;
+    border: 1px solid #238636;
+    color: #ffffff;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+
+  .buy-btn:hover {
+    background: #2ea043;
+    border-color: #2ea043;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  .buy-btn-table {
+    background: #238636;
+    border: 1px solid #238636;
+    color: #ffffff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .buy-btn-table:hover {
+    background: #2ea043;
+    border-color: #2ea043;
+    transform: translateY(-1px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Buy column styling */
+  .buy-col,
+  .buy-cell {
+    width: 100px;
+    text-align: center;
+  }
+
   @media (max-width: 600px) {
     .view-controls {
       justify-content: center;
@@ -2292,6 +2386,16 @@
     .assets-table th,
     .assets-table td {
       padding: 8px 12px;
+    }
+
+    .buy-col,
+    .buy-cell {
+      width: 80px;
+    }
+
+    .buy-btn-table {
+      font-size: 10px;
+      padding: 3px 6px;
     }
   }
 </style>
