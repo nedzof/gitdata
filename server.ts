@@ -45,6 +45,9 @@ import { d06PaymentProcessingRouter } from './src/routes/d06-payment-processing'
 import { d06AgentPaymentsRouter } from './src/routes/d06-agent-payments';
 import { d06RevenueManagementRouter } from './src/routes/d06-revenue-management';
 
+// D07: BSV Overlay Network Data Streaming & Quota Management
+import d07StreamingQuotasRouter from './src/routes/d07-streaming-quotas';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -137,6 +140,7 @@ app.use('/listings', metricsRoute('listings'));
 app.use('/payments', metricsRoute('payments'));
 app.use('/v1/payments', metricsRoute('d06-payments'));
 app.use('/v1/revenue', metricsRoute('d06-revenue'));
+app.use('/v1/streaming', metricsRoute('d07-streaming'));
 app.use('/api/models', metricsRoute('models'));
 app.use('/policies', metricsRoute('policies'));
 app.use('/openlineage', metricsRoute('openlineage'));
@@ -165,6 +169,9 @@ const pgPool = pgClient.getPool();
 app.use('/v1/payments/agents', rateLimit('payments'), d06AgentPaymentsRouter(pgPool));
 app.use('/v1/payments', rateLimit('payments'), d06PaymentProcessingRouter(pgPool));
 app.use('/v1/revenue', rateLimit('payments'), d06RevenueManagementRouter(pgPool));
+
+// D07: BSV Overlay Network Data Streaming & Quota Management
+app.use('/v1/streaming', rateLimit('streaming'), d07StreamingQuotasRouter);
 
 // D24: Agent marketplace is now handled via overlay network through /overlay routes
 app.use('/templates', enforceResourceLimits(), templatesRouter());
