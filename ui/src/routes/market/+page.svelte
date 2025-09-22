@@ -151,6 +151,55 @@
     return assets;
   }
 
+  function getFormatDisplay(mediaType) {
+    if (!mediaType || mediaType === 'unknown') return { name: 'N/A', icon: '❓', type: 'unknown' };
+
+    const formatMap = {
+      // Static Data
+      'application/json': { name: 'JSON', icon: '📋', type: 'static' },
+      'text/csv': { name: 'CSV', icon: '📊', type: 'static' },
+      'application/parquet': { name: 'Parquet', icon: '🗃️', type: 'static' },
+      'application/avro': { name: 'Avro', icon: '⚡', type: 'static' },
+      'application/orc': { name: 'ORC', icon: '🏛️', type: 'static' },
+      'text/plain': { name: 'Text', icon: '📝', type: 'static' },
+
+      // Streaming Data
+      'application/x-ndjson': { name: 'NDJSON Stream', icon: '📡', type: 'stream' },
+      'text/event-stream': { name: 'SSE Stream', icon: '⚡', type: 'stream' },
+      'application/x-kafka': { name: 'Kafka', icon: '🔄', type: 'stream' },
+      'application/x-kinesis': { name: 'Kinesis', icon: '🌊', type: 'stream' },
+      'application/x-pulsar': { name: 'Pulsar', icon: '💫', type: 'stream' },
+      'application/x-mqtt': { name: 'MQTT', icon: '📱', type: 'stream' },
+      'application/x-websocket': { name: 'WebSocket', icon: '🔌', type: 'stream' },
+
+      // Real-time Data
+      'application/x-changefeed': { name: 'Change Feed', icon: '📈', type: 'realtime' },
+      'application/x-timeseries': { name: 'Time Series', icon: '⏱️', type: 'realtime' },
+      'application/x-eventlog': { name: 'Event Log', icon: '📝', type: 'realtime' },
+      'application/x-metrics': { name: 'Metrics', icon: '📊', type: 'realtime' },
+      'application/x-logs': { name: 'Logs', icon: '🪵', type: 'realtime' },
+
+      // Media & Documents
+      'image/jpeg': { name: 'JPEG', icon: '🖼️', type: 'media' },
+      'image/png': { name: 'PNG', icon: '🎨', type: 'media' },
+      'video/mp4': { name: 'MP4', icon: '🎬', type: 'media' },
+      'audio/mpeg': { name: 'MP3', icon: '🎵', type: 'media' },
+      'application/pdf': { name: 'PDF', icon: '📑', type: 'media' }
+    };
+
+    if (formatMap[mediaType]) {
+      return formatMap[mediaType];
+    }
+
+    // Fallback for unknown types
+    const parts = mediaType.split('/');
+    return {
+      name: parts[1]?.toUpperCase() || 'Unknown',
+      icon: '📄',
+      type: 'unknown'
+    };
+  }
+
   // Reactive statement to reload assets when filters change
   $: if (searchQuery !== undefined || selectedFormat !== undefined || maxPricePerData !== undefined || updatedSince !== undefined || selectedType !== undefined || selectedClassification !== undefined || selectedLicense !== undefined || selectedProducer !== undefined || selectedPolicy !== undefined || selectedGeoOrigin !== undefined || minConfirmations !== undefined || selectedPiiFlags !== undefined) {
     loadAssets();
@@ -448,13 +497,37 @@
     <div class="filter-item">
       <select bind:value={selectedFormat} class="filter-select">
         <option value="all">📄 All Formats</option>
-        <option value="application/json">📋 JSON</option>
-        <option value="text/csv">📊 CSV</option>
-        <option value="application/parquet">🗃️ Parquet</option>
-        <option value="text/plain">📝 Text</option>
-        <option value="image/jpeg">🖼️ JPEG</option>
-        <option value="image/png">🎨 PNG</option>
-        <option value="application/pdf">📑 PDF</option>
+        <optgroup label="📊 Static Data">
+          <option value="application/json">📋 JSON</option>
+          <option value="text/csv">📊 CSV</option>
+          <option value="application/parquet">🗃️ Parquet</option>
+          <option value="application/avro">⚡ Avro</option>
+          <option value="application/orc">🏛️ ORC</option>
+          <option value="text/plain">📝 Text</option>
+        </optgroup>
+        <optgroup label="🌊 Streaming Data">
+          <option value="application/x-ndjson">📡 NDJSON Stream</option>
+          <option value="text/event-stream">⚡ Server-Sent Events</option>
+          <option value="application/x-kafka">🔄 Kafka Stream</option>
+          <option value="application/x-kinesis">🌊 Kinesis Stream</option>
+          <option value="application/x-pulsar">💫 Pulsar Stream</option>
+          <option value="application/x-mqtt">📱 MQTT Stream</option>
+          <option value="application/x-websocket">🔌 WebSocket Stream</option>
+        </optgroup>
+        <optgroup label="🔥 Real-time Data">
+          <option value="application/x-changefeed">📈 Change Feed</option>
+          <option value="application/x-timeseries">⏱️ Time Series</option>
+          <option value="application/x-eventlog">📝 Event Log</option>
+          <option value="application/x-metrics">📊 Metrics Stream</option>
+          <option value="application/x-logs">🪵 Log Stream</option>
+        </optgroup>
+        <optgroup label="🖼️ Media & Documents">
+          <option value="image/jpeg">🖼️ JPEG</option>
+          <option value="image/png">🎨 PNG</option>
+          <option value="video/mp4">🎬 MP4 Video</option>
+          <option value="audio/mpeg">🎵 MP3 Audio</option>
+          <option value="application/pdf">📑 PDF</option>
+        </optgroup>
       </select>
     </div>
 
@@ -634,7 +707,9 @@
             <div class="asset-metadata">
               <div class="metadata-row">
                 <span class="metadata-label">Format:</span>
-                <span class="metadata-value format-badge">{(asset.content?.mediaType || 'unknown').split('/')[1]?.toUpperCase() || 'N/A'}</span>
+                <span class="metadata-value format-badge format-{getFormatDisplay(asset.content?.mediaType).type}">
+                  {getFormatDisplay(asset.content?.mediaType).icon} {getFormatDisplay(asset.content?.mediaType).name}
+                </span>
               </div>
               <div class="metadata-row">
                 <span class="metadata-label">Price/MB:</span>
@@ -687,7 +762,9 @@
                   </div>
                 </td>
                 <td class="format-cell">
-                  <span class="format-badge">{(asset.content?.mediaType || 'unknown').split('/')[1]?.toUpperCase() || 'N/A'}</span>
+                  <span class="format-badge format-{getFormatDisplay(asset.content?.mediaType).type}">
+                    {getFormatDisplay(asset.content?.mediaType).icon} {getFormatDisplay(asset.content?.mediaType).name}
+                  </span>
                 </td>
                 <td class="price-cell">
                   <span class="price-value">{asset.pricePerMB ? '$' + asset.pricePerMB.toFixed(3) : 'Free'}</span>
@@ -2112,12 +2189,46 @@
   }
 
   .format-badge {
-    background: #6f42c1;
     color: #ffffff;
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 11px;
     font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* Format type specific colors */
+  .format-static {
+    background: #6f42c1; /* Purple for static data */
+  }
+
+  .format-stream {
+    background: #1f6feb; /* Blue for streaming data */
+    animation: pulse-stream 2s infinite;
+  }
+
+  .format-realtime {
+    background: #da3633; /* Red for real-time data */
+    animation: pulse-realtime 1.5s infinite;
+  }
+
+  .format-media {
+    background: #238636; /* Green for media files */
+  }
+
+  .format-unknown {
+    background: #656d76; /* Gray for unknown formats */
+  }
+
+  /* Subtle animations for streaming and real-time data */
+  @keyframes pulse-stream {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  @keyframes pulse-realtime {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
   }
 
   /* Responsive Table */
@@ -2148,6 +2259,25 @@
     .advanced-filters-grid {
       grid-template-columns: 1fr;
     }
+  }
+
+  /* Format filter optgroup styling */
+  .filter-select optgroup {
+    background: #21262d;
+    color: #8b949e;
+    font-weight: 600;
+    font-style: normal;
+    padding: 4px 0;
+  }
+
+  .filter-select option {
+    background: #0d1117;
+    color: #e6edf3;
+    padding: 8px 12px;
+  }
+
+  .filter-select option:hover {
+    background: #30363d;
   }
 
   @media (max-width: 600px) {
