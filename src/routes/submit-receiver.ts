@@ -13,6 +13,7 @@ import { ingestSubmission } from '../services/ingest';
 import { metricsRoute } from '../middleware/metrics';
 import { incAdmissions } from '../metrics/registry';
 import { ingestOpenLineageEvent } from '../db/index.js';
+import { requireIdentity } from '../middleware/identity';
 
 // This new factory function connects directly to the database
 // instead of a generic 'repo'.
@@ -37,7 +38,7 @@ export function submitReceiverRouter(db: Database.Database, opts: {
     return res.status(code).json({ error, hint });
   }
 
-  router.post('/submit', async (req: Request, res: Response) => {
+  router.post('/submit', requireIdentity(true), async (req: Request & { identityKey?: string }, res: Response) => {
     try {
       // Your existing request validation logic is preserved
       if (!req.is('application/json')) {

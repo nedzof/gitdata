@@ -25,8 +25,9 @@ export function generateBRC31Headers(privateKeyHex: string, body: string | Buffe
   const publicKey = derivePublicKey(privateKey);
   const nonce = crypto.randomBytes(16).toString('hex');
 
-  // Message to sign: nonce + body
-  const message = nonce + (typeof body === 'string' ? body : body.toString());
+  // Message to sign: body + nonce (matches middleware expectation)
+  const bodyStr = typeof body === 'string' ? body : body.toString();
+  const message = bodyStr + nonce;
   const messageHash = crypto.createHash('sha256').update(message, 'utf8').digest();
 
   // Sign with ECDSA
@@ -64,8 +65,9 @@ export function verifyBRC31Signature(
   }
 
   try {
-    // Reconstruct message
-    const message = nonce + (typeof body === 'string' ? body : body.toString());
+    // Reconstruct message: body + nonce (matches middleware expectation)
+    const bodyStr = typeof body === 'string' ? body : body.toString();
+    const message = bodyStr + nonce;
     const messageHash = crypto.createHash('sha256').update(message, 'utf8').digest();
 
     // Verify signature

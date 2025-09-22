@@ -13,31 +13,22 @@ import { payRouter } from './src/routes/pay';
 import { dataRouter } from './src/routes/data';
 import { producersRouter } from './src/routes/producers';
 import { advisoriesRouter } from './src/routes/advisories';
-import { agentsRouter } from './src/routes/agents';
-import { rulesRouter } from './src/routes/rules';
-import { jobsRouter } from './src/routes/jobs';
 import { templatesRouter } from './src/routes/templates';
 import { createArtifactRoutes } from './src/agents/dlm1-publisher';
 import { artifactsRouter } from './src/routes/artifacts';
 import { catalogRouter } from './src/routes/catalog';
 import { producersRegisterRouter } from './src/routes/producers-register';
-import { createJobProcessor } from './src/worker/job-processor';
 import { opsRouter } from './src/routes/metrics';
 import { auditLogger } from './src/middleware/audit';
 import { rateLimit } from './src/middleware/limits';
 import { metricsRoute } from './src/middleware/metrics';
 import {
-  enforceAgentRegistrationPolicy,
-  enforceRuleConcurrency,
-  enforceJobCreationPolicy,
-  enforceResourceLimits,
-  enforceAgentSecurityPolicy
+  enforceResourceLimits
 } from './src/middleware/policy';
 import { runPaymentsMigrations, paymentsRouter, reconcilePayments } from './src/payments';
 import { storageRouter } from './src/routes/storage';
 import { createStorageEventsMigration } from './src/storage/lifecycle';
 import { runIngestMigrations, ingestRouter, startIngestWorker } from './src/ingest';
-import { startJobsWorker } from './src/agents/worker';
 import { runModelsMigrations, modelsRouter } from './src/models/scaffold';
 import { runPolicyMigrations, policiesRouter } from './src/policies';
 import openlineageRouter from './src/routes/openlineage.js';
@@ -45,7 +36,9 @@ import { walletRouter } from './src/routes/wallet';
 import { initializeOverlayServices } from './src/overlay';
 import { overlayRouter } from './src/routes/overlay';
 import { enhancedOverlayRouter } from './src/routes/overlay-brc';
+import { agentMarketplaceRouter } from './src/routes/agent-marketplace';
 import { getPostgreSQLClient } from './src/db/postgresql';
+import identityRouter, { initializeIdentityRoutes } from './src/routes/identity';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -136,9 +129,6 @@ app.use('/pay', metricsRoute('pay'));
 app.use('/advisories', metricsRoute('advisories'));
 app.use('/producers', metricsRoute('producers'));
 app.use('/listings', metricsRoute('listings'));
-app.use('/agents', metricsRoute('agents'));
-app.use('/rules', metricsRoute('rules'));
-app.use('/jobs', metricsRoute('jobs'));
 app.use('/payments', metricsRoute('payments'));
 app.use('/api/models', metricsRoute('models'));
 app.use('/policies', metricsRoute('policies'));
@@ -156,14 +146,14 @@ app.use('/listings', rateLimit('submit'), listingsRouter());
 app.use(rateLimit('submit'), producersRouter());
 app.use(rateLimit('submit'), advisoriesRouter());
 
-// TODO: Update these routes to use hybrid database
 // D19: Identity-signed producer registration
-// app.use(producersRegisterRouter());
+app.use(producersRegisterRouter());
 
-// D16: A2A Agent marketplace routes with policy enforcement (updated for hybrid)
-app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(), agentsRouter());
-app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(), enforceJobCreationPolicy(), rulesRouter());
-app.use('/jobs', jobsRouter());
+// D19: BRC-31 Identity Management with BRC-100 Wallet Integration
+const pgClient = getPostgreSQLClient();
+app.use('/identity', rateLimit('identity'), initializeIdentityRoutes(pgClient));
+
+// D24: Agent marketplace is now handled via overlay network through /overlay routes
 app.use('/templates', enforceResourceLimits(), templatesRouter());
 app.use('/artifacts', enforceResourceLimits(), artifactsRouter());
 
@@ -199,6 +189,10 @@ app.use(rateLimit('wallet'), walletRouter());
 const enhancedOverlayRouterInstance = enhancedOverlayRouter();
 app.use('/overlay', rateLimit('overlay'), enhancedOverlayRouterInstance.router);
 
+// D24 Agent Marketplace API
+const agentMarketplaceRouterInstance = agentMarketplaceRouter();
+app.use('/overlay', rateLimit('overlay'), agentMarketplaceRouterInstance.router);
+
 // Also provide legacy overlay router for backward compatibility
 const legacyOverlayRouterInstance = overlayRouter();
 app.use('/overlay/legacy', rateLimit('overlay'), legacyOverlayRouterInstance.router);
@@ -209,6 +203,14 @@ setTimeout(() => {
     if (enhancedOverlayRouterInstance.setOverlayServices) {
       enhancedOverlayRouterInstance.setOverlayServices(overlayServices);
       console.log('[OVERLAY] Enhanced BRC services connected to /overlay routes');
+    }
+    if (agentMarketplaceRouterInstance.setServices) {
+      agentMarketplaceRouterInstance.setServices({
+        agentRegistry: overlayServices.agentRegistry,
+        ruleEngine: overlayServices.ruleEngine,
+        executionService: overlayServices.executionService
+      });
+      console.log('[OVERLAY] D24 Agent Marketplace services connected to /overlay routes');
     }
     if (legacyOverlayRouterInstance.setOverlayServices) {
       legacyOverlayRouterInstance.setOverlayServices(overlayServices.overlayManager, overlayServices.paymentService);
@@ -230,25 +232,12 @@ app.use(rateLimit('submit'), submitDlm1Router());
 //   })
 // );
 
-// TODO: Update worker initialization to use hybrid database
-// D16: Initialize A2A job processor if enabled
-// let jobProcessor;
-// if (process.env.A2A_WORKER_ENABLED === 'true') {
-//   try {
-//     jobProcessor = createJobProcessor(db);
-//     jobProcessor.start();
-//     console.log('[A2A] Job processor started');
-//   } catch (error) {
-//     console.warn('[A2A] Job processor could not start:', error);
-//     console.warn('[A2A] Set AGENT_CALL_PRIVKEY environment variable to enable A2A worker');
-//   }
-// }
+// D24: Agent job processing is now handled via overlay network services
 
 // D23: Start ingest worker for real-time event processing
 // const stopIngestWorker = startIngestWorker();
 
-// D24: Start jobs worker for agent marketplace automation
-// const stopJobsWorker = startJobsWorker(db);
+// D24: Agent marketplace automation is now handled via overlay network
 
 // TODO: Update payments reconciliation to use hybrid database
 // D21: Initialize payments reconciliation job
@@ -264,21 +253,13 @@ app.use(rateLimit('submit'), submitDlm1Router());
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('Shutting down...');
-  // if (jobProcessor) {
-  //   jobProcessor.stop();
-  // }
-  // stopIngestWorker();
-  // stopJobsWorker();
+  // Overlay services cleanup handled by overlay manager
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('Shutting down...');
-  // if (jobProcessor) {
-  //   jobProcessor.stop();
-  // }
-  // stopIngestWorker();
-  // stopJobsWorker();
+  // Overlay services cleanup handled by overlay manager
   process.exit(0);
 });
 
@@ -331,7 +312,7 @@ app.listen(PORT, () => {
   console.log(`Overlay listening on :${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
   console.log(`Metrics endpoint: http://localhost:${PORT}/metrics`);
-  if (process.env.A2A_WORKER_ENABLED === 'true') {
-    console.log(`A2A APIs: http://localhost:${PORT}/agents, /rules, /jobs`);
+  if (process.env.OVERLAY_ENABLED === 'true') {
+    console.log(`D24 Agent Marketplace APIs: http://localhost:${PORT}/overlay/agents, /overlay/rules, /overlay/jobs`);
   }
 });

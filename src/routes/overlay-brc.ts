@@ -5,6 +5,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { GitdataOverlayServices } from '../overlay/index';
 import { D01A_TOPICS, TopicGenerator } from '../overlay/overlay-config';
+import { requireIdentity } from '../middleware/identity';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -136,7 +137,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
 
   // ==================== BRC-22: Transaction Submission ====================
 
-  router.post('/submit', requireOverlay, rateLimit(10, 60000), async (req: Request, res: Response) => {
+  router.post('/submit', requireOverlay, requireIdentity(true), rateLimit(10, 60000), async (req: Request & { identityKey?: string }, res: Response) => {
     try {
       const { rawTx, inputs, topics, mapiResponses } = req.body;
 
@@ -297,7 +298,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
     }
   });
 
-  router.post('/services/advertise', requireOverlay, async (req: Request, res: Response) => {
+  router.post('/services/advertise', requireOverlay, requireIdentity(true), async (req: Request & { identityKey?: string }, res: Response) => {
     try {
       const { type, topicName, serviceId } = req.body;
 
@@ -324,7 +325,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
   // ==================== BRC-26: UHRP File Storage & Streaming ====================
 
   // Store a file (upload endpoint)
-  router.post('/files/store', requireOverlay, upload.single('file'), rateLimit(5, 60000), async (req: Request, res: Response) => {
+  router.post('/files/store', requireOverlay, requireIdentity(true), upload.single('file'), rateLimit(5, 60000), async (req: Request & { identityKey?: string }, res: Response) => {
     try {
       if (!req.file) {
         return res.status(400).json({
@@ -638,7 +639,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
   // ==================== Legacy Overlay Routes (for backward compatibility) ====================
 
   // Subscribe to a topic
-  router.post('/subscribe', requireOverlay, async (req: Request, res: Response) => {
+  router.post('/subscribe', requireOverlay, requireIdentity(true), async (req: Request & { identityKey?: string }, res: Response) => {
     try {
       const { topic } = req.body;
       if (!topic || typeof topic !== 'string') {
@@ -663,7 +664,7 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
   });
 
   // Publish a D01A manifest
-  router.post('/publish', requireOverlay, async (req: Request, res: Response) => {
+  router.post('/publish', requireOverlay, requireIdentity(true), async (req: Request & { identityKey?: string }, res: Response) => {
     try {
       const { manifest } = req.body;
       if (!manifest || !manifest.datasetId) {
