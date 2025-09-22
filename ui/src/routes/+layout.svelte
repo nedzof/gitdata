@@ -89,8 +89,6 @@
       <div class="nav-left">
         <a href="/" class="logo">Gitdata</a>
         <a href="/docs" class="primary-btn">📚 Docs</a>
-        <a href="/payments" class="nav-link">💰 Payments</a>
-        <a href="/market" class="nav-link">🛒 Market</a>
       </div>
 
       <div class="nav-center">
