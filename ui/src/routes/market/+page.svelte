@@ -539,10 +539,6 @@
     <div>
       <h1>📋 Market</h1>
       <p class="subtitle">Discover and publish data and AI assets</p>
-      <div class="overlay-status">
-        🌐 <span class="overlay-indicator">BSV Overlay Network Enabled</span>
-        <span class="overlay-features">• D24 Marketplace • D07 Streaming • D22 Storage</span>
-      </div>
     </div>
     <button
       on:click={() => showPublishForm = !showPublishForm}
