@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
-  import { walletService } from '$lib/wallet';
+  import { bsvWalletService } from '$lib/bsv-wallet';
 
   let searchQuery = '';
   let walletConnected = false;
@@ -13,17 +13,16 @@
 
   onMount(() => {
     // Check if wallet is already connected
-    const connection = walletService.getConnection();
-    if (connection?.isConnected) {
+    if (bsvWalletService.isWalletConnected()) {
       walletConnected = true;
-      walletPublicKey = connection.publicKey || '';
+      walletPublicKey = bsvWalletService.getPublicKey() || '';
     }
 
     // Listen for wallet connection changes
-    const unsubscribe = walletService.onConnectionChange((connected) => {
+    const unsubscribe = bsvWalletService.onConnectionChange((connected) => {
       walletConnected = connected;
       if (connected) {
-        walletPublicKey = walletService.getPublicKey() || '';
+        walletPublicKey = bsvWalletService.getPublicKey() || '';
         walletError = '';
       } else {
         walletPublicKey = '';
@@ -41,31 +40,36 @@
   }
 
   async function connectWallet() {
+    console.log('🔘 Connect wallet button clicked');
+
     if (walletConnected) {
+      console.log('🔄 Disconnecting wallet...');
       // Disconnect wallet
       try {
-        await walletService.disconnect();
+        await bsvWalletService.disconnect();
         walletConnected = false;
         walletPublicKey = '';
         walletError = '';
+        console.log('✅ Wallet disconnected successfully');
       } catch (error) {
-        console.error('Failed to disconnect wallet:', error);
+        console.error('❌ Failed to disconnect wallet:', error);
         walletError = 'Failed to disconnect wallet';
       }
       return;
     }
 
     // Connect wallet
+    console.log('🔄 Connecting wallet...');
     walletLoading = true;
     walletError = '';
 
     try {
-      const connection = await walletService.connect();
+      const connection = await bsvWalletService.connect();
       walletConnected = true;
       walletPublicKey = connection.publicKey || '';
-      console.log('Wallet connected successfully');
+      console.log('✅ Wallet connected successfully');
     } catch (error) {
-      console.error('Failed to connect wallet:', error);
+      console.error('❌ Failed to connect wallet:', error);
       walletError = error.message || 'Failed to connect wallet';
       walletConnected = false;
     } finally {
