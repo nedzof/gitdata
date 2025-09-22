@@ -383,63 +383,149 @@
     console.log('lineageError:', lineageError);
   }
 
-  // Handle purchase functionality
+  // Handle purchase functionality - Integrated with BSV Overlay Network
   async function handlePurchase(asset) {
-    console.log('Purchase initiated for asset:', asset);
+    console.log('🛒 Overlay Network Purchase initiated for asset:', asset);
 
     if (!asset.pricePerKB || asset.pricePerKB === 0) {
       // Free asset - just grant access
-      alert(`Free access granted for ${asset.title || asset.datasetId}`);
+      alert(`🆓 Free access granted for ${asset.title || asset.datasetId}`);
       return;
     }
 
     try {
-      // Initialize AuthFetch if not already done
-      if (!authFetch) {
-        authFetch = new AuthFetch();
-      }
-
       // Calculate total price in satoshis (assuming pricePerKB is in USD, convert to satoshis)
       const priceInUSD = asset.pricePerKB * (asset.dataSizeBytes / 1024); // Total price in USD
       const satoshisPerUSD = 100000; // Example conversion rate - should be fetched from API
       const totalSatoshis = Math.floor(priceInUSD * satoshisPerUSD);
 
-      // Create payment request
-      const paymentRequest = {
-        assetId: asset.datasetId || asset.id,
-        amount: totalSatoshis,
-        description: `Purchase access to ${asset.title || asset.datasetId}`,
-        metadata: {
-          datasetId: asset.datasetId,
-          pricePerKB: asset.pricePerKB,
-          sizeBytes: asset.dataSizeBytes
-        }
-      };
-
-      console.log('Processing BSV payment:', paymentRequest);
-
-      // For now, show a detailed confirmation
+      // Show detailed confirmation for BSV Overlay Network purchase
       const confirmed = confirm(
-        `Confirm BSV Payment:\n\n` +
+        `🌐 BSV Overlay Network Purchase:\n\n` +
         `Asset: ${asset.title || asset.datasetId}\n` +
         `Price: $${asset.pricePerKB.toFixed(3)}/KB\n` +
         `Size: ${(asset.dataSizeBytes / 1024 / 1024).toFixed(2)} MB\n` +
-        `Total: $${priceInUSD.toFixed(4)} (${totalSatoshis} satoshis)\n\n` +
-        `Proceed with BSV payment?`
+        `Total: $${priceInUSD.toFixed(4)} (${totalSatoshis} satoshis)\n` +
+        `\n📡 Features Included:\n` +
+        `• D24 Agent Marketplace Integration\n` +
+        `• D07 Streaming Content Delivery\n` +
+        `• D22 Persistent Storage Backend\n` +
+        `• Webhook-based Content Delivery\n` +
+        `• BSV Micropayment Processing\n\n` +
+        `Proceed with overlay network purchase?`
       );
 
       if (confirmed) {
-        // TODO: Implement actual BSV payment processing using authFetch
-        // This would involve creating a transaction and waiting for confirmation
-        alert(`BSV payment processing initiated for ${asset.title || asset.datasetId}\n\nPayment will be processed via BSV blockchain...`);
+        // Call overlay marketplace purchase endpoint
+        const overlayPurchaseRequest = {
+          assetId: asset.datasetId || asset.versionId || asset.id,
+          contentType: asset.content?.mediaType || 'application/octet-stream',
+          webhookUrl: 'http://localhost:3000/webhook/content-delivery', // Consumer webhook endpoint
+          priceInSatoshis: totalSatoshis,
+          metadata: {
+            title: asset.title || asset.datasetId,
+            pricePerKB: asset.pricePerKB,
+            sizeBytes: asset.dataSizeBytes,
+            format: asset.content?.mediaType,
+            classification: asset.classification
+          }
+        };
 
-        // Simulate payment processing
-        console.log('BSV payment would be processed here with AuthFetch');
+        console.log('🔄 Calling overlay marketplace purchase endpoint:', overlayPurchaseRequest);
+
+        // Call the overlay marketplace purchase endpoint
+        const response = await fetch('http://localhost:8788/overlay/marketplace/purchase', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(overlayPurchaseRequest)
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          console.log('✅ Overlay marketplace purchase successful:', result);
+
+          alert(
+            `🎉 BSV Overlay Network Purchase Successful!\n\n` +
+            `Purchase ID: ${result.purchaseId}\n` +
+            `Receipt ID: ${result.receiptId}\n` +
+            `\n📦 Content Delivery:\n` +
+            `${result.deliveryMethod || 'Webhook streaming delivery initiated'}\n` +
+            `\nContent will be delivered via D07 streaming to your webhook endpoint.\n` +
+            `Check your downloads folder for the delivered content.`
+          );
+
+          // Optionally setup streaming subscription for real-time delivery updates
+          if (result.streamingSessionId) {
+            await setupStreamingSubscription(result.streamingSessionId, asset);
+          }
+
+        } else {
+          const errorData = await response.json();
+          console.error('❌ Overlay marketplace purchase failed:', errorData);
+
+          if (response.status === 503) {
+            alert(
+              `🚫 Overlay Network Unavailable\n\n` +
+              `The BSV Overlay Network services are currently unavailable.\n` +
+              `Please ensure the overlay network is enabled and try again.\n\n` +
+              `Error: ${errorData.message || 'Service unavailable'}`
+            );
+          } else {
+            alert(
+              `❌ Purchase Failed\n\n` +
+              `Error: ${errorData.error || 'Unknown error'}\n` +
+              `Message: ${errorData.message || 'Please try again'}`
+            );
+          }
+        }
       }
 
     } catch (error) {
-      console.error('Payment error:', error);
-      alert(`Payment failed: ${error.message}`);
+      console.error('💥 Overlay network purchase error:', error);
+      alert(
+        `💥 Network Error\n\n` +
+        `Failed to connect to BSV Overlay Network.\n` +
+        `Please check your connection and try again.\n\n` +
+        `Error: ${error.message}`
+      );
+    }
+  }
+
+  // Setup streaming subscription for delivery updates
+  async function setupStreamingSubscription(streamingSessionId, asset) {
+    try {
+      console.log('📡 Setting up streaming subscription for session:', streamingSessionId);
+
+      const subscriptionRequest = {
+        sessionId: streamingSessionId,
+        webhookUrl: 'http://localhost:3000/webhook/streaming-updates',
+        notificationPreferences: {
+          onDeliveryStart: true,
+          onDeliveryProgress: true,
+          onDeliveryComplete: true,
+          onDeliveryError: true
+        }
+      };
+
+      const response = await fetch('http://localhost:8788/overlay/marketplace/streaming/setup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(subscriptionRequest)
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Streaming subscription setup successful:', result);
+      } else {
+        console.warn('⚠️ Streaming subscription setup failed, but purchase was successful');
+      }
+    } catch (error) {
+      console.warn('⚠️ Streaming subscription error (purchase still successful):', error);
     }
   }
 </script>
@@ -453,12 +539,16 @@
     <div>
       <h1>📋 Market</h1>
       <p class="subtitle">Discover and publish data and AI assets</p>
+      <div class="overlay-status">
+        🌐 <span class="overlay-indicator">BSV Overlay Network Enabled</span>
+        <span class="overlay-features">• D24 Marketplace • D07 Streaming • D22 Storage</span>
+      </div>
     </div>
     <button
       on:click={() => showPublishForm = !showPublishForm}
       class="button primary"
     >
-      {showPublishForm ? 'Cancel' : '+ Publish Asset'}
+      {showPublishForm ? 'Cancel' : '🌐 + Publish to Overlay Network'}
     </button>
   </div>
 
@@ -822,10 +912,11 @@
             <div class="asset-footer">
               <span class="asset-id">ID: {asset.versionId?.slice(0, 12)}...</span>
               <button
-                class="buy-btn"
+                class="buy-btn overlay-purchase"
                 on:click|stopPropagation={() => handlePurchase(asset)}
+                title="Purchase via BSV Overlay Network with D24 Marketplace & D07 Streaming"
               >
-                {asset.pricePerKB ? `💳 Buy - $${asset.pricePerKB.toFixed(3)}/KB` : '💾 Get Free'}
+                {asset.pricePerKB ? `🌐 💳 Buy - $${asset.pricePerKB.toFixed(3)}/KB` : '🌐 💾 Get Free'}
               </button>
             </div>
           </div>
@@ -883,10 +974,11 @@
                 </td>
                 <td class="buy-cell">
                   <button
-                    class="buy-btn-table"
+                    class="buy-btn-table overlay-purchase"
                     on:click|stopPropagation={() => handlePurchase(asset)}
+                    title="Purchase via BSV Overlay Network"
                   >
-                    {asset.pricePerKB ? `💳 $${asset.pricePerKB.toFixed(3)}` : '💾 Free'}
+                    {asset.pricePerKB ? `🌐💳 $${asset.pricePerKB.toFixed(3)}` : '🌐💾 Free'}
                   </button>
                 </td>
               </tr>
@@ -2440,6 +2532,76 @@
     text-align: center;
   }
 
+  /* Overlay Network Styling */
+  .overlay-status {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
+    border-radius: 6px;
+    border: 1px solid #2ea043;
+  }
+
+  .overlay-indicator {
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .overlay-features {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 12px;
+    margin-left: 8px;
+  }
+
+  .overlay-purchase {
+    background: linear-gradient(135deg, #238636 0%, #2ea043 100%) !important;
+    border-color: #2ea043 !important;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .overlay-purchase::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.6s;
+  }
+
+  .overlay-purchase:hover::before {
+    left: 100%;
+  }
+
+  .overlay-purchase:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(35, 134, 54, 0.4);
+  }
+
+  .overlay-enabled {
+    background: linear-gradient(135deg, #238636 0%, #2ea043 100%) !important;
+    border-color: #2ea043 !important;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .overlay-enabled::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.6s;
+  }
+
+  .overlay-enabled:hover::before {
+    left: 100%;
+  }
+
   @media (max-width: 600px) {
     .view-controls {
       justify-content: center;
@@ -2462,6 +2624,17 @@
     .buy-btn-table {
       font-size: 10px;
       padding: 3px 6px;
+    }
+
+    .overlay-status {
+      flex-direction: column;
+      gap: 4px;
+      text-align: center;
+    }
+
+    .overlay-features {
+      margin-left: 0;
+      font-size: 11px;
     }
   }
 </style>
