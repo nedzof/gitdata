@@ -16,26 +16,26 @@ Abhängigkeiten
 - Optional: scripts/headers-mirror.ts (Pull von mehreren Quellen)
 
 Aufgaben
-- [ ] Endianness festhalten: API-Hex big-endian; Hashing intern mit byte-reversal (LE) – bereits in verify-envelope.ts.
-- [ ] Headers Mirror:
-      - [ ] scripts/headers-mirror.ts: HEADERS_URLS (≥1), Atomare Writes (tmp+rename), Continuity (prevHash/height), bestHeight/tipHash setzen.
-      - [ ] Format exportieren, das von loadHeaders() unterstützt wird: {bestHeight, tipHash, headers[]|byHash{}}.
-- [ ] SPV Prüfer:
-      - [ ] verifyMerklePath(txidBE, path[{hash, position}], merkleRootBE).
-      - [ ] verifyEnvelopeAgainstHeaders(env, headersIdx, minConfs) – bereits vorhanden; Tests erweitern.
-- [ ] Tests:
-      - [ ] Golden headers.json (3–5 Blöcke), Good/Bad Merklepfade.
-      - [ ] Reorg-Simulation: geänderte tipHash/bestHeight, Konfirmationsberechnung.
+- [x] Endianness festgehalten: API-Hex big-endian; Hashing intern mit byte-reversal (LE) implementiert in verify-envelope.ts.
+- [x] Headers Mirror:
+      - [x] scripts/headers-mirror.ts: HEADERS_URLS support, atomare Writes (tmp+rename), Continuity (prevHash/height), bestHeight/tipHash Management.
+      - [x] Format exportiert für loadHeaders(): {bestHeight, tipHash, headers[]|byHash{}} - kompatibel mit existing header store.
+- [x] SPV Prüfer:
+      - [x] verifyMerklePath(txidBE, path[{hash, position}], merkleRootBE) vollständig implementiert.
+      - [x] verifyEnvelopeAgainstHeaders(env, headersIdx, minConfs) erweitert und in Produktion verwendet.
+- [x] Tests:
+      - [x] Golden headers.json (multiple blocks), Good/Bad Merkle path validation.
+      - [x] Reorg-Simulation: Dynamic tipHash/bestHeight updates, Confirmation calculation unter verschiedenen Szenarien.
 
 Definition of Done (DoD)
-- [ ] headers.json wird atomar geschrieben, Continuity-Fehler führen zu no-write und Exit-Code ≠ 0.
-- [ ] verify-envelope.ts verifiziert Good-Vector, lehnt Bad-Vector klar ab (invalid-merkle-path/unknown-block).
-- [ ] /ready und /bundle können headers.json laden und Konfirmationen berechnen.
+- [x] headers.json wird atomar geschrieben, Continuity-Fehler führen zu no-write und Exit-Code ≠ 0.
+- [x] verify-envelope.ts verifiziert Good-Vector, lehnt Bad-Vector klar ab (invalid-merkle-path/unknown-block).
+- [x] /ready und /bundle können headers.json laden und Konfirmationen berechnen.
 
 Abnahmekriterien (Tests)
-- [ ] Unit: verifyMerklePath (left/right, falsche Reihenfolge), txid- und Root-Endianness.
-- [ ] Integration: verifyEnvelopeAgainstHeaders (blockHeader vs. blockHash Pfad, minConfs Grenzfälle).
-- [ ] Mirror: Eine Quelle fällt aus → keine Korruption, Logs verständlich.
+- [x] Unit: verifyMerklePath (left/right, falsche Reihenfolge), txid- und Root-Endianness.
+- [x] Integration: verifyEnvelopeAgainstHeaders (blockHeader vs. blockHash Pfad, minConfs Grenzfälle).
+- [x] Mirror: Eine Quelle fällt aus → keine Korruption, Logs verständlich.
 
 Artefakte/Evidence
 - [ ] headers.json Beispiel, Logs vom Mirror, Test-Outputs.

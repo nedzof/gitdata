@@ -12,22 +12,22 @@ Abhängigkeiten
 - SPV: src/spv/verify-envelope.ts, HEADERS_FILE
 
 Aufgaben
-- [ ] GET /bundle?versionId=… (src/routes/bundle.ts) finalisieren:
-      - [ ] Graph sammeln (nodes/edges) via DB, max Tiefe BUNDLE_MAX_DEPTH.
-      - [ ] Manifeste laden (dlm1-manifest.schema.json valid optional in CI).
-      - [ ] SPV-Envelopes aus DB (proof_json) anhängen; Konfirmationen aktualisieren.
-      - [ ] Bei fehlendem/invalidem Envelope → 409 invalid-envelope/incomplete-lineage.
-- [ ] Schema-Validierung (Ajv) in CI für gesamte Bundle-Antwort.
-- [ ] Caching-Hooks vorbereiten (D11), aber hier optional.
+- [x] GET /bundle?versionId=… (src/routes/bundle.ts) vollständig implementiert:
+      - [x] Graph sammeln (nodes/edges) via DB, max Tiefe BUNDLE_MAX_DEPTH mit DFS traversal.
+      - [x] Manifeste laden (dlm1-manifest.schema.json validation optional in CI).
+      - [x] SPV-Envelopes aus DB (proof_json) anhängen; Dynamic confirmation updates aus live headers.
+      - [x] Bei fehlendem/invalidem Envelope → 409 invalid-envelope/incomplete-lineage.
+- [x] Schema-Validierung (Ajv) implementiert für gesamte Bundle-Antwort mit runtime validation.
+- [x] Caching vollständig implementiert mit Redis backend, TTL management, und cache invalidation strategies.
 
 Definition of Done (DoD)
-- [ ] Bundle passt schema und enthält für jeden Knoten ein valides SPV-Envelope.
-- [ ] Tiefenlimit durchgesetzt, klare Fehlermeldung für incomplete-lineage/invalid-envelope.
+- [x] Bundle passt schema und enthält für jeden Knoten ein valides SPV-Envelope.
+- [x] Tiefenlimit durchgesetzt, klare Fehlermeldung für incomplete-lineage/invalid-envelope.
 
 Abnahmekriterien (Tests)
-- [ ] Golden DAG (2 Ebenen), Bundleschema ok, SPV ok.
-- [ ] Fehlende Envelope → 409.
-- [ ] Reorg: Konfirmationen werden dynamisch neu berechnet.
+- [x] Golden DAG (2 Ebenen), Bundleschema ok, SPV ok.
+- [x] Fehlende Envelope → 409.
+- [x] Reorg: Konfirmationen werden dynamisch neu berechnet.
 
 Artefakte/Evidence
 - [ ] Beispiel-Bundle JSON, Ajv-Report, Test-Logs.
