@@ -42,6 +42,8 @@ import { runModelsMigrations, modelsRouter } from './src/models/scaffold';
 import { runPolicyMigrations, policiesRouter } from './src/policies';
 import openlineageRouter from './src/routes/openlineage.js';
 import { walletRouter } from './src/routes/wallet';
+import { initializeOverlayServices } from './src/overlay';
+import { overlayRouter } from './src/routes/overlay';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -72,6 +74,23 @@ app.use(express.static(path.join(__dirname, 'ui/build')));
 
 // Modern PostgreSQL/Redis Hybrid Database
 initSchema().catch(console.error);
+
+// BSV Overlay Network Integration
+let overlayServices = null;
+const overlayEnvironment = process.env.OVERLAY_ENV || 'development';
+if (process.env.OVERLAY_ENABLED === 'true') {
+  try {
+    // Note: In a hybrid PostgreSQL system, we'd need to adapt this
+    // For now, we'll initialize with a placeholder database connection
+    console.log(`[OVERLAY] Initializing BSV overlay services in ${overlayEnvironment} mode...`);
+    // overlayServices = await initializeOverlayServices(db, overlayEnvironment);
+    console.log('[OVERLAY] BSV overlay services would be initialized here');
+    console.log('[OVERLAY] Set OVERLAY_ENABLED=true and ensure wallet is connected to enable overlay integration');
+  } catch (error) {
+    console.warn('[OVERLAY] Failed to initialize overlay services:', error.message);
+    console.warn('[OVERLAY] Overlay features will be disabled. Check wallet connection and network settings.');
+  }
+}
 
 // TODO: Migrate these initialization functions to work with PostgreSQL
 // For now, commenting out to get the hybrid system running
@@ -147,6 +166,15 @@ app.use('/openlineage', rateLimit('openlineage'), openlineageRouter);
 
 // BRC100 Wallet Integration API (/wallet/purchases, /wallet/balance, /assets/:id/status, /notifications/*)
 app.use(rateLimit('wallet'), walletRouter());
+
+// BSV Overlay Network API (/overlay/status, /overlay/publish, /overlay/search, etc.)
+const overlayRouterInstance = overlayRouter();
+app.use('/overlay', rateLimit('overlay'), overlayRouterInstance.router);
+
+// Connect overlay services to router when available
+if (overlayServices && overlayRouterInstance.setOverlayServices) {
+  overlayRouterInstance.setOverlayServices(overlayServices.overlayManager, overlayServices.paymentService);
+}
 
 // D01 Builder route with rate limiting - Updated for D01A spec compliance
 app.use(rateLimit('submit'), submitDlm1Router());
