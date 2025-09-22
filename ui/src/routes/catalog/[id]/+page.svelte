@@ -8,6 +8,8 @@
 	let lineageData = [];
 	let loading = true;
 	let error = null;
+	let policyCompliance = null;
+	let selectedPolicy = null;
 
 	$: assetId = $page.params.id;
 
@@ -45,6 +47,9 @@
 
 			// Load lineage data
 			await loadLineageData();
+
+			// Evaluate policy compliance
+			await evaluatePolicyCompliance();
 		} catch (err) {
 			console.error('Error loading asset details:', err);
 			error = err.message || 'Failed to load asset details';
@@ -107,6 +112,95 @@
 		}
 	}
 
+	async function evaluatePolicyCompliance() {
+		if (!asset) return;
+
+		// Define actual policies with their requirements
+		const policies = [
+			{
+				name: 'Data Classification Policy',
+				description: 'Ensures proper data classification',
+				checks: [
+					{ rule: 'Classification Required', matches: !!asset.classification },
+					{ rule: 'Public Classification Safe', matches: asset.classification?.toLowerCase() === 'public' }
+				]
+			},
+			{
+				name: 'Security Compliance Policy',
+				description: 'Validates security requirements',
+				checks: [
+					{ rule: 'No PII Detected', matches: !asset.pii_flags?.length },
+					{ rule: 'Access Level Defined', matches: !!asset.access_level },
+					{ rule: 'License Specified', matches: !!asset.license }
+				]
+			},
+			{
+				name: 'Data Quality Standards',
+				description: 'Ensures minimum quality thresholds',
+				checks: [
+					{ rule: 'Quality Score ≥ 60%', matches: asset.quality_score >= 0.6 },
+					{ rule: 'Content Hash Present', matches: !!(asset.contentHash || asset.content_hash) },
+					{ rule: 'Format Specified', matches: !!asset.format }
+				]
+			},
+			{
+				name: 'Provenance Policy',
+				description: 'Validates data origin and tracking',
+				checks: [
+					{ rule: 'Producer Identified', matches: !!asset.producer },
+					{ rule: 'Confirmations ≥ 1', matches: asset.confirmations >= 1 },
+					{ rule: 'Creation Date Present', matches: !!asset.createdAt }
+				]
+			}
+		];
+
+		// Evaluate each policy
+		const evaluatedPolicies = policies.map(policy => {
+			const passingChecks = policy.checks.filter(c => c.matches);
+			const totalChecks = policy.checks.length;
+			const status = passingChecks.length === totalChecks ? 'compliant' :
+						  passingChecks.length > 0 ? 'partial' : 'non-compliant';
+
+			return {
+				...policy,
+				status,
+				passingChecks: passingChecks.length,
+				totalChecks
+			};
+		});
+
+		// Create flat list for display
+		const allChecks = [];
+		evaluatedPolicies.forEach(policy => {
+			policy.checks.forEach(check => {
+				allChecks.push({
+					name: `${policy.name}: ${check.rule}`,
+					matches: check.matches,
+					policyName: policy.name,
+					policyStatus: policy.status
+				});
+			});
+		});
+
+		policyCompliance = {
+			policies: evaluatedPolicies,
+			checks: allChecks,
+			matching: allChecks.filter(c => c.matches).length,
+			total: allChecks.length,
+			compliantPolicies: evaluatedPolicies.filter(p => p.status === 'compliant').length,
+			totalPolicies: evaluatedPolicies.length
+		};
+
+		// Auto-select first policy
+		if (evaluatedPolicies.length > 0) {
+			selectedPolicy = evaluatedPolicies[0];
+		}
+	}
+
+	function selectPolicy(policy) {
+		selectedPolicy = policy;
+	}
+
 	function formatValue(value) {
 		if (value === null || value === undefined) return 'N/A';
 		if (typeof value === 'object') return JSON.stringify(value, null, 2);
@@ -142,182 +236,98 @@
 	{:else if asset}
 		<div class="header">
 			<a href="/catalog" class="back-link">← Back to Catalog</a>
-			<h1>{asset.title || 'Untitled Asset'}</h1>
+			<div class="title-section">
+				<h1>{asset.title || 'Untitled Asset'}</h1>
+				{#if policyCompliance}
+					<div class="compliance-badge">
+						{policyCompliance.compliantPolicies}/{policyCompliance.totalPolicies} Policies Compliant
+					</div>
+				{/if}
+			</div>
 			{#if asset.description}
 				<p class="description">{asset.description}</p>
 			{/if}
 		</div>
 
 		<div class="content-grid">
-			<!-- Asset Information -->
-			<div class="section">
-				<h2>Asset Information</h2>
-				<div class="info-grid">
-					<div class="info-item">
-						<label>Dataset ID</label>
-						<span>{formatValue(asset.datasetId)}</span>
-					</div>
-					<div class="info-item">
-						<label>Version ID</label>
-						<span class="monospace">{formatValue(asset.versionId)}</span>
-					</div>
-					<div class="info-item">
-						<label>Producer</label>
-						<span>{formatValue(asset.producer)}</span>
-					</div>
-					<div class="info-item">
-						<label>Type</label>
-						<span>{formatValue(asset.type)}</span>
-					</div>
-					<div class="info-item">
-						<label>Format</label>
-						<span>{formatValue(asset.format)}</span>
-					</div>
-					<div class="info-item">
-						<label>Size</label>
-						<span>{formatValue(asset.size)}</span>
-					</div>
-					<div class="info-item">
-						<label>Created</label>
-						<span>{formatDate(asset.createdAt)}</span>
-					</div>
-					<div class="info-item">
-						<label>Content Hash</label>
-						<span class="monospace">{formatValue(asset.contentHash)}</span>
-					</div>
-				</div>
-			</div>
+			<!-- Policy Status -->
+			{#if policyCompliance}
+			<div class="section policy-section">
+				<h2>Policy Compliance</h2>
 
-			<!-- Classification & Security -->
-			<div class="section">
-				<h2>Classification & Security</h2>
-				<div class="info-grid">
-					<div class="info-item">
-						<label>Classification</label>
-						<span class="classification {asset.classification?.toLowerCase()}">{formatValue(asset.classification)}</span>
-					</div>
-					<div class="info-item">
-						<label>License</label>
-						<span>{formatValue(asset.license)}</span>
-					</div>
-					<div class="info-item">
-						<label>Access Level</label>
-						<span>{formatValue(asset.access_level)}</span>
-					</div>
-					<div class="info-item">
-						<label>Encryption</label>
-						<span>{formatValue(asset.encryption_status)}</span>
-					</div>
+				<!-- Policy Selector -->
+				<div class="policy-selector">
+					{#each policyCompliance.policies as policy}
+						<button
+							class="policy-tab {policy === selectedPolicy ? 'active' : ''} policy-{policy.status}"
+							on:click={() => selectPolicy(policy)}
+						>
+							<span class="policy-name">{policy.name}</span>
+							<span class="policy-status-indicator">
+								{#if policy.status === 'compliant'}✓
+								{:else if policy.status === 'partial'}⚠
+								{:else}✗{/if}
+							</span>
+						</button>
+					{/each}
 				</div>
-			</div>
 
-			<!-- Technical Details -->
-			<div class="section">
-				<h2>Technical Details</h2>
-				<div class="info-grid">
-					<div class="info-item">
-						<label>Schema Version</label>
-						<span>{formatValue(asset.schema_version)}</span>
+				<!-- Selected Policy Results -->
+				{#if selectedPolicy}
+				<div class="policy-columns">
+					<div class="policy-column matches">
+						<h3>✓ Matches</h3>
+						<div class="policy-list">
+							{#each selectedPolicy.checks.filter(c => c.matches) as check}
+								<div class="check-item match">
+									{check.rule}
+								</div>
+							{/each}
+						</div>
 					</div>
-					<div class="info-item">
-						<label>Checksum</label>
-						<span class="monospace">{formatValue(asset.checksum)}</span>
-					</div>
-					<div class="info-item">
-						<label>Compression</label>
-						<span>{formatValue(asset.compression_type)}</span>
-					</div>
-					<div class="info-item">
-						<label>Location</label>
-						<span class="monospace">{formatValue(asset.storage_location)}</span>
-					</div>
-					<div class="info-item">
-						<label>MIME Type</label>
-						<span>{formatValue(asset.mime_type)}</span>
-					</div>
-					<div class="info-item">
-						<label>Quality Score</label>
-						<span>{formatValue(asset.quality_score)}</span>
-					</div>
-					<div class="info-item">
-						<label>Confirmations</label>
-						<span>{formatValue(asset.confirmations)}</span>
-					</div>
-					<div class="info-item">
-						<label>Content Hash</label>
-						<span class="monospace">{formatValue(asset.content_hash)}</span>
+					<div class="policy-column mismatches">
+						<h3>✗ Mismatches</h3>
+						<div class="policy-list">
+							{#each selectedPolicy.checks.filter(c => !c.matches) as check}
+								<div class="check-item mismatch">
+									{check.rule}
+								</div>
+							{/each}
+						</div>
 					</div>
 				</div>
-			</div>
-
-			<!-- Economic & Policy Information -->
-			<div class="section">
-				<h2>Economic & Policy Information</h2>
-				<div class="info-grid">
-					<div class="info-item">
-						<label>Price per Byte</label>
-						<span>{asset.price_per_byte ? `${asset.price_per_byte} units` : 'N/A'}</span>
-					</div>
-					<div class="info-item">
-						<label>PII Flags</label>
-						<span class="pii-flags">{asset.pii_flags ? asset.pii_flags.join(', ') : 'None'}</span>
-					</div>
-					<div class="info-item">
-						<label>Geographic Origin</label>
-						<span>{formatValue(asset.geographic_origin)}</span>
-					</div>
-					<div class="info-item">
-						<label>Content Tags</label>
-						<span class="content-tags">{asset.tags ? asset.tags.join(', ') : 'None'}</span>
-					</div>
-					<div class="info-item">
-						<label>Regulatory Compliance</label>
-						<span>{formatValue(asset.regulatory_compliance)}</span>
-					</div>
-					<div class="info-item">
-						<label>Data Sovereignty</label>
-						<span>{formatValue(asset.data_sovereignty)}</span>
-					</div>
-				</div>
-			</div>
-
-			<!-- Usage & Performance Metrics -->
-			{#if asset.usage_metrics || asset.performance_metrics}
-			<div class="section">
-				<h2>Usage & Performance Metrics</h2>
-				<div class="info-grid">
-					{#if asset.usage_metrics}
-						<div class="info-item">
-							<label>Downloads</label>
-							<span>{formatValue(asset.usage_metrics.downloads)}</span>
-						</div>
-						<div class="info-item">
-							<label>Views</label>
-							<span>{formatValue(asset.usage_metrics.views)}</span>
-						</div>
-					{/if}
-					{#if asset.performance_metrics}
-						<div class="info-item">
-							<label>Avg Response Time</label>
-							<span>{asset.performance_metrics.avg_response_time || 'N/A'}</span>
-						</div>
-						<div class="info-item">
-							<label>Availability</label>
-							<span>{asset.performance_metrics.availability || 'N/A'}</span>
-						</div>
-					{/if}
-				</div>
+				{/if}
 			</div>
 			{/if}
 
-			<!-- Lineage Visualization -->
+			<!-- Asset Overview -->
+			<div class="section">
+				<h2>Asset Overview</h2>
+				<div class="asset-summary">
+					<span><strong>Producer:</strong> {formatValue(asset.producer)}</span>
+					<span><strong>Type:</strong> {formatValue(asset.type)} ({formatValue(asset.format)})</span>
+					<span><strong>Quality:</strong>
+						<span class="quality-score score-{asset.quality_score >= 0.8 ? 'high' : asset.quality_score >= 0.6 ? 'medium' : 'low'}">
+							{asset.quality_score ? (asset.quality_score * 100).toFixed(1) + '%' : 'N/A'}
+						</span>
+					</span>
+				</div>
+			</div>
+
+			<!-- Data Lineage -->
 			<div class="section lineage-section">
 				<h2>Data Lineage</h2>
 				<div class="lineage-container">
-					<InteractiveLineageGraph
-						{lineageData}
-						currentAssetId={assetId}
-					/>
+					{#if lineageData.length > 0}
+						<InteractiveLineageGraph
+							{lineageData}
+							currentAssetId={assetId}
+						/>
+					{:else}
+						<div class="no-lineage">
+							<p>No lineage data available for this asset.</p>
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -331,14 +341,17 @@
 </div>
 
 <style>
+	/* Base styling */
 	.asset-details {
 		min-height: 100vh;
 		background: #0d1117;
 		color: #e6edf3;
-		padding: 2rem;
+		padding: 1.5rem;
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+		line-height: 1.5;
 	}
 
+	/* Loading states */
 	.loading {
 		display: flex;
 		flex-direction: column;
@@ -366,7 +379,7 @@
 		text-align: center;
 		padding: 3rem;
 		border: 1px solid #f85149;
-		border-radius: 0.5rem;
+		border-radius: 0.75rem;
 		background: #161b22;
 		max-width: 600px;
 		margin: 2rem auto;
@@ -377,6 +390,7 @@
 		margin-bottom: 1rem;
 	}
 
+	/* Header section */
 	.header {
 		max-width: 1200px;
 		margin: 0 auto 2rem;
@@ -386,9 +400,10 @@
 		color: #79c0ff;
 		text-decoration: none;
 		font-size: 0.9rem;
-		margin-bottom: 1rem;
+		margin-bottom: 1.5rem;
 		display: inline-block;
-		transition: color 0.2s;
+		transition: all 0.2s ease;
+		padding: 0.5rem 0;
 	}
 
 	.back-link:hover {
@@ -396,141 +411,300 @@
 		text-decoration: underline;
 	}
 
+	.title-section {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		margin-bottom: 1rem;
+		flex-wrap: wrap;
+	}
+
 	.header h1 {
-		font-size: 2.5rem;
+		font-size: 2rem;
 		font-weight: 600;
-		margin: 1rem 0;
+		margin: 0;
 		color: #f0f6fc;
+		line-height: 1.2;
+	}
+
+	.compliance-badge {
+		padding: 0.5rem 1rem;
+		border-radius: 1.5rem;
+		font-size: 0.9rem;
+		font-weight: 600;
+		background: rgba(56, 139, 253, 0.15);
+		color: #58a6ff;
+		border: 1px solid #58a6ff;
 	}
 
 	.description {
 		font-size: 1.1rem;
 		color: #8b949e;
 		line-height: 1.6;
-		margin-bottom: 1rem;
+		margin: 0;
 	}
 
+	/* Grid layout */
 	.content-grid {
 		max-width: 1200px;
 		margin: 0 auto;
 		display: grid;
-		gap: 2rem;
+		gap: 1.5rem;
 		grid-template-columns: 1fr;
 	}
 
+	/* Section styling */
 	.section {
 		background: #161b22;
 		border: 1px solid #21262d;
-		border-radius: 0.5rem;
+		border-radius: 0.75rem;
 		padding: 1.5rem;
 	}
 
 	.section h2 {
-		font-size: 1.25rem;
+		font-size: 1.1rem;
 		font-weight: 600;
-		margin-bottom: 1rem;
+		margin: 0 0 1rem 0;
 		color: #f0f6fc;
 		border-bottom: 1px solid #21262d;
-		padding-bottom: 0.5rem;
+		padding-bottom: 0.75rem;
 	}
 
-	.info-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-		gap: 1rem;
+	/* Policy checks - left/right columns */
+	.policy-section {
+		grid-column: 1 / -1;
 	}
 
-	.info-item {
+	/* Policy Selector */
+	.policy-selector {
 		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin-bottom: 2rem;
 	}
 
-	.info-item label {
-		font-size: 0.85rem;
-		font-weight: 600;
-		color: #8b949e;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-	.info-item span {
-		font-size: 0.95rem;
+	.policy-tab {
+		background: #21262d;
+		border: 1px solid #30363d;
 		color: #e6edf3;
-		word-break: break-word;
-	}
-
-	.monospace {
-		font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+		padding: 0.75rem 1rem;
+		border-radius: 0.5rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		font-size: 0.85rem;
-		background: #0d1117;
-		padding: 0.25rem 0.5rem;
-		border-radius: 0.25rem;
-		border: 1px solid #21262d;
+		transition: all 0.2s ease;
 	}
 
-	.classification {
-		padding: 0.25rem 0.75rem;
-		border-radius: 1rem;
-		font-size: 0.8rem;
+	.policy-tab:hover {
+		background: #30363d;
+		border-color: #444c56;
+	}
+
+	.policy-tab.active {
+		background: #238636;
+		border-color: #238636;
+		color: #fff;
+	}
+
+	.policy-tab.policy-partial.active {
+		background: #bb800a;
+		border-color: #bb800a;
+	}
+
+	.policy-tab.policy-non-compliant.active {
+		background: #da3633;
+		border-color: #da3633;
+	}
+
+	.policy-name {
+		font-weight: 500;
+	}
+
+	.policy-status-indicator {
 		font-weight: 600;
+		font-size: 0.9rem;
+	}
+
+	.policy-columns {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 2rem;
+	}
+
+	.policy-column h3 {
+		font-size: 0.9rem;
+		font-weight: 600;
+		margin: 0 0 1.5rem 0;
+		padding: 0.5rem 1rem;
+		border-radius: 0.375rem;
+		text-align: center;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
 	}
 
-	.classification.public {
+	.matches h3 {
 		background: #238636;
 		color: #fff;
 	}
 
-	.classification.internal {
-		background: #f0883e;
+	.mismatches h3 {
+		background: #da3633;
 		color: #fff;
+	}
+
+	.policy-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+
+	.check-item {
+		padding: 0.625rem 1rem;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		border: none;
+		transition: all 0.2s ease;
+	}
+
+	.check-item.match {
+		background: rgba(35, 134, 54, 0.08);
+		color: #3fb950;
+	}
+
+	.check-item.match:hover {
+		background: rgba(35, 134, 54, 0.12);
+	}
+
+	.check-item.mismatch {
+		background: rgba(248, 81, 73, 0.08);
+		color: #f85149;
+	}
+
+	.check-item.mismatch:hover {
+		background: rgba(248, 81, 73, 0.12);
+	}
+
+	/* Asset summary - compact */
+	.asset-summary {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		font-size: 0.95rem;
+	}
+
+	.asset-summary span {
+		color: #e6edf3;
+	}
+
+	.asset-summary strong {
+		color: #8b949e;
+		font-weight: 600;
+	}
+
+	/* Special value styling */
+	.classification {
+		padding: 0.25rem 0.75rem;
+		border-radius: 1rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		border: 1px solid;
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.classification.public {
+		background: rgba(35, 134, 54, 0.15);
+		color: #3fb950;
+		border-color: #3fb950;
+	}
+
+	.classification.internal {
+		background: rgba(240, 136, 62, 0.15);
+		color: #f0883e;
+		border-color: #f0883e;
 	}
 
 	.classification.confidential {
-		background: #f85149;
-		color: #fff;
+		background: rgba(248, 81, 73, 0.15);
+		color: #f85149;
+		border-color: #f85149;
 	}
 
 	.classification.restricted {
-		background: #8b949e;
-		color: #fff;
+		background: rgba(139, 148, 158, 0.15);
+		color: #8b949e;
+		border-color: #8b949e;
 	}
 
-	.pii-flags {
+	.quality-score {
+		padding: 0.25rem 0.75rem;
+		border-radius: 1rem;
+		font-weight: 600;
+		font-size: 0.85rem;
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.score-high {
+		background: rgba(35, 134, 54, 0.15);
+		color: #3fb950;
+	}
+
+	.score-medium {
+		background: rgba(187, 128, 9, 0.15);
+		color: #d29922;
+	}
+
+	.score-low {
+		background: rgba(248, 81, 73, 0.15);
 		color: #f85149;
-		font-weight: 500;
 	}
 
-	.content-tags {
-		color: #79c0ff;
-		font-weight: 500;
-	}
-
+	/* Lineage section */
 	.lineage-section {
 		grid-column: 1 / -1;
 	}
 
 	.lineage-container {
-		min-height: 400px;
-	}
-
-	.lineage-graph {
-		width: 100%;
-		height: 400px;
-		border: 1px solid #21262d;
-		border-radius: 0.5rem;
-		background: #0d1117;
-		position: relative;
-		overflow: hidden;
+		min-height: 600px;
+		height: 80vh;
 	}
 
 	.no-lineage {
 		text-align: center;
 		color: #8b949e;
 		font-style: italic;
-		padding: 2rem;
+		padding: 3rem;
+		background: rgba(33, 38, 45, 0.3);
+		border-radius: 0.5rem;
+		border: 1px dashed #21262d;
+	}
+
+	/* Responsive design */
+	@media (max-width: 768px) {
+		.asset-details {
+			padding: 1rem;
+		}
+
+		.header h1 {
+			font-size: 1.5rem;
+		}
+
+		.title-section {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.75rem;
+		}
+
+		.policy-columns {
+			grid-template-columns: 1fr;
+			gap: 1rem;
+		}
 	}
 
 	@media (min-width: 768px) {
@@ -538,14 +712,18 @@
 			grid-template-columns: 1fr 1fr;
 		}
 
-		.section:nth-child(4) {
+		.policy-section {
+			grid-column: 1 / -1;
+		}
+
+		.lineage-section {
 			grid-column: 1 / -1;
 		}
 	}
 
 	@media (min-width: 1024px) {
 		.asset-details {
-			padding: 3rem;
+			padding: 2rem;
 		}
 	}
 </style>
