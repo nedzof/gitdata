@@ -76,7 +76,7 @@ export class BRC100WalletConnector extends EventEmitter {
     this.config = {
       sessionTTL: 24 * 60 * 60 * 1000, // 24 hours
       autoReconnect: true,
-      enabledWallets: ['handcash', 'centbee', 'relayx', 'simply', 'yours'],
+      enabledWallets: ['handcash', 'centbee', 'relayx', 'simply', 'yours', 'metanet'],
       ...config
     };
   }
@@ -114,6 +114,11 @@ export class BRC100WalletConnector extends EventEmitter {
       // Yours Wallet
       if (w.yours) {
         availableWallets.push('yours');
+      }
+
+      // MetaNet Desktop Wallet
+      if (w.metanet || w.metaNet || w.MetaNet) {
+        availableWallets.push('metanet');
       }
 
       // Generic BRC-100 interface
@@ -340,6 +345,8 @@ export class BRC100WalletConnector extends EventEmitter {
         return new SimplyInterface();
       case 'yours':
         return new YoursInterface();
+      case 'metanet':
+        return new MetaNetInterface();
       default:
         return new GenericBRC100Interface();
     }
@@ -580,6 +587,71 @@ class YoursInterface extends WalletInterface {
   async pay(request: BRC100PaymentRequest): Promise<BRC100PaymentResponse> {
     const yours = (window as any).yours;
     const result = await yours.pay(request);
+
+    return {
+      txid: result.txid,
+      rawtx: result.rawtx,
+      outputs: result.outputs || []
+    };
+  }
+}
+
+/**
+ * MetaNet Desktop Wallet implementation
+ */
+class MetaNetInterface extends WalletInterface {
+  async connect(): Promise<BRC100WalletInfo> {
+    if (typeof window === 'undefined') {
+      throw new Error('MetaNet Desktop Wallet not available - window object not found');
+    }
+
+    const w = window as any;
+    const metanet = w.metanet || w.metaNet || w.MetaNet;
+
+    if (!metanet) {
+      throw new Error('MetaNet Desktop Wallet not available');
+    }
+
+    const result = await metanet.connect();
+
+    return {
+      name: 'MetaNet Desktop',
+      version: metanet.version || '1.0.0',
+      capabilities: ['sign', 'pay', 'identity'],
+      identityKey: result.publicKey,
+      publicKey: result.publicKey,
+      address: result.address
+    };
+  }
+
+  async sign(request: BRC100SignRequest): Promise<BRC100SignResponse> {
+    const w = window as any;
+    const metanet = w.metanet || w.metaNet || w.MetaNet;
+
+    const result = await metanet.sign({
+      message: request.message,
+      encoding: 'utf8'
+    });
+
+    return {
+      signature: result.signature,
+      publicKey: result.publicKey,
+      algorithm: 'ECDSA'
+    };
+  }
+
+  async pay(request: BRC100PaymentRequest): Promise<BRC100PaymentResponse> {
+    const w = window as any;
+    const metanet = w.metanet || w.metaNet || w.MetaNet;
+
+    const result = await metanet.pay({
+      outputs: request.outputs.map(output => ({
+        to: output.to,
+        amount: output.amount,
+        script: output.script
+      })),
+      data: request.data
+    });
 
     return {
       txid: result.txid,

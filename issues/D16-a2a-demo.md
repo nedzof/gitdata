@@ -1,214 +1,378 @@
-D16 — Demonstration einer autonomen Agent-zu-Agent (A2A) Wertschöpfungskette
+# D16 — BSV Overlay Network Agent-to-Agent (A2A) Value Chain Demonstration
 
-Labels: demo, e2e, autonomy, audit-trail
-Assignee: TBA
-Estimate: 2 PT
+**Labels:** demo, e2e, autonomy, audit-trail, overlay, brc-standards
+**Assignee:** TBA
+**Estimate:** 2 PT
 
-1) Zweck
-Diese Demonstration zeigt eine vollständige, durchgehende Wertschöpfungskette, orchestriert von autonomen KI-Agenten auf einem offenen Marktplatz. Ziel:
-- Agenten treffen autonome Entscheidungen (finden, prüfen, benachrichtigen, optional kaufen/verkaufen).
-- Der Prozess erzeugt einen lückenlosen, kryptographisch gesicherten Audit-Trail.
-- Die Demo ist generisch und auf beliebige Domänen übertragbar.
+## 1) Purpose
 
-2) Komponentenüberblick
-- Overlay Service (D24): Stellt Marktplatz-APIs bereit
-  - /agents/register, /agents/search, /agents/:id/ping
-  - /rules CRUD + /rules/:id/run (manuelles Triggern)
-  - /jobs (Queue-Status)
-  - In-Process Worker (führt Actions aus; notify, contract.generate simuliert)
-  - Optional bestehende Routen in deiner Instanz: submit, bundle, ready, price, pay
-- Beispiel-Agent (Node/TS): Nimmt BRC-31-signierte Webhooks an (X-Identity-Key, X-Nonce, X-Signature) und antwortet mit ok: true.
-- SQLite-Datenbank: Registry (agents), Regeln (rules), Jobs (jobs) inkl. evidence_json.
-- Signatur/Compliance:
-  - Webhook-Aufrufe vom Overlay sind BRC-31-signiert (secp256k1).
-  - Registrierung/Calls können optional identity-signed erfolgen (requireIdentity(false)).
+This demonstration showcases a complete, end-to-end value chain orchestrated by autonomous AI agents on the BSV overlay network. The system leverages BRC standards for distributed agent coordination and creates a cryptographically secured audit trail.
 
-3) Voraussetzungen
-- Overlay läuft (server.ts), Schema initialisiert.
-- Beispiel-Agent gestartet: npm run agent:example (lauscht auf http://localhost:9099/webhook).
-- AGENT_CALL_PRIVKEY im Overlay gesetzt (Pflicht für signierte Webhooks).
-- Optional: Dein Overlay hat die bestehenden Routen (submit, bundle, ready, price, pay) montiert, damit die Kette „Produzieren–Bepreisen–Bezahlen–Bündeln“ vollumfänglich gezeigt werden kann. Ansonsten läuft die Demo im „Minimalmodus“ (notify + evidenzbasierter Job-Abschluss).
+**Key Objectives:**
+- Agents make autonomous decisions via overlay network coordination
+- Complete audit trail secured by BRC standards and overlay network
+- Generic framework applicable across domains
+- Production-ready PostgreSQL backend with overlay integration
 
-4) Akteure (abstrakt)
-- Agent A (Produzent): Erzeugt aus einer Eingabe ein erstes Artefakt.
-- Agent B (Verarbeiter): Entdeckt A, vertraut nach Prüfung, veredelt → Artefakt B.
-- Agent C (Analyst): Entdeckt B, vertraut nach Prüfung, erstellt finalen Report.
-- Operator (Mensch): Startet Demo, stößt optional Uploads/Payments an, prüft Audit-Trail.
+## 2) Component Overview
 
-5) Datenfluss-Varianten
-- Minimal (immer verfügbar): Events werden über Regeln/Jobs orchestriert; notify löst bei Agenten Aktionen aus. contract.generate ist simuliert.
-- Erweitert (falls Overlay-Routen verfügbar): Agenten publizieren Artefakte (submit), setzen Preise (price), bezahlen (pay), und der Operator bündelt den vollständigen Herkunftsbeweis (bundle) mit SPV/Evidence-Pack.
+### BSV Overlay Network Integration (D24)
+- **Agent Registry**: `/overlay/agents/register`, `/overlay/agents/search`, `/overlay/agents/:id/status`
+- **Rule Engine**: `/overlay/rules` CRUD + `/overlay/rules/:id/execute`
+- **Job Coordination**: `/overlay/jobs` (distributed job orchestration)
+- **Network Status**: `/overlay/network/status`, `/overlay/marketplace/offers`
+- **Agent Coordination**: `/overlay/agents/coordinate` (multi-agent workflows)
 
-6) Schritt-für-Schritt (Runbook, reproduzierbar)
+### BRC Standards Implementation
+- **BRC-22**: Job orchestration and task distribution
+- **BRC-24**: Agent discovery and lookup services
+- **BRC-64**: Transaction verification for payments
+- **BRC-88**: SHIP/SLAP advertising and service discovery
+- **BRC-26**: Universal Hash Resolution Protocol for file storage
+- **BRC-31**: Identity verification and message signing
 
-6.1 Setup und Agenten registrieren
-- Register Agent A (gleiches Schema für B und C; du kannst denselben Webhook verwenden):
-curl -sS -X POST "{{BASE}}/agents/register" -H "content-type: application/json" -d '{
-  "name":"Agent-A",
-  "capabilities":[{"name":"notify"}],
-  "webhookUrl":"http://localhost:9099/webhook"
+### Database Architecture
+- **PostgreSQL**: Production-ready database with overlay integration
+- **Hybrid Support**: Falls back to SQLite for development
+- **Connection Pooling**: Optimized for high-throughput operations
+- **Event Storage**: Comprehensive audit trail with BRC evidence
+
+### Security & Compliance
+- **BRC-31 Signatures**: All webhook calls signed with secp256k1
+- **Overlay Identity**: Agents verified through overlay network identity
+- **Evidence Chain**: Complete cryptographic audit trail
+- **Multi-signature Support**: Enhanced security for critical operations
+
+## 3) Prerequisites
+
+- Overlay network enabled: `OVERLAY_ENABLED=true`
+- PostgreSQL running: `PG_HOST=localhost PG_PORT=5432 PG_DATABASE=overlay`
+- Redis for caching: `REDIS_URL=redis://localhost:6379`
+- Example agent running: `npm run agent:example` (listens on http://localhost:9099/webhook)
+- Environment variables:
+  ```bash
+  OVERLAY_ENABLED=true
+  PG_HOST=localhost
+  PG_PORT=5432
+  PG_DATABASE=overlay
+  PG_USER=postgres
+  PG_PASSWORD=password
+  REDIS_URL=redis://localhost:6379
+  OVERLAY_PORT=8788
+  ```
+
+## 4) Actors (Abstract)
+
+- **Agent A (Producer)**: Creates initial artifact using BRC-88 service advertisement
+- **Agent B (Processor)**: Discovers A via BRC-24 lookup, processes and enhances data
+- **Agent C (Analyst)**: Discovers B, creates final report with complete lineage
+- **Overlay Network**: Provides distributed coordination via BRC standards
+- **Operator (Human)**: Initiates demo, monitors overlay network status, verifies audit trail
+
+## 5) Data Flow Variants
+
+### Standard Flow (Overlay Network)
+- Events orchestrated through overlay network using BRC-22 job coordination
+- Agents communicate via BRC-31 signed webhooks
+- Files stored using BRC-26 Universal Hash Resolution Protocol
+- Service discovery through BRC-88 SHIP/SLAP advertisements
+
+### Enhanced Flow (Full BSV Integration)
+- Agents publish artifacts to overlay network with BSV transaction anchoring
+- Payments processed through BRC-64 transaction verification
+- Complete audit trail with SPV proofs and overlay evidence
+- Multi-agent coordination with distributed consensus
+
+## 6) Step-by-Step Runbook
+
+### 6.1 Setup and Agent Registration
+
+**Register Agent A:**
+```bash
+curl -X POST "{{BASE}}/overlay/agents/register" -H "content-type: application/json" -d '{
+  "name": "OverlayAgent-A",
+  "capabilities": [
+    {
+      "name": "data-processing",
+      "inputs": ["raw-data"],
+      "outputs": ["processed-data"]
+    }
+  ],
+  "webhookUrl": "http://localhost:9099/webhook",
+  "geographicRegion": "US",
+  "overlayTopics": ["gitdata.agent.capabilities", "gitdata.d01a.manifest"]
 }'
-→ Antwort enthält agentId (z. B. ag_...).
-- Optional: /agents/:id/ping vom Agenten (oder simuliert)
-curl -sS -X POST "{{BASE}}/agents/{agentIdA}/ping"
-- Verifizieren:
-curl -sS "{{BASE}}/agents/search?q=Agent-A"
+```
 
-6.2 Regel für Agent A anlegen (notify auf gefundene Items)
-- Erzeuge Regel R_A:
-curl -sS -X POST "{{BASE}}/rules" -H "content-type: application/json" -d '{
-  "name":"R_A",
-  "enabled":true,
-  "when":{"type":"ready","predicate":{"eq":{"always":true}}},
-  "find":{"source":"search","query":{"q":""},"limit":1},
-  "actions":[{"action":"notify","agentId":"{agentIdA}"}]
+**Response contains:** `agentId`, `shipAdvertisementId`, `overlayTopics`
+
+**Verify Registration:**
+```bash
+curl -X GET "{{BASE}}/overlay/agents/search?capability=data-processing&region=US"
+```
+
+### 6.2 Create Overlay Rule for Agent A
+
+**Create Rule R_A:**
+```bash
+curl -X POST "{{BASE}}/overlay/rules" -H "content-type: application/json" -d '{
+  "name": "R_A_DataProcessor",
+  "overlayTopics": ["gitdata.d01a.manifest"],
+  "whenCondition": {
+    "type": "overlay-event",
+    "topic": "gitdata.d01a.manifest",
+    "predicate": {
+      "and": [
+        {"includes": {"tags": "raw-data"}},
+        {"eq": {"classification": "public"}}
+      ]
+    }
+  },
+  "findStrategy": {
+    "source": "agent-registry",
+    "query": {"capability": "data-processing"},
+    "limit": 3
+  },
+  "actions": [
+    {
+      "action": "overlay.notify",
+      "capability": "data-processing",
+      "payload": {"type": "data-processing-request"}
+    }
+  ]
 }'
-→ Antwort: ruleId (rl_...).
+```
 
-6.3 Regel R_A auslösen (manuelles Enqueue)
-- Triggern:
-curl -sS -X POST "{{BASE}}/rules/{ruleIdA}/run"
-→ Antwort: enqueued: N (falls 0, gibt es derzeit keine Treffer in searchManifests; siehe Hinweis „Daten seeden“ unten).
+**Response:** `ruleId`, `overlaySubscriptions`, `brc22JobTemplate`
 
-6.4 Jobs überwachen und Evidenz prüfen
-- Liste Jobs:
-curl -sS "{{BASE}}/jobs"
-- Erwartung:
-  - Jobs für ruleIdA gehen queued → running → done (Worker).
-  - evidence_json enthält Eintrag action: "notify", status < 300, body.ok === true.
-- Falls Agent nicht erreichbar oder Signatur-Setup fehlt: Worker retries (exponentielles Backoff) bis JOB_RETRY_MAX; am Ende state "dead" mit last_error.
+### 6.3 Trigger Rule Execution
 
-6.5 Erweiterung – A produziert und bepreist (wenn vorhanden)
-- Publizieren (Submit): POST /submit mit contentHash, parentVersionId (z. B. SOURCE-ASSET-01).
-- Preis setzen: POST /producers/price oder /price.
-- Ergebnis: versionId für A (z. B. INTERMEDIATE-RESULT-A-15).
+**Execute Rule:**
+```bash
+curl -X POST "{{BASE}}/overlay/rules/{ruleId}/execute"
+```
 
-6.6 Regel(n) für Agent B
-- R_B definiert, dass beim Auffinden von A’s Ergebnissen B benachrichtigt wird:
-curl -sS -X POST "{{BASE}}/rules" -H "content-type: application/json" -d '{
-  "name":"R_B",
-  "enabled":true,
-  "when":{"type":"ready","predicate":{"eq":{"always":true}}},
-  "find":{"source":"search","query":{"q":"INTERMEDIATE-RESULT-A"},"limit":1},
-  "actions":[{"action":"notify","agentId":"{agentIdB}"}]
+**Response:** `jobsCreated`, `overlayEventsPublished`, `agentsNotified`
+
+### 6.4 Monitor Jobs and Overlay Network
+
+**List Active Jobs:**
+```bash
+curl -X GET "{{BASE}}/overlay/jobs"
+```
+
+**Check Network Status:**
+```bash
+curl -X GET "{{BASE}}/overlay/network/status"
+```
+
+**Expected Evidence:**
+- Jobs transition: `queued` → `running` → `completed`
+- BRC-31 signature verification in `evidence_json`
+- Overlay network propagation logs
+- Agent response with `ok: true` and BRC-31 signature
+
+### 6.5 Agent B - Processing Chain
+
+**Register Agent B:**
+```bash
+curl -X POST "{{BASE}}/overlay/agents/register" -H "content-type: application/json" -d '{
+  "name": "OverlayAgent-B",
+  "capabilities": [
+    {
+      "name": "data-enhancement",
+      "inputs": ["processed-data"],
+      "outputs": ["enhanced-data"]
+    }
+  ],
+  "webhookUrl": "http://localhost:9099/webhook",
+  "overlayTopics": ["gitdata.agent.capabilities"]
 }'
-- Triggern: POST /rules/{ruleIdB}/run
-- Beobachten: /jobs → done, evidence_json enthält notify (B wurde angestoßen).
-- Erweiterung (wenn verfügbar):
-  - Vertrauensprüfung/Readiness: GET /ready?versionId=INTERMEDIATE-RESULT-A-15
-  - Kauf/Bezahlung: POST /pay → receiptId
-  - Produktion B: POST /submit mit parentVersionId=INTERMEDIATE-RESULT-A-15 → INTERMEDIATE-RESULT-B-42
-  - Preis setzen für B
+```
 
-6.7 Regel für Agent C
-- R_C analog zu R_B, aber mit Query „INTERMEDIATE-RESULT-B“ und notify auf agentIdC.
-- Triggern und /jobs überwachen.
-- Erweiterung (falls verfügbar):
-  - Ready-Check bis zur Quelle
-  - Kauf
-  - Finales Artefakt: FINAL-REPORT-C-99 (per /submit mit parentVersionId=INTERMEDIATE-RESULT-B-42)
-  - Preis setzen
-
-6.8 Finaler Audit-Trail
-- Minimal: Prüfe /jobs für alle Regeln; evidence_json bildet den Ablauf der A2A-Aktion(en) ab (inkl. BRC-31-signierter notify-Belege).
-- Erweitert: Vollständiges Bundle (sofern Route vorhanden)
-curl -sS "{{BASE}}/bundle?versionId=FINAL-REPORT-C-99&depth=99"
-→ Liefert einen kryptographisch gesicherten, lückenlosen Herkunftsnachweis (inkl. Manifeste, Receipts, SPV-Proofs, sofern deine Instanz dies bereitstellt).
-
-Hinweise zum Datenbestand (find.source=search)
-- /rules/:id/run nutzt searchManifests(db, { q, datasetId, limit }) intern.
-- Wenn enqueued=0 zurückkommt, gibt es aktuell keine Treffer. Seed-Empfehlungen:
-  - Bestehende /submit-Route nutzen, um SOURCE-ASSET-01 und Folgeartefakte (A, B, C) zu publizieren.
-  - Alternativ die find.query.q anpassen, sodass ein vorhandener Manifest-Eintrag gefunden wird.
-- Der when.predicate wird im Worker-Skelett nicht ausgewertet; das Triggern erfolgt manuell via /rules/:id/run.
-
-7) Definition of Done (DoD)
-- E2E-Minimal:
-  - Alle drei Agenten (A, B, C) sind registriert und über /agents/search auffindbar.
-  - Für jede Regel (R_A, R_B, R_C) wurde /rules/:id/run erfolgreich ausgeführt.
-  - Mindestens eine Regel hat Jobs erzeugt, die in /jobs auf state=done gehen.
-  - evidence_json enthält für notify-Ereignisse status < 300 und body.ok === true (Beleg für BRC-31-signierte Webhook-Roundtrip).
-- E2E-Erweitert (falls Routen verfügbar):
-  - Für die finale versionId (z. B. FINAL-REPORT-C-99) liefert bundle eine durchgehende, verifizierbare Kette (Tiefe ≥ 3).
-  - Ein Evidence-Pack (Manifeste, Receipts, SPV-Proofs) ist vollständig.
-
-8) Abnahmekriterien
-- Registry/Auffindbarkeit:
-  - /agents/register liefert agentId; /agents/search findet den Agenten per q/capability.
-  - /agents/:id/ping aktualisiert Status/lastPingAt.
-- Regeln/Queue:
-  - /rules CRUD funktioniert, /rules/:id/run enqueued ≥ 0.
-  - /jobs listet Einträge mit schlüssigem state-Übergang (queued → running → done | dead).
-- Evidenz:
-  - evidence_json pro Job enthält Aktionsbelege (notify, ggf. contract.generate).
-  - Bei Erfolg: notify.body.ok === true; bei Fehler: last_error gesetzt und Retries bis DLQ (dead).
-- Optional (erweitert):
-  - contentHash/Lineage-Checks über ready/bundle laufen ohne Warnungen.
-  - Einnahmen (revenue_events) für Produzenten werden korrekt verbucht (sofern Teil deiner Instanz).
-
-9) Artefakte
-- a2a-demo-evidence/
-  - agents.json (Registrierungsantworten, Search-Ergebnisse)
-  - rules.json (IDs, Bodies)
-  - jobs.json (Zwischenstände, finaler Stand)
-  - evidence/ (pro Job die evidence_json extrahiert)
-  - optional: bundle/FINAL-REPORT-C-99.json (kompletter Herkunftsnachweis)
-
-10) Betrieb/Sicherheit/Compliance
-- Webhook-Signaturen:
-  - Overlay signiert mit secp256k1; Header: X-Identity-Key, X-Nonce, X-Signature.
-  - Beispiel-Agent akzeptiert Webhooks; Signaturprüfung kann serverseitig ergänzt werden.
-- Identität:
-  - /agents/register unterstützt optional Identity (requireIdentity(false) → signiert empfohlen).
-- Zuverlässigkeit:
-  - Worker-Retries mit exponentiellem Backoff; after JOB_RETRY_MAX → state=dead.
-- Konfiguration:
-  - AGENT_CALL_PRIVKEY (Pflicht)
-  - AGENT_CALL_PUBKEY (optional, wird sonst abgeleitet)
-  - JOB_RETRY_MAX, CALLBACK_TIMEOUT_MS (Standard 8000 ms)
-
-11) Rollback/Risiken
-- Gering: Die Demo ist idempotent. Regeln können gelöscht (/rules/:id DELETE), Jobs laufen aus. Erneute Ausführung ist jederzeit möglich.
-- Bei nicht erreichbarem Agenten: Jobs gehen nach Retries in dead und beeinträchtigen nicht den Rest.
-
-12) Automatisierte Verifikation (Postman/Newman)
-- Verwende die bereitgestellte E2E-Collection (Agents → Rules → Run → Jobs-Polling → Cleanup).
-- Prüft:
-  - Agent-Registry/Suche/Ping
-  - Regel-Erstellung/Ausführung
-  - Jobs bis state=done und notify-evidence ok: true
-- Kommandobeispiel:
-npx newman run D24-Agent-Marketplace.postman_collection.json -e D24-Local.postman_environment.json --delay-request 250 --timeout-request 15000
-
-Appendix: Beispiel-Requests (copy & paste)
-
-A) Agent registrieren
-curl -X POST {{BASE}}/agents/register -H 'content-type: application/json' -d '{
-  "name":"Agent-A",
-  "capabilities":[{"name":"notify"}],
-  "webhookUrl":"http://localhost:9099/webhook"
+**Create Chain Rule R_B:**
+```bash
+curl -X POST "{{BASE}}/overlay/rules" -H "content-type: application/json" -d '{
+  "name": "R_B_DataEnhancer",
+  "overlayTopics": ["gitdata.agent.results"],
+  "whenCondition": {
+    "type": "overlay-event",
+    "topic": "gitdata.agent.results",
+    "predicate": {
+      "and": [
+        {"eq": {"sourceAgent": "OverlayAgent-A"}},
+        {"eq": {"status": "completed"}}
+      ]
+    }
+  },
+  "findStrategy": {
+    "source": "agent-registry",
+    "query": {"capability": "data-enhancement"},
+    "limit": 1
+  },
+  "actions": [
+    {
+      "action": "overlay.notify",
+      "capability": "data-enhancement",
+      "payload": {"type": "enhancement-request", "parentResult": "{eventData.resultId}"}
+    }
+  ]
 }'
+```
 
-B) Regel anlegen
-curl -X POST {{BASE}}/rules -H 'content-type: application/json' -d '{
-  "name":"R_A",
-  "enabled":true,
-  "when":{"type":"ready","predicate":{"eq":{"always":true}}},
-  "find":{"source":"search","query":{"q":""},"limit":1},
-  "actions":[{"action":"notify","agentId":"{agentIdA}"}]
+### 6.6 Multi-Agent Coordination
+
+**Coordinate Agents A and B:**
+```bash
+curl -X POST "{{BASE}}/overlay/agents/coordinate" -H "content-type: application/json" -d '{
+  "agentIds": ["{agentIdA}", "{agentIdB}"],
+  "workflow": "sequential",
+  "coordination": {
+    "task": "data-processing-pipeline",
+    "parameters": {
+      "inputData": "sample-dataset-001",
+      "outputFormat": "enhanced-json"
+    }
+  },
+  "timeout": 30000
 }'
+```
 
-C) Regel triggern
-curl -X POST {{BASE}}/rules/{ruleId}/run
+**Response:** `coordinationId`, `workflowState`, `agentAssignments`
 
-D) Jobs prüfen
-curl -X GET {{BASE}}/jobs
+### 6.7 Complete Audit Trail
 
-E) Cleanup
-curl -X DELETE {{BASE}}/rules/{ruleId}
+**Retrieve Job Evidence:**
+```bash
+curl -X GET "{{BASE}}/overlay/jobs/{jobId}/evidence"
+```
 
-Hinweise zur Anwendbarkeit
-- Diese Vorlage ist absichtlich generisch gehalten. Du kannst die Benennung der Artefakte (SOURCE-ASSET-01, INTERMEDIATE-RESULT-A-15, …) und die Suchabfragen (find.query.q) an dein Fachszenario anpassen.
-- Der Minimalpfad funktioniert out-of-the-box mit dem D24-Agent-Marktplatz (notify + Evidenzen). Der erweiterte Pfad nutzt deine bestehenden Overlay-Endpunkte für eine voll ökonomische Wertschöpfung (submit/price/pay/bundle).
+**Get Network Activity:**
+```bash
+curl -X GET "{{BASE}}/overlay/network/activity?timeRange=1h"
+```
 
-Wenn du magst, erstelle ich dir zusätzlich eine schlanke „One-Click“-Makefile- oder npm-Skript-Sequenz, die Setup, Registrierung, Regel-Trigger, Polling und Evidenz-Export automatisiert – inklusive optionaler Datenseeds für die find-Queries.
+**Verify BRC-31 Signatures:**
+```bash
+curl -X GET "{{BASE}}/overlay/agents/{agentId}/signatures"
+```
+
+**Expected Audit Trail:**
+- Complete BRC-22 job orchestration logs
+- BRC-24 agent discovery and selection records
+- BRC-31 identity verification for all communications
+- BRC-88 service advertisement and discovery logs
+- Overlay network propagation and consensus evidence
+
+## 7) BRC Standards Integration Verification
+
+### BRC-22 Job Orchestration
+- Verify job creation, distribution, and completion tracking
+- Check task dependency resolution and workflow coordination
+- Validate retry mechanisms and failure handling
+
+### BRC-24 Agent Discovery
+- Test agent search and filtering capabilities
+- Verify service capability matching
+- Validate geographic and topic-based routing
+
+### BRC-31 Identity Verification
+- Confirm all webhook calls are properly signed
+- Verify signature validation on agent responses
+- Check identity key distribution and management
+
+### BRC-88 Service Advertisement
+- Validate SHIP advertisement creation and propagation
+- Test SLAP service lookup and discovery
+- Verify service availability and health monitoring
+
+## 8) Definition of Done (DoD)
+
+### Overlay Network Integration
+- [ ] All agents registered with BRC-88 SHIP advertisements
+- [ ] Agent discovery working via BRC-24 lookup services
+- [ ] Rules executing with overlay event subscriptions
+- [ ] Jobs completing with BRC-22 orchestration evidence
+- [ ] Multi-agent coordination functioning correctly
+
+### Evidence and Compliance
+- [ ] All webhook calls signed with BRC-31 and verified
+- [ ] Complete audit trail stored in PostgreSQL
+- [ ] Overlay network activity properly logged
+- [ ] Evidence includes BRC standard compliance proofs
+
+### Performance and Reliability
+- [ ] PostgreSQL connection pooling working efficiently
+- [ ] Redis caching improving response times
+- [ ] Overlay network health monitoring active
+- [ ] Graceful handling of agent failures and network partitions
+
+## 9) Advanced Features
+
+### File Storage with BRC-26
+- Static file storage (PDF, TXT) via Universal Hash Resolution Protocol
+- Content addressing with cryptographic hash verification
+- Distributed file availability across overlay network nodes
+
+### Economic Integration
+- Optional BSV micropayments for agent services
+- Revenue tracking and agent reputation scoring
+- Market-based pricing for computational resources
+
+### Governance and Policies
+- Agent behavior policies enforced via overlay network
+- Resource limits and rate limiting per agent
+- Compliance monitoring and automated reporting
+
+## 10) Testing and Validation
+
+### Unit Tests
+```bash
+npm run test:unit
+```
+
+### Integration Tests
+```bash
+NODE_ENV=test VITEST=true npx vitest run --config vitest.integration.config.ts test/integration/d24-agent-marketplace-basic.spec.ts
+```
+
+### Full Overlay Tests
+```bash
+NODE_ENV=test VITEST=true timeout 60 npx vitest run --config vitest.integration.config.ts test/integration/d24-marketplace.spec.ts
+```
+
+## 11) Environment Configuration
+
+### Development
+```bash
+OVERLAY_ENABLED=true
+OVERLAY_ENV=development
+NODE_ENV=development
+PG_HOST=localhost
+PG_PORT=5432
+PG_DATABASE=overlay
+REDIS_URL=redis://localhost:6379
+```
+
+### Production
+```bash
+OVERLAY_ENABLED=true
+OVERLAY_ENV=production
+NODE_ENV=production
+PG_HOST=production-db-host
+PG_PORT=5432
+PG_DATABASE=overlay_prod
+REDIS_URL=redis://production-redis:6379
+```
+
+## 12) Migration from Legacy A2A
+
+The previous SQLite-based A2A implementation has been completely replaced with this overlay network approach. Key improvements:
+
+- **Distributed Architecture**: No single point of failure
+- **BRC Standards Compliance**: Industry-standard protocols
+- **PostgreSQL Scale**: Production-ready database backend
+- **Enhanced Security**: BRC-31 identity verification
+- **Network Effects**: Benefits from BSV overlay network participation
+
+This implementation provides a robust foundation for autonomous agent coordination while maintaining full compatibility with BSV overlay network standards and protocols.

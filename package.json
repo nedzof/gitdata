@@ -43,6 +43,7 @@
     "test:hybrid": "npm run test:integration"
   },
   "dependencies": {
+    "@bsv/overlay": "^0.4.6",
     "@noble/curves": "^1.4.0",
     "@noble/secp256k1": "^3.0.0",
     "@types/multer": "^2.0.0",

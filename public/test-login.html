@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BRC-100 Wallet Login Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .wallet-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>BRC-100 Wallet Login Test</h1>
+
+        <div class="wallet-section">
+            <h3>Wallet Detection</h3>
+            <button id="detectWalletsBtn">Detect Available Wallets</button>
+            <div id="walletDetection" class="status info" style="display: none;">
+                Checking for available wallets...
+            </div>
+        </div>
+
+        <div class="wallet-section">
+            <h3>MetaNet Desktop Wallet Test</h3>
+            <button id="connectMetaNetBtn" disabled>Connect to MetaNet Desktop</button>
+            <button id="testSignBtn" disabled>Test Signature</button>
+            <div id="connectionStatus"></div>
+            <div id="walletInfo"></div>
+        </div>
+
+        <div class="wallet-section">
+            <h3>Backend Integration</h3>
+            <button id="testBackendBtn" disabled>Test Backend Login</button>
+            <div id="backendStatus"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import the BRC100WalletConnector
+        const walletConnector = new (await import('./wallet-connector.js')).default({
+            apiUrl: 'http://localhost:8788',
+            enabledWallets: ['metanet']
+        });
+
+        let connectedWallet = null;
+
+        // DOM elements
+        const detectWalletsBtn = document.getElementById('detectWalletsBtn');
+        const connectMetaNetBtn = document.getElementById('connectMetaNetBtn');
+        const testSignBtn = document.getElementById('testSignBtn');
+        const testBackendBtn = document.getElementById('testBackendBtn');
+        const walletDetection = document.getElementById('walletDetection');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const walletInfo = document.getElementById('walletInfo');
+        const backendStatus = document.getElementById('backendStatus');
+
+        function showStatus(element, message, type = 'info') {
+            element.innerHTML = `<div class="status ${type}">${message}</div>`;
+            element.style.display = 'block';
+        }
+
+        // Detect wallets
+        detectWalletsBtn.addEventListener('click', async () => {
+            try {
+                showStatus(walletDetection, 'Detecting wallets...', 'info');
+
+                const availableWallets = await walletConnector.detectWallets();
+
+                if (availableWallets.length === 0) {
+                    showStatus(walletDetection, 'No BRC-100 compatible wallets detected. Make sure MetaNet Desktop is installed and running.', 'error');
+                } else {
+                    showStatus(walletDetection, `Found wallets: ${availableWallets.join(', ')}`, 'success');
+                    connectMetaNetBtn.disabled = !availableWallets.includes('metanet');
+                }
+            } catch (error) {
+                showStatus(walletDetection, `Error detecting wallets: ${error.message}`, 'error');
+            }
+        });
+
+        // Connect to MetaNet
+        connectMetaNetBtn.addEventListener('click', async () => {
+            try {
+                showStatus(connectionStatus, 'Connecting to MetaNet Desktop...', 'info');
+
+                connectedWallet = await walletConnector.connect('metanet');
+
+                showStatus(connectionStatus, 'Successfully connected to MetaNet Desktop!', 'success');
+                walletInfo.innerHTML = `
+                    <div class="status success">
+                        <h4>Wallet Information:</h4>
+                        <pre>${JSON.stringify(connectedWallet, null, 2)}</pre>
+                    </div>
+                `;
+
+                testSignBtn.disabled = false;
+                testBackendBtn.disabled = false;
+
+            } catch (error) {
+                showStatus(connectionStatus, `Failed to connect: ${error.message}`, 'error');
+            }
+        });
+
+        // Test signing
+        testSignBtn.addEventListener('click', async () => {
+            try {
+                const testMessage = 'Hello from BSV Data Overlay!';
+                showStatus(connectionStatus, `Signing test message: "${testMessage}"`, 'info');
+
+                const signResult = await walletConnector.signMessage({
+                    message: testMessage,
+                    purpose: 'test'
+                });
+
+                showStatus(connectionStatus, 'Message signed successfully!', 'success');
+                walletInfo.innerHTML += `
+                    <div class="status success">
+                        <h4>Signature Result:</h4>
+                        <pre>${JSON.stringify(signResult, null, 2)}</pre>
+                    </div>
+                `;
+
+            } catch (error) {
+                showStatus(connectionStatus, `Signing failed: ${error.message}`, 'error');
+            }
+        });
+
+        // Test backend integration
+        testBackendBtn.addEventListener('click', async () => {
+            try {
+                showStatus(backendStatus, 'Testing backend identity endpoints...', 'info');
+
+                // Test identity status endpoint
+                const headers = await walletConnector.generateAuthHeaders('{}');
+
+                const response = await fetch(`http://localhost:8788/identity/status/${connectedWallet.identityKey}`, {
+                    method: 'GET',
+                    headers
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    showStatus(backendStatus, 'Backend integration successful!', 'success');
+                    document.getElementById('backendStatus').innerHTML += `
+                        <div class="status success">
+                            <h4>Identity Status:</h4>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                } else {
+                    const errorData = await response.json();
+                    showStatus(backendStatus, `Backend error: ${errorData.error || response.statusText}`, 'error');
+                }
+
+            } catch (error) {
+                showStatus(backendStatus, `Backend test failed: ${error.message}`, 'error');
+            }
+        });
+
+        // Auto-detect wallets on page load
+        window.addEventListener('load', () => {
+            detectWalletsBtn.click();
+        });
+    </script>
+</body>
+</html>

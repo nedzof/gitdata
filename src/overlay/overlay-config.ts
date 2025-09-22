@@ -232,6 +232,17 @@ export function getOverlayConfig(env: 'development' | 'staging' | 'production' =
         ]
       };
 
+    case 'test':
+      return {
+        development: true,
+        autoConnect: false,
+        topics: [
+          D01A_TOPICS.MANIFEST_SUBMISSION,
+          D01A_TOPICS.PAYMENT_RECEIPTS,
+          D01A_TOPICS.LINEAGE_GRAPH
+        ]
+      };
+
     default:
       throw new Error(`Unknown environment: ${env}`);
   }

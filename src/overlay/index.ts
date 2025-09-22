@@ -9,6 +9,11 @@ export { BRC24LookupService } from './brc24-lookup';
 export { BRC64HistoryService } from './brc64-history';
 export { BRC88SHIPSLAPService } from './brc88-ship-slap';
 export { BRC26UHRPService } from './brc26-uhrp';
+
+// D24 Agent Marketplace Services
+export { OverlayAgentRegistry } from '../agents/overlay-agent-registry';
+export { OverlayRuleEngine } from '../agents/overlay-rule-engine';
+export { AgentExecutionService } from '../agents/agent-execution-service';
 export {
   getOverlayConfig,
   D01A_TOPICS,
@@ -207,6 +212,11 @@ function createLegacyWrapper(dbAdapter: DatabaseAdapter): any {
   };
 }
 
+// Import agent marketplace services
+import { OverlayAgentRegistry } from '../agents/overlay-agent-registry';
+import { OverlayRuleEngine } from '../agents/overlay-rule-engine';
+import { AgentExecutionService } from '../agents/agent-execution-service';
+
 export interface GitdataOverlayServices {
   overlayManager: OverlayManager;
   paymentService: OverlayPaymentService;
@@ -215,6 +225,10 @@ export interface GitdataOverlayServices {
   brc64Service: BRC64HistoryService;
   brc88Service: BRC88SHIPSLAPService;
   brc26Service: BRC26UHRPService;
+  // D24 Agent Marketplace Services
+  agentRegistry: OverlayAgentRegistry;
+  ruleEngine: OverlayRuleEngine;
+  executionService: AgentExecutionService;
 }
 
 /**
@@ -306,6 +320,14 @@ export async function initializeOverlayServices(
   // Create payment service
   const paymentService = new OverlayPaymentService(overlayManager, legacyDatabase);
 
+  // D24 Agent Marketplace Services
+  const agentRegistry = new OverlayAgentRegistry(dbAdapter, brc88Service!);
+  const ruleEngine = new OverlayRuleEngine(dbAdapter, brc22Service!, agentRegistry);
+  const executionService = new AgentExecutionService(dbAdapter, {
+    webhookTimeoutMs: 15000,
+    requireIdentity: true
+  });
+
   // Initialize overlay manager
   await overlayManager.initialize();
 
@@ -327,7 +349,11 @@ export async function initializeOverlayServices(
     brc24Service,
     brc64Service,
     brc88Service,
-    brc26Service
+    brc26Service,
+    // D24 Agent Marketplace Services
+    agentRegistry,
+    ruleEngine,
+    executionService
   };
 }
 

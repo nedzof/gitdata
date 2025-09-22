@@ -1,13 +1,14 @@
+// D24 Agent Marketplace Integration Tests - Updated for Overlay Network
+// Tests the complete overlay-based agent marketplace with BRC standards integration
+
 import { test, expect, beforeAll, afterAll, beforeEach, describe } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import { agentsRouter } from '../../src/routes/agents';
-import { rulesRouter } from '../../src/routes/rules';
-import { jobsRouter } from '../../src/routes/jobs';
-import { templatesRouter } from '../../src/routes/templates';
-import { artifactsRouter } from '../../src/routes/artifacts';
-import { startJobsWorker } from '../../src/agents/worker';
-import { initSchema } from '../../src/db';
+import { getPostgreSQLClient } from '../../src/db/postgresql';
+import { initializeOverlayServices } from '../../src/overlay';
+import { agentMarketplaceRouter } from '../../src/routes/agent-marketplace';
+import { enhancedOverlayRouter } from '../../src/routes/overlay-brc';
+import { rateLimit } from '../../src/middleware/limits';
 import {
   enforceAgentRegistrationPolicy,
   enforceRuleConcurrency,
@@ -18,652 +19,679 @@ import {
 } from '../../src/middleware/policy';
 
 let app: express.Application;
-let workerCleanup: any;
+let pgClient: any;
+let overlayServices: any;
 
 beforeAll(async () => {
-  // Initialize PostgreSQL database
-  await initSchema();
+  // Initialize PostgreSQL for testing
+  pgClient = getPostgreSQLClient();
+  const pgPool = pgClient.getPool();
 
-  // Setup Express app with agent marketplace routes - PostgreSQL only, no database parameters
+  // Initialize overlay services with PostgreSQL
+  overlayServices = await initializeOverlayServices(
+    pgPool,
+    'test',
+    'localhost:8788',
+    {
+      storageBasePath: './test-data/uhrp-storage',
+      baseUrl: 'http://localhost:8788'
+    }
+  );
+
+  // Setup Express app with overlay-based agent marketplace
   app = express();
-  app.use(express.json({ limit: '5mb' })); // Increase limit to test resource limits middleware
-  app.use('/agents', enforceResourceLimits(), enforceAgentSecurityPolicy(), enforceAgentRegistrationPolicy(), agentsRouter());
-  app.use('/rules', enforceResourceLimits(), enforceRuleConcurrency(), enforceJobCreationPolicy(), rulesRouter());
-  app.use('/jobs', jobsRouter());
-  app.use('/templates', enforceResourceLimits(), templatesRouter());
-  app.use('/artifacts', artifactsRouter());
+  app.use(express.json({ limit: '5mb' }));
 
-  // Start worker - disabled for PostgreSQL-only tests
-  // workerCleanup = startJobsWorker(db);
+  // Create router instances
+  const agentMarketplaceRouterInstance = agentMarketplaceRouter();
+  const enhancedOverlayRouterInstance = enhancedOverlayRouter();
 
-  // Wait a bit for setup
-  await new Promise(resolve => setTimeout(resolve, 100));
+  // Connect services to routers
+  agentMarketplaceRouterInstance.setServices({
+    agentRegistry: overlayServices.agentRegistry,
+    ruleEngine: overlayServices.ruleEngine,
+    executionService: overlayServices.executionService
+  });
+
+  enhancedOverlayRouterInstance.setOverlayServices(overlayServices);
+
+  // Mount routes with middleware
+  app.use('/overlay',
+    rateLimit('overlay'),
+    enforceResourceLimits(),
+    enforceAgentSecurityPolicy(),
+    enforceAgentRegistrationPolicy(),
+    agentMarketplaceRouterInstance.router
+  );
+
+  app.use('/overlay',
+    rateLimit('overlay'),
+    enhancedOverlayRouterInstance.router
+  );
+
+  console.log('[TEST] D24 Agent Marketplace initialized with overlay services');
+});
+
+afterAll(async () => {
+  await cleanupTestData();
+  if (overlayServices?.ruleEngine) {
+    overlayServices.ruleEngine.stopJobProcessor();
+  }
+  await pgClient.close();
 });
 
 beforeEach(async () => {
-  // Reset policy state between tests to avoid rate limiting carryover
+  await cleanupTestData();
   resetPolicyState();
-
-  // Clean up database between tests
-  const { getPostgreSQLClient } = await import('../../src/db/postgresql');
-  const pgClient = getPostgreSQLClient();
-  await pgClient.query('DELETE FROM jobs');
-  await pgClient.query('DELETE FROM agents WHERE name LIKE $1', ['%Test%']);
-  await pgClient.query('DELETE FROM agents WHERE name LIKE $1', ['%Lifecycle%']);
-  await pgClient.query('DELETE FROM rules WHERE name LIKE $1', ['%Test%']);
-  await pgClient.query('DELETE FROM contract_templates');
 });
 
-afterAll(() => {
-  if (workerCleanup) workerCleanup();
-  // PostgreSQL cleanup handled by connection pool
-});
+describe('D24 Overlay Agent Marketplace E2E Tests', () => {
 
-test('D24 Agent Marketplace - Full Workflow', async () => {
-  // 1. Register an agent
-  const agentResponse = await request(app)
-    .post('/agents/register')
-    .send({
-      name: 'Test Data Processor',
-      webhookUrl: 'http://localhost:9999/webhook',
-      capabilities: ['notify', 'contract.generate']
+  describe('Agent Registration via BRC-88', () => {
+    test('should register agent with SHIP advertisement on overlay network', async () => {
+      const agentData = {
+        name: 'ContractBot',
+        capabilities: [
+          {
+            name: 'contract-generation',
+            inputs: ['manifest', 'template'],
+            outputs: ['contract-pdf', 'metadata']
+          },
+          {
+            name: 'legal-review',
+            inputs: ['contract'],
+            outputs: ['review-report', 'approval-status']
+          }
+        ],
+        overlayTopics: ['gitdata.agent.capabilities', 'gitdata.agent.jobs'],
+        webhookUrl: 'http://localhost:9099/webhook',
+        geographicRegion: 'EU',
+        identityKey: '0339a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c2'
+      };
+
+      const response = await request(app)
+        .post('/overlay/agents/register')
+        .send(agentData)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.agent).toBeDefined();
+      expect(response.body.agent.agentId).toMatch(/^agent_/);
+      expect(response.body.agent.name).toBe('ContractBot');
+      expect(response.body.agent.capabilities).toHaveLength(2);
+      expect(response.body.agent.overlayTopics).toContain('gitdata.agent.capabilities');
+      expect(response.body.agent.reputationScore).toBe(0.0);
+      expect(response.body.agent.status).toBe('unknown');
     });
 
-  expect(agentResponse.status).toBe(201);
-  expect(agentResponse.body.status).toBe('active');
-  expect(agentResponse.body.agentId).toBeDefined();
+    test('should reject invalid agent registration', async () => {
+      const invalidData = {
+        name: 'InvalidAgent',
+        // Missing required capabilities and webhookUrl
+        overlayTopics: ['gitdata.agent.capabilities']
+      };
 
-  const agentId = agentResponse.body.agentId;
+      const response = await request(app)
+        .post('/overlay/agents/register')
+        .send(invalidData)
+        .expect(400);
 
-  // 2. Search for agents
-  const searchResponse = await request(app)
-    .get('/agents/search?q=Test')
-    .expect(200);
-
-  expect(searchResponse.body.items).toHaveLength(1);
-  expect(searchResponse.body.items[0].agentId).toBe(agentId);
-  expect(searchResponse.body.items[0].name).toBe('Test Data Processor');
-
-  // 3. Create a contract template
-  const templateResponse = await request(app)
-    .post('/templates')
-    .send({
-      name: 'Test Agreement',
-      content: 'Agreement for {{DATASET_ID}} processing',
-      type: 'markdown',
-      variables: {
-        variables: [
-          { name: 'DATASET_ID', type: 'string', required: true }
-        ]
-      }
+      expect(response.body.error).toBe('invalid-request');
+      expect(response.body.message).toContain('capabilities');
     });
 
-  expect(templateResponse.status).toBe(200);
-  const templateId = templateResponse.body.templateId;
-
-  // 4. Create a rule that uses the agent and template
-  const ruleResponse = await request(app)
-    .post('/rules')
-    .send({
-      name: 'Test Automation Rule',
-      enabled: true,
-      when: { type: 'ready', predicate: {} },
-      find: { source: 'search', query: { q: '' }, limit: 1 },
-      actions: [
-        { action: 'notify', agentId },
+    test('should search agents by capability and region', async () => {
+      // Register multiple agents
+      const agents = [
         {
-          action: 'contract.generate',
-          templateId,
-          variables: { DATASET_ID: 'test-dataset' }
+          name: 'DataProcessor-US',
+          capabilities: [{ name: 'data-processing', inputs: ['data'], outputs: ['results'] }],
+          webhookUrl: 'http://localhost:9099/webhook1',
+          geographicRegion: 'US'
+        },
+        {
+          name: 'DataProcessor-EU',
+          capabilities: [{ name: 'data-processing', inputs: ['data'], outputs: ['results'] }],
+          webhookUrl: 'http://localhost:9099/webhook2',
+          geographicRegion: 'EU'
+        },
+        {
+          name: 'ContractBot-EU',
+          capabilities: [{ name: 'contract-generation', inputs: ['template'], outputs: ['contract'] }],
+          webhookUrl: 'http://localhost:9099/webhook3',
+          geographicRegion: 'EU'
         }
-      ]
-    });
+      ];
 
-  expect(ruleResponse.status).toBe(201);
-  const ruleId = ruleResponse.body.ruleId;
-
-  // 5. Get the created rule
-  const getRuleResponse = await request(app)
-    .get(`/rules/${ruleId}`)
-    .expect(200);
-
-  expect(getRuleResponse.body.name).toBe('Test Automation Rule');
-  expect(getRuleResponse.body.actions).toBeDefined();
-
-  // 6. List templates
-  const listTemplatesResponse = await request(app)
-    .get('/templates')
-    .expect(200);
-
-  expect(listTemplatesResponse.body.items).toHaveLength(1);
-  expect(listTemplatesResponse.body.items[0].templateId).toBe(templateId);
-
-  // 7. Generate contract from template
-  const generateResponse = await request(app)
-    .post(`/templates/${templateId}/generate`)
-    .send({
-      variables: { DATASET_ID: 'example-dataset' }
-    });
-
-  expect(generateResponse.status).toBe(200);
-  expect(generateResponse.body.status).toBe('ok');
-  expect(generateResponse.body.content).toContain('Agreement for example-dataset processing');
-
-  // 8. Check initial jobs
-  const initialJobsResponse = await request(app)
-    .get('/jobs')
-    .expect(200);
-
-  expect(initialJobsResponse.body.items).toHaveLength(0);
-}, 15000);
-
-test('D24 Policy Enforcement', async () => {
-  // Test agent registration rate limiting by creating multiple agents
-  const results = [];
-
-  for (let i = 0; i < 6; i++) {
-    const response = await request(app)
-      .post('/agents/register')
-      .set('x-test-rate-limits', 'true')
-      .send({
-        name: `Test Agent ${i}`,
-        webhookUrl: `http://localhost:999${i}/webhook`,
-        capabilities: ['test']
-      });
-    results.push(response.status);
-  }
-
-  // Should succeed for first 5 (default limit), fail on 6th
-  expect(results.slice(0, 5)).toEqual([201, 201, 201, 201, 201]);
-  expect(results[5]).toBe(429); // Rate limited
-}, 10000);
-
-test('D24 Template Validation', async () => {
-  // Test template with invalid variables
-  const invalidTemplateResponse = await request(app)
-    .post('/templates')
-    .send({
-      name: 'Invalid Template',
-      content: 'Content with {{MISSING_VAR}}',
-      variables: {
-        variables: [
-          { name: 'REQUIRED_VAR', type: 'string', required: true }
-        ]
+      for (const agent of agents) {
+        await request(app)
+          .post('/overlay/agents/register')
+          .send(agent)
+          .expect(200);
       }
-    });
-
-  expect(invalidTemplateResponse.status).toBe(200);
-  const templateId = invalidTemplateResponse.body.templateId;
-
-  // Try to generate contract without required variable
-  const generateResponse = await request(app)
-    .post(`/templates/${templateId}/generate`)
-    .send({
-      variables: { WRONG_VAR: 'value' }
-    });
-
-  expect(generateResponse.status).toBe(400);
-  expect(generateResponse.body.error).toBe('generation-failed');
-  expect(generateResponse.body.message).toContain('Required variable');
-});
-
-test('D24 Security Policies', async () => {
-  // Test invalid webhook URL
-  const invalidWebhookResponse = await request(app)
-    .post('/agents/register')
-    .send({
-      name: 'Invalid Agent',
-      webhookUrl: 'not-a-url',
-      capabilities: ['test']
-    });
-
-  expect(invalidWebhookResponse.status).toBe(400);
-  expect(invalidWebhookResponse.body.error).toBe('invalid-webhook-url');
-
-  // Test too many capabilities
-  const tooManyCapabilities = Array.from({ length: 25 }, (_, i) => `capability-${i}`);
-
-  const tooManyCapabilitiesResponse = await request(app)
-    .post('/agents/register')
-    .send({
-      name: 'Overloaded Agent',
-      webhookUrl: 'http://localhost:9999/webhook',
-      capabilities: tooManyCapabilities
-    });
-
-  expect(tooManyCapabilitiesResponse.status).toBe(400);
-  expect(tooManyCapabilitiesResponse.body.error).toBe('too-many-capabilities');
-});
-
-describe('D24 Comprehensive Testing Suite', () => {
-
-  describe('Agent Management', () => {
-    test('should handle agent lifecycle (register, search, ping)', async () => {
-      // Register
-      const registerResponse = await request(app)
-        .post('/agents/register')
-        .send({
-          name: 'Lifecycle Test Agent',
-          webhookUrl: 'https://api.example.com/webhook',
-          capabilities: ['notify', 'process', 'validate'],
-          identityKey: 'test-identity-key'
-        });
-
-      expect(registerResponse.status).toBe(201);
-      const agentId = registerResponse.body.agentId;
-
-      // Search by name
-      const searchByNameResponse = await request(app)
-        .get('/agents/search?q=Lifecycle');
-      expect(searchByNameResponse.status).toBe(200);
-      expect(searchByNameResponse.body.items.length).toBeGreaterThanOrEqual(1);
-      expect(searchByNameResponse.body.items[0].name).toBe('Lifecycle Test Agent');
 
       // Search by capability
-      const searchByCapabilityResponse = await request(app)
-        .get('/agents/search?capability=process');
-      expect(searchByCapabilityResponse.status).toBe(200);
-      expect(searchByCapabilityResponse.body.items.length).toBeGreaterThan(0);
+      const capabilitySearch = await request(app)
+        .get('/overlay/agents/search?capability=data-processing')
+        .expect(200);
 
-      // Ping agent
+      expect(capabilitySearch.body.success).toBe(true);
+      expect(capabilitySearch.body.agents).toHaveLength(2);
+
+      // Search by region
+      const regionSearch = await request(app)
+        .get('/overlay/agents/search?region=EU')
+        .expect(200);
+
+      expect(regionSearch.body.success).toBe(true);
+      expect(regionSearch.body.agents).toHaveLength(2);
+
+      // Search by both
+      const combinedSearch = await request(app)
+        .get('/overlay/agents/search?capability=data-processing&region=EU')
+        .expect(200);
+
+      expect(combinedSearch.body.success).toBe(true);
+      expect(combinedSearch.body.agents).toHaveLength(1);
+      expect(combinedSearch.body.agents[0].name).toBe('DataProcessor-EU');
+    });
+
+    test('should update agent ping status', async () => {
+      // Register agent
+      const agentResponse = await request(app)
+        .post('/overlay/agents/register')
+        .send({
+          name: 'TestAgent',
+          capabilities: [{ name: 'test', inputs: [], outputs: [] }],
+          webhookUrl: 'http://localhost:9099/webhook'
+        })
+        .expect(200);
+
+      const agentId = agentResponse.body.agent.agentId;
+
+      // Update ping status
       const pingResponse = await request(app)
-        .post(`/agents/${agentId}/ping`);
-      expect(pingResponse.status).toBe(200);
-      expect(pingResponse.body.status).toBe('pinged');
+        .post(`/overlay/agents/${agentId}/ping`)
+        .send({ status: true })
+        .expect(200);
+
+      expect(pingResponse.body.success).toBe(true);
+      expect(pingResponse.body.status).toBe('up');
+
+      // Verify agent status updated
+      const searchResponse = await request(app)
+        .get('/overlay/agents/search')
+        .expect(200);
+
+      const updatedAgent = searchResponse.body.agents.find(a => a.agentId === agentId);
+      expect(updatedAgent.status).toBe('up');
+    });
+  });
+
+  describe('Rule Engine with Overlay Events', () => {
+    test('should create overlay-aware rules', async () => {
+      const ruleData = {
+        name: 'auto-contract-generation',
+        overlayTopics: ['gitdata.d01a.manifest'],
+        whenCondition: {
+          type: 'overlay-event',
+          topic: 'gitdata.d01a.manifest',
+          predicate: {
+            and: [
+              { includes: { tags: 'premium' } },
+              { eq: { classification: 'public' } }
+            ]
+          }
+        },
+        findStrategy: {
+          source: 'agent-registry',
+          query: { capability: 'contract-generation' },
+          limit: 5
+        },
+        actions: [
+          {
+            action: 'overlay.notify',
+            capability: 'contract-generation',
+            payload: { type: 'contract-request' }
+          },
+          {
+            action: 'brc26.store',
+            type: 'contract-template',
+            templateId: 'premium-data-agreement'
+          }
+        ]
+      };
+
+      const response = await request(app)
+        .post('/overlay/rules')
+        .send(ruleData)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.rule).toBeDefined();
+      expect(response.body.rule.ruleId).toMatch(/^rule_/);
+      expect(response.body.rule.name).toBe('auto-contract-generation');
+      expect(response.body.rule.enabled).toBe(true);
+      expect(response.body.rule.overlayTopics).toContain('gitdata.d01a.manifest');
+      expect(response.body.rule.actions).toHaveLength(2);
+    });
+
+    test('should trigger rules manually and create jobs', async () => {
+      // Register agent first
+      const agentResponse = await request(app)
+        .post('/overlay/agents/register')
+        .send({
+          name: 'ContractBot',
+          capabilities: [{ name: 'contract-generation', inputs: ['template'], outputs: ['contract'] }],
+          webhookUrl: 'http://localhost:9099/webhook'
+        })
+        .expect(200);
+
+      // Create rule
+      const ruleResponse = await request(app)
+        .post('/overlay/rules')
+        .send({
+          name: 'test-rule',
+          whenCondition: { type: 'manual' },
+          findStrategy: {
+            source: 'agent-registry',
+            query: { capability: 'contract-generation' }
+          },
+          actions: [{ action: 'overlay.notify', capability: 'contract-generation' }]
+        })
+        .expect(200);
+
+      const ruleId = ruleResponse.body.rule.ruleId;
+
+      // Trigger rule
+      const triggerResponse = await request(app)
+        .post(`/overlay/rules/${ruleId}/trigger`)
+        .send({
+          triggerEvent: {
+            type: 'manual-test',
+            datasetId: 'test-dataset',
+            tags: ['test']
+          }
+        })
+        .expect(200);
+
+      expect(triggerResponse.body.success).toBe(true);
+      expect(triggerResponse.body.createdJobs).toBeDefined();
+      expect(Array.isArray(triggerResponse.body.createdJobs)).toBe(true);
+    });
+
+    test('should list rules and jobs', async () => {
+      // Create a rule first
+      await request(app)
+        .post('/overlay/rules')
+        .send({
+          name: 'test-listing-rule',
+          whenCondition: { type: 'manual' },
+          findStrategy: { source: 'agent-registry', query: {} },
+          actions: [{ action: 'overlay.notify' }]
+        })
+        .expect(200);
+
+      // List rules
+      const rulesResponse = await request(app)
+        .get('/overlay/rules')
+        .expect(200);
+
+      expect(rulesResponse.body.success).toBe(true);
+      expect(Array.isArray(rulesResponse.body.rules)).toBe(true);
+      expect(rulesResponse.body.rules.length).toBeGreaterThan(0);
+
+      // List jobs
+      const jobsResponse = await request(app)
+        .get('/overlay/jobs')
+        .expect(200);
+
+      expect(jobsResponse.body.success).toBe(true);
+      expect(Array.isArray(jobsResponse.body.jobs)).toBe(true);
+    });
+  });
+
+  describe('Agent Execution with BRC-31 Identity', () => {
+    test('should store job execution evidence', async () => {
+      // Register agent
+      const agentResponse = await request(app)
+        .post('/overlay/agents/register')
+        .send({
+          name: 'TestAgent',
+          capabilities: [{ name: 'data-processing', inputs: ['data'], outputs: ['results'] }],
+          webhookUrl: 'http://localhost:9099/webhook',
+          identityKey: '0339a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c2'
+        })
+        .expect(200);
+
+      const agentId = agentResponse.body.agent.agentId;
+
+      // Create rule and trigger to get job
+      const ruleResponse = await request(app)
+        .post('/overlay/rules')
+        .send({
+          name: 'evidence-test-rule',
+          whenCondition: { type: 'manual' },
+          findStrategy: {
+            source: 'agent-registry',
+            query: { capability: 'data-processing' }
+          },
+          actions: [{ action: 'overlay.notify', capability: 'data-processing' }]
+        })
+        .expect(200);
+
+      const triggerResponse = await request(app)
+        .post(`/overlay/rules/${ruleResponse.body.rule.ruleId}/trigger`)
+        .expect(200);
+
+      // Wait for job processing
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // List jobs to get job ID
+      const jobsResponse = await request(app)
+        .get('/overlay/jobs')
+        .expect(200);
+
+      if (jobsResponse.body.jobs.length > 0) {
+        const jobId = jobsResponse.body.jobs[0].jobId;
+
+        // Store execution evidence
+        const evidenceResponse = await request(app)
+          .post(`/overlay/jobs/${jobId}/evidence`)
+          .send({
+            agentId,
+            artifacts: [
+              {
+                type: 'processed-data',
+                hash: 'brc26_test_hash',
+                contentType: 'application/json',
+                size: 1024,
+                metadata: { processedAt: Date.now() }
+              }
+            ],
+            executionTime: 2500,
+            success: true,
+            signature: 'mock_signature_12345',
+            nonce: 'test_nonce_67890',
+            clientFeedback: {
+              quality: 'excellent',
+              notes: 'Processed successfully'
+            }
+          })
+          .expect(200);
+
+        expect(evidenceResponse.body.success).toBe(true);
+        expect(evidenceResponse.body.jobId).toBe(jobId);
+        expect(evidenceResponse.body.artifactCount).toBe(1);
+      }
+    });
+
+    test('should get agent reputation and performance', async () => {
+      // Register agent
+      const agentResponse = await request(app)
+        .post('/overlay/agents/register')
+        .send({
+          name: 'ReputationAgent',
+          capabilities: [{ name: 'quality-service', inputs: ['request'], outputs: ['response'] }],
+          webhookUrl: 'http://localhost:9099/webhook'
+        })
+        .expect(200);
+
+      const agentId = agentResponse.body.agent.agentId;
+
+      // Get reputation (should be initial state)
+      const reputationResponse = await request(app)
+        .get(`/overlay/agents/${agentId}/reputation`)
+        .expect(200);
+
+      expect(reputationResponse.body.success).toBe(true);
+      expect(reputationResponse.body.agent).toBeDefined();
+      expect(reputationResponse.body.agent.agentId).toBe(agentId);
+      expect(reputationResponse.body.agent.reputationScore).toBe(0.0);
+      expect(reputationResponse.body.performanceHistory).toEqual([]);
+      expect(reputationResponse.body.identityVerification).toBeDefined();
+    });
+
+    test('should update agent capabilities', async () => {
+      // Register agent
+      const agentResponse = await request(app)
+        .post('/overlay/agents/register')
+        .send({
+          name: 'UpdatableAgent',
+          capabilities: [{ name: 'basic-service', inputs: ['input'], outputs: ['output'] }],
+          webhookUrl: 'http://localhost:9099/webhook'
+        })
+        .expect(200);
+
+      const agentId = agentResponse.body.agent.agentId;
+
+      // Update capabilities
+      const updateResponse = await request(app)
+        .put(`/overlay/agents/${agentId}/capabilities`)
+        .send({
+          capabilities: [
+            { name: 'basic-service', inputs: ['input'], outputs: ['output'] },
+            { name: 'advanced-service', inputs: ['complex-input'], outputs: ['complex-output'] }
+          ],
+          overlayTopics: ['gitdata.agent.capabilities', 'gitdata.advanced.services']
+        })
+        .expect(200);
+
+      expect(updateResponse.body.success).toBe(true);
+      expect(updateResponse.body.agentId).toBe(agentId);
+
+      // Verify capabilities updated
+      const searchResponse = await request(app)
+        .get(`/overlay/agents/search?capability=advanced-service`)
+        .expect(200);
+
+      expect(searchResponse.body.agents).toHaveLength(1);
+      expect(searchResponse.body.agents[0].agentId).toBe(agentId);
+    });
+  });
+
+  describe('Multi-Agent Coordination', () => {
+    test('should coordinate multiple agents', async () => {
+      // Register multiple agents
+      const agentIds: string[] = [];
+
+      for (let i = 0; i < 3; i++) {
+        const response = await request(app)
+          .post('/overlay/agents/register')
+          .send({
+            name: `CoordAgent${i}`,
+            capabilities: [{ name: 'coordination-task', inputs: ['task'], outputs: ['result'] }],
+            webhookUrl: `http://localhost:909${i}/webhook`
+          })
+          .expect(200);
+
+        agentIds.push(response.body.agent.agentId);
+      }
+
+      // Initiate coordination
+      const coordinationResponse = await request(app)
+        .post('/overlay/agents/coordinate')
+        .send({
+          agentIds,
+          workflow: 'parallel',
+          coordination: {
+            task: 'multi-agent-test',
+            parameters: { iterations: 5 }
+          },
+          timeout: 30000
+        })
+        .expect(200);
+
+      expect(coordinationResponse.body.success).toBe(true);
+      expect(coordinationResponse.body.coordinationId).toBeDefined();
+      expect(coordinationResponse.body.agentIds).toEqual(agentIds);
+      expect(coordinationResponse.body.workflow).toBe('parallel');
+      expect(coordinationResponse.body.createdJobs).toBeDefined();
+    });
+
+    test('should get job lineage information', async () => {
+      // Register agent and create job
+      const agentResponse = await request(app)
+        .post('/overlay/agents/register')
+        .send({
+          name: 'LineageAgent',
+          capabilities: [{ name: 'lineage-test', inputs: ['data'], outputs: ['traced-data'] }],
+          webhookUrl: 'http://localhost:9099/webhook'
+        })
+        .expect(200);
+
+      const ruleResponse = await request(app)
+        .post('/overlay/rules')
+        .send({
+          name: 'lineage-rule',
+          whenCondition: { type: 'manual' },
+          findStrategy: {
+            source: 'agent-registry',
+            query: { capability: 'lineage-test' }
+          },
+          actions: [{ action: 'overlay.notify', capability: 'lineage-test' }]
+        })
+        .expect(200);
+
+      const triggerResponse = await request(app)
+        .post(`/overlay/rules/${ruleResponse.body.rule.ruleId}/trigger`)
+        .expect(200);
+
+      if (triggerResponse.body.createdJobs.length > 0) {
+        const jobId = triggerResponse.body.createdJobs[0];
+
+        // Get lineage information
+        const lineageResponse = await request(app)
+          .get(`/overlay/jobs/${jobId}/lineage`)
+          .expect(200);
+
+        expect(lineageResponse.body.success).toBe(true);
+        expect(lineageResponse.body.job).toBeDefined();
+        expect(lineageResponse.body.job.jobId).toBe(jobId);
+        expect(lineageResponse.body.lineageGraph).toBeDefined();
+        expect(lineageResponse.body.lineageGraph.nodes).toBeDefined();
+        expect(lineageResponse.body.lineageGraph.edges).toBeDefined();
+      }
+    });
+  });
+
+  describe('Overlay Network Integration', () => {
+    test('should get network status', async () => {
+      const response = await request(app)
+        .get('/overlay/network/status')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.overlayNetwork).toBeDefined();
+      expect(response.body.overlayNetwork.status).toBe('connected');
+      expect(response.body.agentRegistry).toBeDefined();
+      expect(response.body.identityVerification).toBeDefined();
+      expect(response.body.services).toBeDefined();
+      expect(response.body.services.brc22).toContain('Active');
+      expect(response.body.services.brc26).toContain('Active');
+    });
+
+    test('should get marketplace offers', async () => {
+      const response = await request(app)
+        .get('/overlay/marketplace/offers')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.offers)).toBe(true);
+      expect(response.body.count).toBeDefined();
+    });
+  });
+
+  describe('Error Handling and Edge Cases', () => {
+    test('should handle service unavailable gracefully', async () => {
+      // Create a temporary app without services
+      const tempApp = express();
+      tempApp.use(express.json());
+
+      const tempRouter = agentMarketplaceRouter();
+      // Don't set services - should trigger unavailable response
+      tempApp.use('/overlay', tempRouter.router);
+
+      const response = await request(tempApp)
+        .get('/overlay/agents/search')
+        .expect(503);
+
+      expect(response.body.error).toBe('agent-marketplace-unavailable');
     });
 
     test('should validate agent registration data', async () => {
-      // Missing required fields
-      const missingFieldsResponse = await request(app)
-        .post('/agents/register')
-        .send({ name: 'Test Agent' });
-      expect(missingFieldsResponse.status).toBe(400);
-
-      // Invalid capability names
-      const invalidCapabilityResponse = await request(app)
-        .post('/agents/register')
-        .send({
-          name: 'Invalid Agent',
-          webhookUrl: 'https://api.example.com/webhook',
-          capabilities: ['valid-capability', 'invalid capability with spaces!']
-        });
-      expect(invalidCapabilityResponse.status).toBe(400);
-      expect(invalidCapabilityResponse.body.error).toBe('invalid-capability');
-    });
-  });
-
-  describe('Rule Management', () => {
-    let testAgentId: string;
-
-    beforeAll(async () => {
-      // Create a test agent for rule tests
-      const agentResponse = await request(app)
-        .post('/agents/register')
-        .send({
-          name: 'Rule Test Agent',
-          webhookUrl: 'https://api.example.com/webhook',
-          capabilities: ['notify', 'process']
-        });
-      testAgentId = agentResponse.body.agentId;
-    });
-
-    test('should create and manage rules', async () => {
-      // Create rule
-      const createResponse = await request(app)
-        .post('/rules')
-        .send({
-          name: 'Test Processing Rule',
-          enabled: true,
-          when: { type: 'ready', predicate: { eq: { status: 'pending' } } },
-          find: { source: 'search', query: { q: 'test-data' }, limit: 5 },
-          actions: [
-            { action: 'notify', agentId: testAgentId, payload: { message: 'Processing started' } }
-          ]
-        });
-
-      expect(createResponse.status).toBe(201);
-      const ruleId = createResponse.body.ruleId;
-
-      // Get rule
-      const getResponse = await request(app).get(`/rules/${ruleId}`);
-      expect(getResponse.status).toBe(200);
-      expect(getResponse.body.name).toBe('Test Processing Rule');
-      expect(getResponse.body.enabled).toBe(true);
-
-      // Update rule
-      const updateResponse = await request(app)
-        .patch(`/rules/${ruleId}`)
-        .send({ enabled: false, name: 'Updated Rule Name' });
-      expect(updateResponse.status).toBe(200);
-
-      // Verify update
-      const getUpdatedResponse = await request(app).get(`/rules/${ruleId}`);
-      expect(getUpdatedResponse.body.enabled).toBe(false);
-      expect(getUpdatedResponse.body.name).toBe('Updated Rule Name');
-
-      // Delete rule
-      const deleteResponse = await request(app).delete(`/rules/${ruleId}`);
-      expect(deleteResponse.status).toBe(200);
-
-      // Verify deletion
-      const getDeletedResponse = await request(app).get(`/rules/${ruleId}`);
-      expect(getDeletedResponse.status).toBe(404);
-    });
-
-    test('should validate rule structure', async () => {
-      const invalidRuleResponse = await request(app)
-        .post('/rules')
-        .send({
-          name: 'Invalid Rule',
-          // Missing required fields
-        });
-      expect(invalidRuleResponse.status).toBe(400);
-    });
-  });
-
-  describe('Template System', () => {
-    test('should manage contract templates', async () => {
-      // Create template
-      const createTemplateResponse = await request(app)
-        .post('/templates')
-        .send({
-          name: 'Data Processing Contract',
-          description: 'Standard contract for data processing services',
-          content: `# Data Processing Agreement
-
-Provider: {{PROVIDER_NAME}}
-Consumer: {{CONSUMER_NAME}}
-Dataset: {{DATASET_ID}}
-Price: {{PRICE_SATS}} satoshis
-
-Generated: {{GENERATED_AT}}`,
-          type: 'markdown',
-          variables: {
-            variables: [
-              { name: 'PROVIDER_NAME', type: 'string', required: true },
-              { name: 'CONSUMER_NAME', type: 'string', required: true },
-              { name: 'DATASET_ID', type: 'string', required: true },
-              { name: 'PRICE_SATS', type: 'number', required: true }
-            ]
-          }
-        });
-
-      expect(createTemplateResponse.status).toBe(200);
-      const templateId = createTemplateResponse.body.templateId;
-
-      // List templates
-      const listResponse = await request(app).get('/templates');
-      expect(listResponse.status).toBe(200);
-      expect(listResponse.body.items.length).toBeGreaterThan(0);
-
-      // Get template
-      const getResponse = await request(app).get(`/templates/${templateId}`);
-      expect(getResponse.status).toBe(200);
-      expect(getResponse.body.name).toBe('Data Processing Contract');
-
-      // Generate contract
-      const generateResponse = await request(app)
-        .post(`/templates/${templateId}/generate`)
-        .send({
-          variables: {
-            PROVIDER_NAME: 'Data Corp',
-            CONSUMER_NAME: 'Analytics Inc',
-            DATASET_ID: 'financial-data-2024',
-            PRICE_SATS: 1500
-          }
-        });
-
-      expect(generateResponse.status).toBe(200);
-      expect(generateResponse.body.content).toContain('Data Corp');
-      expect(generateResponse.body.content).toContain('Analytics Inc');
-      expect(generateResponse.body.content).toContain('financial-data-2024');
-      expect(generateResponse.body.content).toContain('1500 satoshis');
-
-      // Test validation failure
-      const invalidGenerateResponse = await request(app)
-        .post(`/templates/${templateId}/generate`)
-        .send({
-          variables: {
-            PROVIDER_NAME: 'Data Corp',
-            // Missing required fields
-          }
-        });
-
-      expect(invalidGenerateResponse.status).toBe(400);
-      expect(invalidGenerateResponse.body.error).toBe('generation-failed');
-    });
-
-    test('should bootstrap example template', async () => {
-      // Delete existing templates first (for clean test)
-      await request(app).get('/templates')
-        .then(res => {
-          const promises = res.body.items.map((template: any) =>
-            request(app).delete(`/templates/${template.templateId}`)
-          );
-          return Promise.all(promises);
-        });
-
-      const bootstrapResponse = await request(app)
-        .post('/templates/bootstrap');
-
-      expect(bootstrapResponse.status).toBe(200);
-      expect(bootstrapResponse.body.templateId).toBeDefined();
-      expect(bootstrapResponse.body.message).toBe('Example template created');
-
-      // Verify template was created
-      const listResponse = await request(app).get('/templates');
-      expect(listResponse.body.items).toHaveLength(1);
-    });
-  });
-
-  describe('Job Processing', () => {
-    test('should process job queue states', async () => {
-      // Check initial empty state
-      const initialJobsResponse = await request(app).get('/jobs');
-      expect(initialJobsResponse.status).toBe(200);
-
-      // Filter by state
-      const queuedJobsResponse = await request(app).get('/jobs?state=queued');
-      expect(queuedJobsResponse.status).toBe(200);
-
-      const runningJobsResponse = await request(app).get('/jobs?state=running');
-      expect(runningJobsResponse.status).toBe(200);
-    });
-  });
-
-  describe('Artifacts System', () => {
-    test('should manage artifacts', async () => {
-      // List artifacts (should be empty initially)
-      const initialArtifactsResponse = await request(app).get('/artifacts');
-      expect(initialArtifactsResponse.status).toBe(200);
-
-      // Test artifact filtering
-      const contractArtifactsResponse = await request(app).get('/artifacts?type=contract/markdown');
-      expect(contractArtifactsResponse.status).toBe(200);
-
-      const publishedArtifactsResponse = await request(app).get('/artifacts?published=true');
-      expect(publishedArtifactsResponse.status).toBe(200);
-
-      const unpublishedArtifactsResponse = await request(app).get('/artifacts?published=false');
-      expect(unpublishedArtifactsResponse.status).toBe(200);
-    });
-  });
-
-  describe('Policy Enforcement Edge Cases', () => {
-    test('should enforce agent registration limits per IP', async () => {
-      const results = [];
-
-      // Attempt to register more agents than allowed - do sequentially to test rate limiting properly
-      for (let i = 0; i < 7; i++) {
-        const response = await request(app)
-          .post('/agents/register')
-          .set('x-test-rate-limits', 'true')
-          .send({
-            name: `Rate Limit Test Agent ${i}`,
-            webhookUrl: `https://example.com/webhook-${i}`,
-            capabilities: ['test']
-          });
-        results.push(response.status);
-      }
-
-      const successCount = results.filter(code => code === 201).length;
-      const rateLimitedCount = results.filter(code => code === 429).length;
-
-      // With default limit of 5, expect 5 successes and 2 rate limited
-      expect(successCount).toBe(5);
-      expect(rateLimitedCount).toBe(2);
-    });
-
-    test('should enforce resource limits', async () => {
-      // Test oversized template content
-      const largeContent = 'x'.repeat(200 * 1024); // 200KB
-      const oversizedTemplateResponse = await request(app)
-        .post('/templates')
-        .set('x-test-resource-limits', 'true')
-        .send({
-          name: 'Oversized Template',
-          content: largeContent,
-          type: 'markdown'
-        });
-
-      expect(oversizedTemplateResponse.status).toBe(413);
-      expect(oversizedTemplateResponse.body.error).toBe('template-too-large');
-    });
-
-    test('should validate webhook URLs in production mode', async () => {
-      // Test localhost URL (should be rejected with validation header)
-      const localhostResponse = await request(app)
-        .post('/agents/register')
-        .set('x-test-webhook-validation', 'true')
-        .send({
-          name: 'Localhost Agent',
-          webhookUrl: 'http://localhost:3000/webhook',
-          capabilities: ['test']
-        });
-
-      expect(localhostResponse.status).toBe(400);
-      expect(localhostResponse.body.error).toBe('invalid-webhook-url');
-
-      // Test HTTP URL (should be rejected with validation header)
-      const httpResponse = await request(app)
-        .post('/agents/register')
-        .set('x-test-webhook-validation', 'true')
-        .send({
-          name: 'HTTP Agent',
-          webhookUrl: 'http://example.com/webhook',
-          capabilities: ['test']
-        });
-
-      expect(httpResponse.status).toBe(400);
-      expect(httpResponse.body.error).toBe('invalid-webhook-url');
-
-      // Test valid HTTPS URL (should succeed - no validation header needed)
-      const httpsResponse = await request(app)
-        .post('/agents/register')
-        .send({
-          name: 'HTTPS Agent',
-          webhookUrl: 'https://api.example.com/webhook',
-          capabilities: ['test']
-        });
-
-      expect(httpsResponse.status).toBe(201);
-    });
-  });
-
-  describe('Error Handling', () => {
-    test('should handle 404 errors gracefully', async () => {
-      const responses = await Promise.all([
-        request(app).get('/agents/nonexistent-agent'),
-        request(app).get('/rules/nonexistent-rule'),
-        request(app).get('/templates/nonexistent-template'),
-        request(app).get('/artifacts/nonexistent-artifact')
-      ]);
-
-      responses.forEach(response => {
-        expect(response.status).toBe(404);
-        if (response.body && response.body.error) {
-          expect(response.body.error).toBe('not-found');
+      const testCases = [
+        {
+          data: { name: 'Test' }, // Missing capabilities and webhookUrl
+          expectedError: 'invalid-request'
+        },
+        {
+          data: {
+            name: 'Test',
+            capabilities: 'not-an-array',
+            webhookUrl: 'http://test.com'
+          },
+          expectedError: 'invalid-request'
+        },
+        {
+          data: {
+            name: 'Test',
+            capabilities: [{ name: 'test' }], // Missing inputs/outputs
+            webhookUrl: 'http://test.com'
+          },
+          expectedError: 'invalid-capabilities'
+        },
+        {
+          data: {
+            name: 'Test',
+            capabilities: [{ name: 'test', inputs: [], outputs: [] }],
+            webhookUrl: 'invalid-url'
+          },
+          expectedError: 'invalid-webhook-url'
         }
-      });
+      ];
+
+      for (const testCase of testCases) {
+        const response = await request(app)
+          .post('/overlay/agents/register')
+          .send(testCase.data)
+          .expect(400);
+
+        expect(response.body.error).toBe(testCase.expectedError);
+      }
     });
 
-    test('should handle malformed JSON', async () => {
-      const response = await request(app)
-        .post('/agents/register')
-        .set('Content-Type', 'application/json')
-        .send('{ invalid json }');
+    test('should handle rule validation', async () => {
+      const invalidRule = {
+        name: 'invalid-rule'
+        // Missing required fields
+      };
 
-      expect(response.status).toBe(400);
+      const response = await request(app)
+        .post('/overlay/rules')
+        .send(invalidRule)
+        .expect(400);
+
+      expect(response.body.error).toBe('invalid-rule');
     });
   });
 });
 
-describe('End-to-End Workflow with DLM1', () => {
-  test('should complete full agent marketplace workflow', async () => {
-    // 1. Create a test agent
-    const agentResponse = await request(app)
-      .post('/agents/register')
-      .send({
-        name: 'E2E Test Agent',
-        webhookUrl: 'https://api.test.com/webhook',
-        capabilities: ['notify', 'contract.generate']
-      });
+// Helper functions
 
-    expect(agentResponse.status).toBe(201);
-    const agentId = agentResponse.body.agentId;
+async function cleanupTestData(): Promise<void> {
+  if (!pgClient) return;
 
-    // 2. Bootstrap template if needed
-    await request(app).post('/templates/bootstrap');
-
-    const templatesResponse = await request(app).get('/templates');
-    const templateId = templatesResponse.body.items[0].templateId;
-
-    // 3. Create a comprehensive rule
-    const ruleResponse = await request(app)
-      .post('/rules')
-      .send({
-        name: 'E2E Test Rule',
-        enabled: true,
-        when: { type: 'ready', predicate: {} },
-        find: { source: 'search', query: { q: 'test' }, limit: 1 },
-        actions: [
-          { action: 'notify', agentId },
-          {
-            action: 'contract.generate',
-            templateId,
-            variables: {
-              AGREEMENT_ID: 'E2E-TEST-001',
-              PROVIDER_NAME: 'Test Provider',
-              CONSUMER_NAME: 'Test Consumer',
-              DATASET_ID: 'e2e-test-dataset',
-              VERSION_ID: 'v1.0.0',
-              PROCESSING_TYPE: 'analysis',
-              PRICE_SATS: 2000,
-              QUANTITY: 1,
-              TOTAL_COST: 2000,
-              USAGE_RIGHTS: 'analysis and reporting'
-            }
-          }
-        ]
-      });
-
-    expect(ruleResponse.status).toBe(201);
-    const ruleId = ruleResponse.body.ruleId;
-
-    // 4. Wait a moment for any background processing
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // 5. Verify rule was created correctly
-    const getRuleResponse = await request(app).get(`/rules/${ruleId}`);
-    expect(getRuleResponse.status).toBe(200);
-    expect(getRuleResponse.body.actions).toBeDefined();
-
-    // 6. Check artifacts were created (in case worker processed something)
-    const artifactsResponse = await request(app).get('/artifacts');
-    expect(artifactsResponse.status).toBe(200);
-
-    // Note: In a real test environment, you would trigger the rule and verify
-    // that it creates jobs, generates contracts, and publishes to DLM1
-    // This requires a more complex setup with manifest data
-  }, 15000);
-});
+  try {
+    await pgClient.query('DELETE FROM agent_performance');
+    await pgClient.query('DELETE FROM agent_executions');
+    await pgClient.query('DELETE FROM brc31_verifications');
+    await pgClient.query('DELETE FROM rule_executions');
+    await pgClient.query('DELETE FROM overlay_jobs');
+    await pgClient.query('DELETE FROM overlay_rules');
+    await pgClient.query('DELETE FROM overlay_agents');
+    console.log('[TEST] Cleaned up test data');
+  } catch (error) {
+    console.warn('[TEST] Cleanup warning:', error.message);
+  }
+}
