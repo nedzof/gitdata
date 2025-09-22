@@ -234,6 +234,9 @@ app.get('*', (req, res, next) => {
       req.path.startsWith('/jobs') ||
       req.path.startsWith('/templates') ||
       req.path.startsWith('/catalog') ||
+      req.path.startsWith('/lineage') ||
+      req.path.startsWith('/resolve') ||
+      req.path.startsWith('/search') ||
       req.path.startsWith('/producers') ||
       req.path.startsWith('/advisories') ||
       req.path.startsWith('/ops') ||

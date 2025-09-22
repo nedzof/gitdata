@@ -196,5 +196,130 @@ export function catalogRouter(): Router {
     }
   });
 
+  /**
+   * GET /lineage?versionId=...
+   * Returns the full lineage tree (upstream and downstream) for a specific dataset
+   */
+  router.get('/lineage', async (req: Request, res: Response) => {
+    try {
+      const versionId = req.query.versionId ? String(req.query.versionId).toLowerCase() : undefined;
+
+      if (!versionId) {
+        return json(res, 400, { error: 'bad-request', hint: 'provide versionId' });
+      }
+
+      if (!/^[0-9a-fA-F]{64}$/.test(versionId)) {
+        return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
+      }
+
+      const { getHybridDatabase } = await import('../db/hybrid');
+      const { getManifest } = await import('../db');
+      const db = getHybridDatabase();
+
+      // Get current dataset info
+      const currentDataset = await getManifest(versionId);
+      if (!currentDataset) {
+        return json(res, 404, { error: 'not-found', hint: 'dataset not found' });
+      }
+
+      // Helper function to recursively get all ancestors
+      async function getAncestors(versionId: string, visited = new Set<string>()): Promise<any[]> {
+        if (visited.has(versionId)) return [];
+        visited.add(versionId);
+
+        const result = await db.pg.query(`
+          SELECT parent_version_id, relationship_type
+          FROM edges
+          WHERE child_version_id = $1
+        `, [versionId]);
+
+        const ancestors = [];
+        for (const row of result.rows) {
+          const manifest = await getManifest(row.parent_version_id);
+          if (manifest) {
+            const node = {
+              versionId: row.parent_version_id,
+              title: manifest.title,
+              datasetId: manifest.dataset_id,
+              producer: manifest.producer_id,
+              classification: manifest.classification,
+              relationshipType: row.relationship_type,
+              type: 'ancestor'
+            };
+            ancestors.push(node);
+
+            // Recursively get ancestors of this ancestor
+            const nestedAncestors = await getAncestors(row.parent_version_id, visited);
+            ancestors.push(...nestedAncestors);
+          }
+        }
+        return ancestors;
+      }
+
+      // Helper function to recursively get all descendants
+      async function getDescendants(versionId: string, visited = new Set<string>()): Promise<any[]> {
+        if (visited.has(versionId)) return [];
+        visited.add(versionId);
+
+        const result = await db.pg.query(`
+          SELECT child_version_id, relationship_type
+          FROM edges
+          WHERE parent_version_id = $1
+        `, [versionId]);
+
+        const descendants = [];
+        for (const row of result.rows) {
+          const manifest = await getManifest(row.child_version_id);
+          if (manifest) {
+            const node = {
+              versionId: row.child_version_id,
+              title: manifest.title,
+              datasetId: manifest.dataset_id,
+              producer: manifest.producer_id,
+              classification: manifest.classification,
+              relationshipType: row.relationship_type,
+              type: 'descendant'
+            };
+            descendants.push(node);
+
+            // Recursively get descendants of this descendant
+            const nestedDescendants = await getDescendants(row.child_version_id, visited);
+            descendants.push(...nestedDescendants);
+          }
+        }
+        return descendants;
+      }
+
+      // Get all ancestors and descendants
+      const [ancestors, descendants] = await Promise.all([
+        getAncestors(versionId),
+        getDescendants(versionId)
+      ]);
+
+      // Build the complete lineage tree
+      const lineageTree = {
+        current: {
+          versionId: currentDataset.version_id,
+          title: currentDataset.title,
+          datasetId: currentDataset.dataset_id,
+          producer: currentDataset.producer_id,
+          classification: currentDataset.classification,
+          type: 'current'
+        },
+        upstream: ancestors,
+        downstream: descendants,
+        summary: {
+          totalAncestors: ancestors.length,
+          totalDescendants: descendants.length,
+          totalNodes: ancestors.length + descendants.length + 1
+        }
+      };
+
+      return json(res, 200, lineageTree);
+    } catch (e: any) {
+      return json(res, 500, { error: 'lineage-failed', message: String(e?.message || e) });
+    }
+  });
+
   return router;
 }
