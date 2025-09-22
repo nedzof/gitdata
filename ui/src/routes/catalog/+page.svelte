@@ -196,14 +196,14 @@
                   <label class="parent-option">
                     <input
                       type="checkbox"
-                      value={asset.version_id}
+                      value={asset.versionId}
                       bind:group={publishData.parents}
                       class="parent-checkbox"
                     />
                     <span class="parent-label">
-                      <strong>{asset.title || asset.dataset_id || asset.version_id?.slice(0, 8)}</strong>
-                      {#if asset.title && asset.dataset_id}
-                        <small>({asset.dataset_id})</small>
+                      <strong>{asset.title || asset.datasetId || asset.versionId?.slice(0, 8)}</strong>
+                      {#if asset.title && asset.datasetId}
+                        <small>({asset.datasetId})</small>
                       {/if}
                     </span>
                   </label>
@@ -217,8 +217,8 @@
                 <strong>Selected parents:</strong>
                 {#each publishData.parents as parentId}
                   <span class="selected-parent-tag">
-                    {availableAssets.find(a => a.version_id === parentId)?.title ||
-                     availableAssets.find(a => a.version_id === parentId)?.dataset_id ||
+                    {availableAssets.find(a => a.versionId === parentId)?.title ||
+                     availableAssets.find(a => a.versionId === parentId)?.datasetId ||
                      parentId?.slice(0, 8)}
                   </span>
                 {/each}
@@ -337,24 +337,29 @@
         <div class="asset-card">
           <div class="asset-header">
             <div class="asset-title">
-              <span class="asset-icon">{asset.type === 'ai' ? '🤖' : '📊'}</span>
-              <h3>{asset.name}</h3>
+              <span class="asset-icon">📊</span>
+              <h3>{asset.title || asset.datasetId || 'Untitled Asset'}</h3>
             </div>
-            <span class="asset-type">{asset.type}</span>
+            <span class="asset-type">{asset.classification || 'data'}</span>
           </div>
 
-          <p class="asset-description">{asset.description}</p>
-
-          {#if asset.tags && asset.tags.length > 0}
-            <div class="asset-tags">
-              {#each asset.tags as tag}
-                <span class="tag">{tag}</span>
-              {/each}
+          <div class="asset-metadata">
+            <div class="metadata-row">
+              <span class="metadata-label">Dataset ID:</span>
+              <span class="metadata-value">{asset.datasetId}</span>
             </div>
-          {/if}
+            <div class="metadata-row">
+              <span class="metadata-label">License:</span>
+              <span class="metadata-value">{asset.license}</span>
+            </div>
+            <div class="metadata-row">
+              <span class="metadata-label">Created:</span>
+              <span class="metadata-value">{new Date(asset.createdAt).toLocaleDateString()}</span>
+            </div>
+          </div>
 
           <div class="asset-footer">
-            <span class="asset-id">ID: {asset.versionId}</span>
+            <span class="asset-id">ID: {asset.versionId?.slice(0, 12)}...</span>
             <div class="asset-actions">
               <a href="/analysis?id={asset.versionId}" class="asset-link">
                 View Lineage
@@ -622,15 +627,30 @@
     letter-spacing: 0.5px;
   }
 
-  .asset-description {
-    color: #8b949e;
-    font-size: 14px;
-    line-height: 1.5;
+  .asset-metadata {
     margin-bottom: 16px;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  }
+
+  .metadata-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+
+  .metadata-row:last-child {
+    margin-bottom: 0;
+  }
+
+  .metadata-label {
+    color: #8b949e;
+    font-weight: 500;
+  }
+
+  .metadata-value {
+    color: #f0f6fc;
+    font-family: 'SF Mono', monospace;
   }
 
   .asset-tags {
