@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { api } from '$lib/api';
+  import { AuthFetch } from '@bsv/sdk';
 
   let assets = [];
   let availableAssets = []; // For parent selection
@@ -27,6 +28,9 @@
 
   // View mode toggle
   let viewMode = 'cards'; // 'cards' or 'table'
+
+  // BSV payment integration
+  let authFetch;
 
   // Policy options for dropdown - loaded from policy management
   let availablePolicies = [
@@ -380,14 +384,63 @@
   }
 
   // Handle purchase functionality
-  function handlePurchase(asset) {
+  async function handlePurchase(asset) {
     console.log('Purchase initiated for asset:', asset);
-    // TODO: Implement actual purchase logic
-    // This could involve:
-    // 1. Opening payment modal
-    // 2. Processing payment
-    // 3. Granting access to asset
-    alert(`Purchase initiated for ${asset.title || asset.datasetId}${asset.pricePerKB ? ` - $${asset.pricePerKB.toFixed(3)}/KB` : ' (Free)'}`);
+
+    if (!asset.pricePerKB || asset.pricePerKB === 0) {
+      // Free asset - just grant access
+      alert(`Free access granted for ${asset.title || asset.datasetId}`);
+      return;
+    }
+
+    try {
+      // Initialize AuthFetch if not already done
+      if (!authFetch) {
+        authFetch = new AuthFetch();
+      }
+
+      // Calculate total price in satoshis (assuming pricePerKB is in USD, convert to satoshis)
+      const priceInUSD = asset.pricePerKB * (asset.dataSizeBytes / 1024); // Total price in USD
+      const satoshisPerUSD = 100000; // Example conversion rate - should be fetched from API
+      const totalSatoshis = Math.floor(priceInUSD * satoshisPerUSD);
+
+      // Create payment request
+      const paymentRequest = {
+        assetId: asset.datasetId || asset.id,
+        amount: totalSatoshis,
+        description: `Purchase access to ${asset.title || asset.datasetId}`,
+        metadata: {
+          datasetId: asset.datasetId,
+          pricePerKB: asset.pricePerKB,
+          sizeBytes: asset.dataSizeBytes
+        }
+      };
+
+      console.log('Processing BSV payment:', paymentRequest);
+
+      // For now, show a detailed confirmation
+      const confirmed = confirm(
+        `Confirm BSV Payment:\n\n` +
+        `Asset: ${asset.title || asset.datasetId}\n` +
+        `Price: $${asset.pricePerKB.toFixed(3)}/KB\n` +
+        `Size: ${(asset.dataSizeBytes / 1024 / 1024).toFixed(2)} MB\n` +
+        `Total: $${priceInUSD.toFixed(4)} (${totalSatoshis} satoshis)\n\n` +
+        `Proceed with BSV payment?`
+      );
+
+      if (confirmed) {
+        // TODO: Implement actual BSV payment processing using authFetch
+        // This would involve creating a transaction and waiting for confirmation
+        alert(`BSV payment processing initiated for ${asset.title || asset.datasetId}\n\nPayment will be processed via BSV blockchain...`);
+
+        // Simulate payment processing
+        console.log('BSV payment would be processed here with AuthFetch');
+      }
+
+    } catch (error) {
+      console.error('Payment error:', error);
+      alert(`Payment failed: ${error.message}`);
+    }
   }
 </script>
 
