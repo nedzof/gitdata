@@ -20,7 +20,7 @@ class BSVWalletService {
 
   constructor(config: WalletServiceConfig = {}) {
     this.config = {
-      apiUrl: 'http://localhost:8787',
+      apiUrl: 'http://localhost:8788',
       checkInterval: 1000,
       ...config
     };

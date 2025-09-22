@@ -16,7 +16,7 @@ function getDefaultBaseUrl(): string {
 
 export const baseUrl = writable(getDefaultBaseUrl());
 
-class APIClient {
+class D06APIClient {
   private baseUrl: string = getDefaultBaseUrl();
 
   constructor() {
@@ -24,6 +24,7 @@ class APIClient {
     baseUrl.subscribe(url => {
       this.baseUrl = url;
     });
+    console.log('🚀 D06APIClient created with baseUrl:', this.baseUrl);
   }
 
   async request(path: string, options: RequestInit = {}): Promise<any> {
@@ -185,6 +186,7 @@ class APIClient {
     agentId?: string;
     identityProof?: any;
   }, authHeaders?: Record<string, string>) {
+    console.log('🔥 D06 processPayment called:', paymentRequest);
     return this.request('/v1/payments/pay', {
       method: 'POST',
       headers: authHeaders,
@@ -201,6 +203,7 @@ class APIClient {
     rawTx: string;
     spvProof?: any;
   }) {
+    console.log('🔥 D06 verifyPayment called:', paymentData);
     return this.request('/v1/payments/verify', {
       method: 'POST',
       body: paymentData
@@ -215,6 +218,7 @@ class APIClient {
     monthlyLimitSatoshis: number;
     expiresAt?: Date;
   }, authHeaders?: Record<string, string>) {
+    console.log('🔥 D06 authorizeAgent called:', authData);
     return this.request('/v1/payments/agents/authorize', {
       method: 'POST',
       headers: authHeaders,
@@ -223,6 +227,7 @@ class APIClient {
   }
 
   async getAgentAuthorization(agentId: string) {
+    console.log('🔥 D06 getAgentAuthorization called:', agentId);
     return this.request(`/v1/payments/agents/${agentId}/authorization`);
   }
 
@@ -244,6 +249,7 @@ class APIClient {
   }
 
   async getAgentSummary() {
+    console.log('🔥 D06 getAgentSummary called');
     return this.request('/v1/payments/agents/summary');
   }
 
@@ -259,6 +265,7 @@ class APIClient {
   }
 
   async getRevenueSummary(timeframe?: string) {
+    console.log('🔥 D06 getRevenueSummary called with timeframe:', timeframe);
     const params = timeframe ? `?timeframe=${timeframe}` : '';
     return this.request(`/v1/revenue/summary${params}`);
   }
@@ -285,29 +292,14 @@ class APIClient {
   }
 }
 
-// Force fresh API instance creation with timestamp to bypass all caching
-const createFreshAPIClient = () => {
-  const timestamp = Date.now();
-  console.log(`🔄 Creating fresh D06 API client at ${timestamp} - version 1.4.0`);
-  return new APIClient();
-};
+// Create the API client instance
+export const apiD06 = new D06APIClient();
 
-export const api = createFreshAPIClient();
+// Log successful creation
+console.log('✅ D06 API Client v2.0.0 loaded successfully!');
+console.log('🔥 Available D06 methods:', ['getRevenueSummary', 'getAgentSummary', 'processPayment', 'verifyPayment', 'authorizeAgent', 'getAgentAuthorization']);
 
-// Verify D06 methods are available
-const d06Methods = ['getRevenueSummary', 'getAgentSummary', 'processPayment', 'verifyPayment', 'authorizeAgent', 'getAgentAuthorization'];
-const availableMethods = d06Methods.filter(method => typeof api[method] === 'function');
-console.log(`✅ D06 API Client v1.4.0 loaded with ${availableMethods.length}/${d06Methods.length} methods:`, availableMethods);
-
-if (availableMethods.length !== d06Methods.length) {
-  console.error('❌ Missing D06 methods - recreating API client');
-  // Force window reload to bypass all caching issues
-  if (typeof window !== 'undefined') {
-    setTimeout(() => window.location.reload(), 100);
-  }
-}
-
-// Types
+// Export types
 export interface Listing {
   versionId: string;
   name: string;

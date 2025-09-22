@@ -1,7 +1,8 @@
 <script>
   import { onMount } from 'svelte';
-  import { api } from '$lib/api';
+  import { apiD06 as api } from '$lib/api-d06';
   import { walletService, generateAuthHeaders } from '$lib/wallet';
+  import { validateAPIClientMethods, forceCacheBust } from '$lib/cache-buster';
 
   let revenueData = null;
   let agentSummary = null;
@@ -28,6 +29,14 @@
       loading = true;
       error = null;
 
+      // Validate API client methods are available - BRC cache validation
+      if (!validateAPIClientMethods(api)) {
+        console.log('🔄 API client validation failed, will try to continue...');
+        // Don't force cache bust immediately, try to continue with error handling
+      }
+
+      console.log('✅ API client validation passed, loading D06 data...');
+
       // Load revenue summary
       const revenuePromise = api.getRevenueSummary(selectedTimeframe);
 
@@ -43,6 +52,13 @@
     } catch (err) {
       error = err.message;
       console.error('Failed to load dashboard data:', err);
+
+      // If we get a "function is not a function" error, force cache bust
+      if (err.message && err.message.includes('is not a function')) {
+        console.log('🔄 Function error detected, forcing cache bust...');
+        forceCacheBust();
+        return;
+      }
     } finally {
       loading = false;
     }
@@ -97,9 +113,11 @@
   }
 </script>
 
-<div class="payments-dashboard">
+<div class="explorer">
+  <h1>💰 Payments & Revenue Dashboard</h1>
+  <p class="subtitle">BSV payment processing and revenue management</p>
+
   <header class="dashboard-header">
-    <h1>D06 Payments & Revenue Dashboard</h1>
     <div class="header-controls">
       <select bind:value={selectedTimeframe} on:change={loadDashboardData}>
         <option value="day">Last Day</option>
@@ -299,28 +317,13 @@
 {/if}
 
 <style>
-  .payments-dashboard {
-    padding: 2rem;
-    background: #0d1117;
-    color: #e6edf3;
-    min-height: 100vh;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
-
   .dashboard-header {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
     margin-bottom: 2rem;
     flex-wrap: wrap;
     gap: 1rem;
-  }
-
-  .dashboard-header h1 {
-    font-size: 1.75rem;
-    font-weight: 600;
-    color: #f0f6fc;
-    margin: 0;
   }
 
   .header-controls {

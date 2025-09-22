@@ -8,6 +8,14 @@ import { upsertManifest, upsertDeclaration, replaceEdges } from '../../src/db';
 import { bundleRouter } from '../../src/routes/bundle';
 import { txidFromRawTx } from '../../src/spv/verify-envelope';
 import { invalidateHeadersSnapshot } from '../../src/spv/headers-cache';
+import {
+  invalidateAPIClientCache,
+  shouldBypassAPICache,
+  invalidateBRCCache,
+  shouldBypassCache,
+  cacheBRCVerification,
+  getCachedBRCVerification
+} from '../../src/cache/brc-cache';
 
 describe('Cache Integration Test', () => {
   test('should handle bundle caching with TTL', async () => {
@@ -122,5 +130,104 @@ describe('Cache Integration Test', () => {
   expect(r4.status).toBe(200);
   expect(r4.headers['x-cache']).toBe('miss');
 
+  });
+
+  test('should handle BRC method cache invalidation', async () => {
+    // Configure BRC cache TTLs for testing
+    process.env.CACHE_TTLS_JSON = JSON.stringify({
+      headers: 30000,
+      bundles: 300000,
+      brcVerification: 5000, // 5 seconds for quick testing
+      brcSignatures: 10000,
+      apiClient: 0 // Force no cache for API client
+    });
+
+    // Test API client cache bypass
+    await invalidateAPIClientCache();
+    const shouldBypass = await shouldBypassAPICache();
+    expect(shouldBypass).toBe(true);
+
+    // Test method-specific bypass
+    const shouldBypassRevenue = await shouldBypassCache('getRevenueSummary');
+    expect(shouldBypassRevenue).toBe(true); // Should always bypass for critical methods
+
+    const shouldBypassGeneral = await shouldBypassCache('someOtherMethod');
+    expect(shouldBypassGeneral).toBe(true); // Should bypass due to API cache invalidation
+
+    console.log('✅ BRC cache invalidation test passed');
+  });
+
+  test('should cache and retrieve BRC verification', async () => {
+    // Configure short BRC verification TTL
+    process.env.CACHE_TTLS_JSON = JSON.stringify({
+      brcVerification: 2000, // 2 seconds
+      brcSignatures: 5000
+    });
+
+    const method = 'createSignature';
+    const hash = 'test_hash_123';
+    const publicKey = '0'.repeat(66);
+
+    // Cache a BRC verification
+    await cacheBRCVerification(method, hash, true, publicKey);
+
+    // Retrieve cached verification
+    const cached = await getCachedBRCVerification(method, hash);
+    expect(cached).toBeTruthy();
+    expect(cached?.verified).toBe(true);
+    expect(cached?.publicKey).toBe(publicKey);
+
+    // Wait for cache expiry
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    // Should return null after expiry
+    const expired = await getCachedBRCVerification(method, hash);
+    expect(expired).toBeNull();
+
+    console.log('✅ BRC verification cache test passed');
+  });
+
+  test('should invalidate BRC cache on wallet disconnect', async () => {
+    const method = 'verifySignature';
+    const hash = 'test_hash_456';
+    const publicKey = '1'.repeat(66);
+
+    // Cache a BRC verification
+    await cacheBRCVerification(method, hash, true, publicKey);
+
+    // Verify it's cached
+    let cached = await getCachedBRCVerification(method, hash);
+    expect(cached).toBeTruthy();
+
+    // Invalidate BRC cache
+    await invalidateBRCCache(publicKey);
+
+    // Should return null after invalidation
+    cached = await getCachedBRCVerification(method, hash);
+    expect(cached).toBeNull();
+
+    console.log('✅ BRC cache invalidation on disconnect test passed');
+  });
+
+  test('should override cache behavior for D06 API methods', async () => {
+    // Test that D06 critical methods bypass cache
+    const criticalMethods = [
+      'getRevenueSummary',
+      'getAgentSummary',
+      'processPayment',
+      'verifyPayment'
+    ];
+
+    for (const method of criticalMethods) {
+      const shouldBypass = await shouldBypassCache(method);
+      expect(shouldBypass).toBe(true);
+    }
+
+    // Force API cache invalidation to ensure fresh D06 data
+    await invalidateAPIClientCache();
+    const bypassed = await shouldBypassAPICache();
+    expect(bypassed).toBe(true);
+
+    console.log('✅ D06 API method cache override test passed');
   });
 });

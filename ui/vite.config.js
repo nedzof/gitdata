@@ -18,7 +18,9 @@ export default defineConfig({
 			'/lineage': 'http://localhost:8788',
 			'/policies': 'http://localhost:8788',
 			'/upload': 'http://localhost:8788',
-			'/health': 'http://localhost:8788'
+			'/health': 'http://localhost:8788',
+			'/v1/payments': 'http://localhost:8788',
+			'/v1/revenue': 'http://localhost:8788'
 		}
 	},
 	build: {
