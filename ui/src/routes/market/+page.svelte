@@ -3,7 +3,6 @@
   import { goto } from '$app/navigation';
   import { api } from '$lib/api';
   import { AuthFetch } from '@bsv/sdk';
-  import StreamingPackages from '../../components/StreamingPackages.svelte';
 
   let assets = [];
   let availableAssets = []; // For parent selection
@@ -311,8 +310,42 @@
           quality_score: asset.quality_score || (0.6 + Math.random() * 0.4) // Random quality 60-100%
         }));
 
-        assets = transformedAssets;
-        availableAssets = transformedAssets;
+        // Also fetch streaming packages
+        let streamingAssets = [];
+        try {
+          const streamingResponse = await api.request('/v1/streaming-market/streams', {
+            method: 'GET'
+          });
+
+          if (streamingResponse.success && streamingResponse.data.streams) {
+            streamingAssets = streamingResponse.data.streams.map(stream => ({
+              ...stream,
+              // Mark as streaming and add required fields for unified display
+              isStreaming: true,
+              content: { mediaType: 'application/x-stream' },
+              pricePerKB: stream.price_per_packet || 0.001,
+              dataSizeBytes: stream.avg_packet_size || 1024,
+              producer: stream.producer || 'StreamProvider',
+              confirmations: stream.active_subscribers || 0,
+              updatedAt: stream.last_packet_at || stream.created_at,
+              format: 'stream',
+              type: 'streaming',
+              quality_score: stream.stream_status === 'active' ? 0.9 : 0.5,
+              // Streaming-specific fields
+              totalPackets: stream.total_packets || 0,
+              packetsToday: stream.packets_today || 0,
+              latestSequence: stream.latest_sequence || 0,
+              streamStatus: stream.stream_status || 'inactive'
+            }));
+          }
+        } catch (streamingError) {
+          console.log('Streaming endpoint not available, skipping streaming packages');
+        }
+
+        // Merge static and streaming assets
+        const allAssets = [...transformedAssets, ...streamingAssets];
+        assets = allAssets;
+        availableAssets = allAssets;
       } catch (searchError) {
         console.log('Search endpoint not available yet, using empty list for parents');
         assets = [];
@@ -346,6 +379,7 @@
       'text/plain': { name: 'Text', icon: '📝', type: 'static' },
 
       // Streaming Data
+      'application/x-stream': { name: 'Live Stream', icon: '🔴', type: 'stream' },
       'application/x-ndjson': { name: 'NDJSON Stream', icon: '📡', type: 'stream' },
       'text/event-stream': { name: 'SSE Stream', icon: '⚡', type: 'stream' },
       'application/x-kafka': { name: 'Kafka', icon: '🔄', type: 'stream' },
@@ -698,8 +732,6 @@
     </button>
   </div>
 
-  <!-- Streaming Packages Section -->
-  <StreamingPackages />
 
   <!-- Publishing Form -->
   {#if showPublishForm}
@@ -1174,10 +1206,29 @@
                 <td class="rank-cell">{index + 1}</td>
                 <td class="asset-cell">
                   <div class="asset-info">
-                    <span class="asset-icon-small">📊</span>
+                    <span class="asset-icon-small">
+                      {#if asset.isStreaming}
+                        🔴
+                      {:else}
+                        📊
+                      {/if}
+                    </span>
                     <div class="asset-details">
-                      <div class="asset-name">{asset.title || asset.datasetId || 'Untitled Asset'}</div>
-                      <div class="asset-id-small">ID: {asset.versionId?.slice(0, 16)}...</div>
+                      <div class="asset-name">
+                        {asset.title || asset.datasetId || 'Untitled Asset'}
+                        {#if asset.isStreaming}
+                          <span class="streaming-indicator">
+                            <span class="live-dot"></span>
+                            <span class="live-text">LIVE</span>
+                          </span>
+                        {/if}
+                      </div>
+                      <div class="asset-id-small">
+                        ID: {asset.versionId?.slice(0, 16)}...
+                        {#if asset.isStreaming}
+                          <span class="streaming-info">• {asset.packetsToday || 0} packets today</span>
+                        {/if}
+                      </div>
                     </div>
                   </div>
                 </td>
@@ -2998,5 +3049,53 @@
       margin-left: 0;
       font-size: 11px;
     }
+  }
+  /* Streaming indicators */
+  .streaming-indicator {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+    gap: 4px;
+  }
+
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    background: #ff4444;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  .live-text {
+    font-size: 10px;
+    font-weight: bold;
+    color: #ff4444;
+    letter-spacing: 0.5px;
+  }
+
+  .streaming-info {
+    color: #7c3aed;
+    font-size: 11px;
+    margin-left: 4px;
+  }
+
+  @keyframes pulse {
+    0% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.7;
+      transform: scale(1.1);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .format-stream {
+    background: linear-gradient(45deg, #ff4444, #ff6666);
+    color: white;
   }
 </style>
