@@ -12,8 +12,14 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./src/db/postgresql-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./src/db/schema-d08-realtime-packets.sql:/docker-entrypoint-initdb.d/02-d08-schema.sql
+      - ./src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./src/db/openlineage-schema.sql:/docker-entrypoint-initdb.d/02-openlineage-schema.sql
+      - ./src/db/schema-d06-payments.sql:/docker-entrypoint-initdb.d/03-payments-schema.sql
+      - ./src/db/schema-d07-streaming-quotas.sql:/docker-entrypoint-initdb.d/04-streaming-quotas-schema.sql
+      - ./src/db/schema-d08-realtime-packets.sql:/docker-entrypoint-initdb.d/05-realtime-packets-schema.sql
+      - ./src/db/schema-d22-overlay-storage.sql:/docker-entrypoint-initdb.d/06-overlay-storage-schema.sql
+      - ./src/db/identity-schema.sql:/docker-entrypoint-initdb.d/07-identity-schema.sql
+      - ./init-db.sh:/docker-entrypoint-initdb.d/99-init-storage-tables.sh
     ports:
       - "5432:5432"
     healthcheck:

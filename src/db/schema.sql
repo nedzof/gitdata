@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS receipts (
 
 -- Revenue events (simple append-only log)
 CREATE TABLE IF NOT EXISTS revenue_events (
-  event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id SERIAL PRIMARY KEY,
   receipt_id TEXT NOT NULL,
   version_id TEXT NOT NULL,
   amount_sat INTEGER NOT NULL,
@@ -87,7 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_manifests_producer ON manifests(producer_id);
 
 -- Price rules with optional version or producer scope and tiering
 CREATE TABLE IF NOT EXISTS price_rules (
-  rule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rule_id SERIAL PRIMARY KEY,
   version_id TEXT,            -- 64-hex, nullable
   producer_id TEXT,           -- from producers.producer_id, nullable
   tier_from INTEGER NOT NULL DEFAULT 1,   -- quantity threshold (inclusive)
@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
   artifact_type TEXT NOT NULL,        -- 'contract/pdf', 'contract/markdown', 'document/json', etc.
   content_hash TEXT NOT NULL,
   file_path TEXT,                     -- Local file system path (optional)
-  content_data BLOB,                  -- Inline content for small artifacts
+  content_data BYTEA,                 -- Inline content for small artifacts
   version_id TEXT,                    -- DLM1 versionId if published on-chain
   metadata_json TEXT,                 -- Additional metadata
   created_at INTEGER NOT NULL,
