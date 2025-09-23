@@ -334,7 +334,8 @@ class BRC88SHIPSLAPService extends EventEmitter {
         'disconnected',
         newAttempts < 5, // Deactivate after 5 failed attempts
         peer.identity,
-      );
+      ]
+    );
 
     peer.connectionStatus = 'disconnected';
     peer.isActive = newAttempts < 5;
