@@ -1,0 +1,1310 @@
+{
+  "info": {
+    "name": "BSV Overlay Network API",
+    "_postman_id": "d24-overlay-network-api-v1",
+    "description": "Comprehensive API collection for BSV Overlay Network with BRC standards integration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    }
+  },
+  "variable": [
+    { "key": "BASE_URL", "value": "http://localhost:8788", "type": "string" },
+    { "key": "OVERLAY_ENABLED", "value": "true", "type": "string" },
+    { "key": "API_VERSION", "value": "v1", "type": "string" },
+    { "key": "IDENTITY_KEY", "value": "03abc123...", "type": "string" },
+    { "key": "WEBHOOK_URL", "value": "http://localhost:9099/webhook", "type": "string" },
+    { "key": "agentId", "value": "", "type": "string" },
+    { "key": "ruleId", "value": "", "type": "string" },
+    { "key": "jobId", "value": "", "type": "string" },
+    { "key": "contentHash", "value": "", "type": "string" },
+    { "key": "versionId", "value": "", "type": "string" },
+    { "key": "receiptId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "🚀 Quick Start",
+      "description": "Essential endpoints to get started with the BSV Overlay Network",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/health",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "health"]
+            },
+            "description": "Check overlay network connectivity and system health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Health check successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains status', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('status');",
+                  "    pm.expect(response).to.have.property('enabled');",
+                  "    pm.expect(response).to.have.property('connected');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Overlay Network Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/status",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "status"]
+            },
+            "description": "Get detailed overlay network status and statistics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status endpoint accessible', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Contains overlay stats', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('enabled');",
+                  "    pm.expect(response).to.have.property('connected');",
+                  "    if (response.enabled) {",
+                  "        pm.expect(response).to.have.property('stats');",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Available Topics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/topics",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "topics"]
+            },
+            "description": "List all available overlay network topics and subscriptions"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Topics endpoint accessible', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Contains standard topics', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('standardTopics');",
+                  "    pm.expect(response.standardTopics).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🤖 Agent Marketplace (D24)",
+      "description": "BSV Overlay Network Agent Marketplace operations",
+      "item": [
+        {
+          "name": "Register Agent",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{$randomFirstName}}Agent\",\n  \"capabilities\": [\n    {\n      \"name\": \"data-processing\",\n      \"inputs\": [\"raw-data\"],\n      \"outputs\": [\"processed-data\"]\n    }\n  ],\n  \"webhookUrl\": \"{{WEBHOOK_URL}}\",\n  \"geographicRegion\": \"US\",\n  \"overlayTopics\": [\"gitdata.agent.capabilities\"]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/agents/register",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "agents", "register"]
+            },
+            "description": "Register a new agent in the marketplace with overlay integration"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Agent registration successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains agent ID', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.agentId).to.be.a('string');",
+                  "    pm.environment.set('agentId', response.agentId);",
+                  "});",
+                  "",
+                  "pm.test('SHIP advertisement created', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.shipAdvertisementId).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('Overlay topics configured', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.overlayTopics).to.include('gitdata.agent.capabilities');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search Agents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/agents/search?capability=data-processing&region=US",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "agents", "search"],
+              "query": [
+                {
+                  "key": "capability",
+                  "value": "data-processing"
+                },
+                {
+                  "key": "region",
+                  "value": "US"
+                }
+              ]
+            },
+            "description": "Search for agents by capability and geographic region"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Agent search successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response is array', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Agents have required properties', function () {",
+                  "    const response = pm.response.json();",
+                  "    if (response.length > 0) {",
+                  "        const agent = response[0];",
+                  "        pm.expect(agent).to.have.property('agentId');",
+                  "        pm.expect(agent).to.have.property('capabilities');",
+                  "        pm.expect(agent).to.have.property('overlayTopics');",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Agent Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/agents/{{agentId}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "agents", "{{agentId}}"]
+            },
+            "description": "Get detailed information about a specific agent"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Agent details retrieved', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Agent has performance stats', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('performanceStats');",
+                  "    pm.expect(response).to.have.property('reputationScore');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Overlay Rule",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"DataProcessingRule\",\n  \"overlayTopics\": [\"gitdata.d01a.manifest\"],\n  \"whenCondition\": {\n    \"type\": \"overlay-event\",\n    \"topic\": \"gitdata.d01a.manifest\",\n    \"predicate\": {\n      \"and\": [\n        {\"includes\": {\"tags\": \"raw-data\"}},\n        {\"eq\": {\"classification\": \"public\"}}\n      ]\n    }\n  },\n  \"findStrategy\": {\n    \"source\": \"agent-registry\",\n    \"query\": {\"capability\": \"data-processing\"},\n    \"limit\": 3\n  },\n  \"actions\": [\n    {\n      \"action\": \"overlay.notify\",\n      \"capability\": \"data-processing\",\n      \"payload\": {\"type\": \"data-processing-request\"}\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/rules",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "rules"]
+            },
+            "description": "Create an overlay rule for automated agent coordination"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Rule creation successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains rule ID', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.ruleId).to.be.a('string');",
+                  "    pm.environment.set('ruleId', response.ruleId);",
+                  "});",
+                  "",
+                  "pm.test('Overlay subscriptions created', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.overlaySubscriptions).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Execute Rule",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/rules/{{ruleId}}/execute",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "rules", "{{ruleId}}", "execute"]
+            },
+            "description": "Execute an overlay rule and trigger agent coordination"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Rule execution successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Jobs created', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.jobsCreated).to.be.a('number');",
+                  "});",
+                  "",
+                  "pm.test('Agents notified', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.agentsNotified).to.be.a('number');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Active Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/jobs",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "jobs"]
+            },
+            "description": "List all active overlay jobs"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Jobs list retrieved', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response is array', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Jobs have status', function () {",
+                  "    const response = pm.response.json();",
+                  "    if (response.length > 0) {",
+                  "        const job = response[0];",
+                  "        pm.expect(job).to.have.property('status');",
+                  "        pm.expect(job).to.have.property('jobId');",
+                  "        if (job.jobId) {",
+                  "            pm.environment.set('jobId', job.jobId);",
+                  "        }",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Coordinate Multiple Agents",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agentIds\": [\"{{agentId}}\"],\n  \"workflow\": \"sequential\",\n  \"coordination\": {\n    \"task\": \"data-processing-pipeline\",\n    \"parameters\": {\n      \"inputData\": \"sample-dataset-001\",\n      \"outputFormat\": \"enhanced-json\"\n    }\n  },\n  \"timeout\": 30000\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/agents/coordinate",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "agents", "coordinate"]
+            },
+            "description": "Coordinate multiple agents for complex workflows"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Coordination successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Coordination ID provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.coordinationId).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('Workflow state initialized', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.workflowState).to.be.a('string');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "📋 BRC-22 Job Orchestration",
+      "description": "Distributed job orchestration using BRC-22 standard",
+      "item": [
+        {
+          "name": "Create Distributed Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobType\": \"data-processing\",\n  \"targetAgents\": [\"{{agentId}}\"],\n  \"payload\": {\n    \"inputData\": \"sample-data\",\n    \"processingType\": \"normalization\"\n  },\n  \"consensus\": {\n    \"required\": true,\n    \"threshold\": 1\n  },\n  \"overlayTopics\": [\"gitdata.brc22.jobs\"]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/brc22/jobs",
+              "host": ["{{BASE_URL}}"],
+              "path": ["brc22", "jobs"]
+            },
+            "description": "Create a distributed job using BRC-22 orchestration"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Job creation successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Job ID provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.jobId).to.be.a('string');",
+                  "    pm.environment.set('jobId', response.jobId);",
+                  "});",
+                  "",
+                  "pm.test('Overlay distribution confirmed', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.overlayDistributed).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Job Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/brc22/jobs/{{jobId}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["brc22", "jobs", "{{jobId}}"]
+            },
+            "description": "Get status and progress of a BRC-22 job"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Job status retrieved', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Status contains progress', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('status');",
+                  "    pm.expect(response).to.have.property('progress');",
+                  "});",
+                  "",
+                  "pm.test('Agent assignments tracked', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.agentAssignments).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🔍 BRC-24 Service Discovery",
+      "description": "Service discovery and lookup using BRC-24 standard",
+      "item": [
+        {
+          "name": "Find Services",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/brc24/services?capability=data-processing&region=US&minReputation=50",
+              "host": ["{{BASE_URL}}"],
+              "path": ["brc24", "services"],
+              "query": [
+                {
+                  "key": "capability",
+                  "value": "data-processing"
+                },
+                {
+                  "key": "region",
+                  "value": "US"
+                },
+                {
+                  "key": "minReputation",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Discover services using BRC-24 lookup protocol"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Service discovery successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Services found', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.services).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Services have capability info', function () {",
+                  "    const response = pm.response.json();",
+                  "    if (response.services.length > 0) {",
+                  "        const service = response.services[0];",
+                  "        pm.expect(service).to.have.property('capability');",
+                  "        pm.expect(service).to.have.property('reputation');",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "📦 BRC-26 UHRP Storage",
+      "description": "Universal Hash Resolution Protocol for distributed storage",
+      "item": [
+        {
+          "name": "Upload Content",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data"
+              },
+              {
+                "key": "X-Storage-Tier",
+                "value": "hot"
+              },
+              {
+                "key": "X-Replication-Strategy",
+                "value": "overlay+s3"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "metadata",
+                  "value": "{\"classification\":\"public\",\"geographicRestrictions\":[]}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/storage/upload",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "storage", "upload"]
+            },
+            "description": "Upload content with BRC-26 UHRP addressing"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Content upload successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('UHRP URL generated', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.storage.overlay.uhrpUrl).to.match(/^uhrp:\\/\\//);",
+                  "});",
+                  "",
+                  "pm.test('Multiple storage locations', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.storage).to.have.property('local');",
+                  "    pm.expect(response.storage).to.have.property('overlay');",
+                  "});",
+                  "",
+                  "pm.test('Content hash provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.contentHash).to.be.a('string');",
+                  "    pm.environment.set('contentHash', response.contentHash);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resolve Content",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/brc26/content/{{contentHash}}?includeVerification=true",
+              "host": ["{{BASE_URL}}"],
+              "path": ["brc26", "content", "{{contentHash}}"],
+              "query": [
+                {
+                  "key": "includeVerification",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Resolve content using BRC-26 UHRP"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Content resolution successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Resolution contains locations', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.availableLocations).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Integrity verified', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.integrityVerified).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🔐 BRC-31 Identity Verification",
+      "description": "Identity verification and message signing using BRC-31",
+      "item": [
+        {
+          "name": "Register Identity",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Identity-Key",
+                "value": "{{IDENTITY_KEY}}"
+              },
+              {
+                "key": "X-Nonce",
+                "value": "{{$timestamp}}"
+              },
+              {
+                "key": "X-Signature",
+                "value": "304502...signature..."
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identityType\": \"agent\",\n  \"capabilities\": [\"data-processing\", \"certification\"],\n  \"geographicRegion\": \"US\",\n  \"serviceEndpoints\": {\n    \"webhook\": \"{{WEBHOOK_URL}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/brc31/identity/register",
+              "host": ["{{BASE_URL}}"],
+              "path": ["brc31", "identity", "register"]
+            },
+            "description": "Register BRC-31 identity for overlay network participation"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Identity registration successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Identity verified', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.verified).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Overlay topics assigned', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.overlayTopics).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Signature",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"test message for verification\",\n  \"signature\": \"304502...signature...\",\n  \"identityKey\": \"{{IDENTITY_KEY}}\",\n  \"nonce\": \"{{$timestamp}}\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/brc31/verify",
+              "host": ["{{BASE_URL}}"],
+              "path": ["brc31", "verify"]
+            },
+            "description": "Verify BRC-31 signature"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Signature verification processed', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Verification result provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('verified');",
+                  "});",
+                  "",
+                  "pm.test('Identity information included', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('identityInfo');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "📡 BRC-88 Service Advertisement",
+      "description": "Service advertisement and discovery using BRC-88 SHIP/SLAP",
+      "item": [
+        {
+          "name": "Create SHIP Advertisement",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceType\": \"data-processing\",\n  \"capabilities\": [\"normalization\", \"validation\"],\n  \"endpoint\": \"{{WEBHOOK_URL}}\",\n  \"geographicRegion\": \"US\",\n  \"overlayTopics\": [\"gitdata.agent.capabilities\"]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/brc88/ship",
+              "host": ["{{BASE_URL}}"],
+              "path": ["brc88", "ship"]
+            },
+            "description": "Create SHIP advertisement for service capabilities"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('SHIP advertisement created', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Advertisement ID provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.advertisementId).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('Overlay published', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.overlayPublished).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "SLAP Service Discovery",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/brc88/slap?serviceType=data-processing&region=US",
+              "host": ["{{BASE_URL}}"],
+              "path": ["brc88", "slap"],
+              "query": [
+                {
+                  "key": "serviceType",
+                  "value": "data-processing"
+                },
+                {
+                  "key": "region",
+                  "value": "US"
+                }
+              ]
+            },
+            "description": "Discover services using SLAP protocol"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('SLAP discovery successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Services discovered', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.services).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Service availability checked', function () {",
+                  "    const response = pm.response.json();",
+                  "    if (response.services.length > 0) {",
+                  "        pm.expect(response.services[0]).to.have.property('availability');",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🗂️ Search & Discovery",
+      "description": "Enhanced content search and discovery with overlay integration",
+      "item": [
+        {
+          "name": "Content Search",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/search?q=machine learning datasets&classification=commercial&geographicRegion=US&overlayTopics[]=gitdata.model.training&minReputation=50&limit=10&includeOverlay=true",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "search"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "machine learning datasets"
+                },
+                {
+                  "key": "classification",
+                  "value": "commercial"
+                },
+                {
+                  "key": "geographicRegion",
+                  "value": "US"
+                },
+                {
+                  "key": "overlayTopics[]",
+                  "value": "gitdata.model.training"
+                },
+                {
+                  "key": "minReputation",
+                  "value": "50"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "includeOverlay",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Search for content across overlay network"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Search successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Results contain metadata', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('results');",
+                  "    pm.expect(response).to.have.property('sources');",
+                  "});",
+                  "",
+                  "pm.test('Overlay sources included', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.sources).to.have.property('overlay');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Content Resolution",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/resolve?versionId={{versionId}}&includeLineage=true&includeOverlay=true&resolveContent=true&depth=3",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "resolve"],
+              "query": [
+                {
+                  "key": "versionId",
+                  "value": "{{versionId}}"
+                },
+                {
+                  "key": "includeLineage",
+                  "value": "true"
+                },
+                {
+                  "key": "includeOverlay",
+                  "value": "true"
+                },
+                {
+                  "key": "resolveContent",
+                  "value": "true"
+                },
+                {
+                  "key": "depth",
+                  "value": "3"
+                }
+              ]
+            },
+            "description": "Resolve content with overlay metadata and lineage"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Resolution successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Content resolution provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.resolution).to.have.property('contentResolution');",
+                  "});",
+                  "",
+                  "pm.test('Overlay metadata included', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.resolution).to.have.property('overlayMetadata');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "⚡ Real-time Events",
+      "description": "Real-time event ingestion and streaming",
+      "item": [
+        {
+          "name": "Ingest Events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Identity-Key",
+                "value": "{{IDENTITY_KEY}}"
+              },
+              {
+                "key": "X-Nonce",
+                "value": "{{$timestamp}}"
+              },
+              {
+                "key": "X-Signature",
+                "value": "304502...signature..."
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceId\": \"iot-sensors-farm-001\",\n  \"events\": [\n    {\n      \"externalId\": \"sensor_001_{{$timestamp}}\",\n      \"eventType\": \"sensor_reading\",\n      \"timestamp\": \"{{$isoTimestamp}}\",\n      \"data\": {\n        \"sensorId\": \"temp_001\",\n        \"value\": 23.5,\n        \"unit\": \"celsius\",\n        \"location\": {\"lat\": 40.7128, \"lng\": -74.0060}\n      }\n    }\n  ],\n  \"processingOptions\": {\n    \"requireCertification\": true,\n    \"distributionTopics\": [\"gitdata.events.iot\", \"gitdata.sensors.temperature\"],\n    \"consensusLevel\": \"enhanced\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/events/ingest",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "events", "ingest"]
+            },
+            "description": "Ingest real-time events with overlay distribution"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Event ingestion successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Events processed', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.processedEvents).to.be.an('array');",
+                  "    pm.expect(response.processedEvents.length).to.be.greaterThan(0);",
+                  "});",
+                  "",
+                  "pm.test('Overlay distribution confirmed', function () {",
+                  "    const response = pm.response.json();",
+                  "    const event = response.processedEvents[0];",
+                  "    pm.expect(event.overlayDistribution).to.have.property('topics');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "📊 Monitoring & Health",
+      "description": "System health monitoring and metrics",
+      "item": [
+        {
+          "name": "System Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/health",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "health"]
+            },
+            "description": "Comprehensive system health check"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Health check successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Health status provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('status');",
+                  "    pm.expect(response).to.have.property('components');",
+                  "});",
+                  "",
+                  "pm.test('Overlay network status included', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.components).to.have.property('overlayNetwork');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Performance Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/metrics?format=json",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "metrics"],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "json"
+                }
+              ]
+            },
+            "description": "Get performance metrics in JSON format"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Metrics endpoint accessible', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Metrics data provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('metrics');",
+                  "});",
+                  "",
+                  "pm.test('Overlay metrics included', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.metrics).to.have.property('overlay');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🧪 End-to-End Workflows",
+      "description": "Complete workflows demonstrating overlay network integration",
+      "item": [
+        {
+          "name": "Complete Agent Workflow",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// This workflow demonstrates:",
+                  "// 1. Agent registration with overlay integration",
+                  "// 2. Rule creation for automatic coordination",
+                  "// 3. Job execution and monitoring",
+                  "// 4. BRC standards compliance verification",
+                  "",
+                  "console.log('Starting complete agent workflow...');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/overlay/workflows/agent-demo",
+              "host": ["{{BASE_URL}}"],
+              "path": ["overlay", "workflows", "agent-demo"]
+            },
+            "description": "Execute complete agent workflow with overlay coordination"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Workflow execution successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('All workflow steps completed', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.completedSteps).to.be.an('array');",
+                  "    pm.expect(response.completedSteps.length).to.be.greaterThan(0);",
+                  "});",
+                  "",
+                  "pm.test('BRC standards compliance verified', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.brcCompliance).to.have.property('verified');",
+                  "    pm.expect(response.brcCompliance.verified).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global pre-request script for BSV Overlay Network API",
+          "// Set up common variables and authentication",
+          "",
+          "// Generate timestamp for nonce",
+          "pm.globals.set('timestamp', Date.now().toString());",
+          "",
+          "// Set ISO timestamp for events",
+          "pm.globals.set('isoTimestamp', new Date().toISOString());",
+          "",
+          "// Log current test",
+          "console.log('Executing:', pm.info.requestName);"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test script for common validations",
+          "",
+          "// Check for common error patterns",
+          "pm.test('No server errors', function () {",
+          "    pm.expect(pm.response.code).to.be.below(500);",
+          "});",
+          "",
+          "// Check response time",
+          "pm.test('Response time acceptable', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "// Check for overlay-related errors",
+          "if (pm.response.code >= 400) {",
+          "    pm.test('Error response contains message', function () {",
+          "        const response = pm.response.json();",
+          "        pm.expect(response).to.have.property('error');",
+          "        pm.expect(response).to.have.property('message');",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ]
+}

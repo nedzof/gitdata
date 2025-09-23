@@ -1,4 +1,4 @@
-name: Newman E2E
+name: BSV Overlay Network API Testing
 
 on:
   workflow_dispatch:
@@ -7,25 +7,146 @@ on:
       - "postman/**"
       - "src/**"
       - ".github/workflows/newman.yml"
+  schedule:
+    - cron: '0 */6 * * *'  # Run every 6 hours
 
 jobs:
-  newman:
+  overlay-api-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: overlay_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: npm ci
-      - name: Start overlay
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup test database
         run: |
-          nohup npx tsx server.ts > overlay.log 2>&1 &
-          sleep 3
-      - name: Newman run
-        run: npm run postman:ci
+          npm run setup:database
+        env:
+          PG_HOST: localhost
+          PG_PORT: 5432
+          PG_DATABASE: overlay_test
+          PG_USER: postgres
+          PG_PASSWORD: password
+          REDIS_URL: redis://localhost:6379
+
+      - name: Start overlay network
+        run: |
+          nohup npx tsx src/mock/overlay-mock-extended.ts > overlay.log 2>&1 &
+          sleep 10  # Give overlay network time to start
+        env:
+          OVERLAY_ENABLED: true
+          NODE_ENV: test
+          PG_HOST: localhost
+          PG_PORT: 5432
+          PG_DATABASE: overlay_test
+          PG_USER: postgres
+          PG_PASSWORD: password
+          REDIS_URL: redis://localhost:6379
+
+      - name: Wait for services
+        run: |
+          # Wait for overlay network to be ready
+          timeout 60 bash -c 'until curl -f http://localhost:8788/overlay/health; do sleep 2; done'
+
+      - name: Run legacy E2E tests
+        run: |
+          npm run postman:ci
+        env:
+          NODE_ENV: test
+
+      - name: Run BSV Overlay Network API tests
+        run: |
+          npx newman run postman/BSV-Overlay-Network-API.postman_collection.json \
+            -e postman/BSV-Overlay-Network.postman_environment.json \
+            --reporters cli,junit,htmlextra \
+            --reporter-junit-export test-results/newman-overlay-api.xml \
+            --reporter-htmlextra-export test-results/newman-overlay-api-report.html \
+            --delay-request 250 \
+            --timeout-request 30000 \
+            --bail
+        env:
+          NODE_ENV: test
+
+      - name: Run BRC Standards compliance tests
+        run: |
+          # Test specific BRC standards folders
+          npx newman run postman/BSV-Overlay-Network-API.postman_collection.json \
+            -e postman/BSV-Overlay-Network.postman_environment.json \
+            --folder "📋 BRC-22 Job Orchestration" \
+            --folder "🔍 BRC-24 Service Discovery" \
+            --folder "📦 BRC-26 UHRP Storage" \
+            --folder "🔐 BRC-31 Identity Verification" \
+            --folder "📡 BRC-88 Service Advertisement" \
+            --reporters cli,junit \
+            --reporter-junit-export test-results/newman-brc-standards.xml \
+            --delay-request 500
+        env:
+          NODE_ENV: test
+
+      - name: Run Agent Marketplace tests
+        run: |
+          npx newman run postman/BSV-Overlay-Network-API.postman_collection.json \
+            -e postman/BSV-Overlay-Network.postman_environment.json \
+            --folder "🤖 Agent Marketplace (D24)" \
+            --reporters cli,junit \
+            --reporter-junit-export test-results/newman-agent-marketplace.xml \
+            --delay-request 300
+        env:
+          NODE_ENV: test
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: newman-test-results
+          path: test-results/
+
       - name: Upload overlay logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: overlay-logs
           path: overlay.log
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: BSV Overlay Network API Tests
+          path: test-results/newman-*.xml
+          reporter: java-junit

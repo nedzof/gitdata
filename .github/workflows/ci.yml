@@ -29,13 +29,34 @@ jobs:
       - name: Unit & Integration Tests
         run: npm test
 
-      - name: Newman postman tests
+      - name: Start overlay services
+        run: |
+          # Start overlay network for testing
+          nohup npx tsx src/mock/overlay-mock-extended.ts > overlay.log 2>&1 &
+          sleep 5
+        env:
+          NODE_ENV: test
+          OVERLAY_ENABLED: true
+
+      - name: Newman legacy tests
         run: |
           mkdir -p test-results
           npm run newman
         env:
-          # If your Postman env uses variables like baseUrl pointing at localhost,
-          # consider replacing it with a staging URL or use a self-hosted runner.
+          NODE_ENV: test
+
+      - name: Newman overlay API tests
+        run: |
+          # Test comprehensive BSV Overlay Network API
+          npx newman run postman/BSV-Overlay-Network-API.postman_collection.json \
+            -e postman/BSV-Overlay-Network.postman_environment.json \
+            --reporters cli,junit,htmlextra \
+            --reporter-junit-export test-results/newman-overlay.xml \
+            --reporter-htmlextra-export test-results/newman-overlay-report.html \
+            --delay-request 250 \
+            --timeout-request 30000 \
+            --bail
+        env:
           NODE_ENV: test
 
       - name: Upload test artifacts

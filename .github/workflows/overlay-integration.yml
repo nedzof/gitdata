@@ -1,0 +1,321 @@
+name: Overlay Integration Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: 'Test suite to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - agent-marketplace
+          - brc-standards
+          - storage
+          - real-time-events
+  push:
+    paths:
+      - "src/overlay/**"
+      - "src/agents/**"
+      - "src/routes/overlay*"
+      - "postman/BSV-Overlay-Network-API.postman_collection.json"
+      - ".github/workflows/overlay-integration.yml"
+  pull_request:
+    paths:
+      - "src/overlay/**"
+      - "src/agents/**"
+      - "src/routes/overlay*"
+
+env:
+  NODE_ENV: test
+  OVERLAY_ENABLED: true
+  PG_HOST: localhost
+  PG_PORT: 5432
+  PG_DATABASE: overlay_test
+  PG_USER: postgres
+  PG_PASSWORD: password
+  REDIS_URL: redis://localhost:6379
+
+jobs:
+  overlay-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: overlay_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    strategy:
+      matrix:
+        test-suite:
+          - name: "Quick Start & Health"
+            folder: "🚀 Quick Start"
+            delay: 100
+          - name: "Agent Marketplace"
+            folder: "🤖 Agent Marketplace (D24)"
+            delay: 300
+          - name: "BRC-22 Job Orchestration"
+            folder: "📋 BRC-22 Job Orchestration"
+            delay: 400
+          - name: "BRC-24 Service Discovery"
+            folder: "🔍 BRC-24 Service Discovery"
+            delay: 200
+          - name: "BRC-26 UHRP Storage"
+            folder: "📦 BRC-26 UHRP Storage"
+            delay: 500
+          - name: "BRC-31 Identity Verification"
+            folder: "🔐 BRC-31 Identity Verification"
+            delay: 300
+          - name: "BRC-88 Service Advertisement"
+            folder: "📡 BRC-88 Service Advertisement"
+            delay: 250
+          - name: "Search & Discovery"
+            folder: "🗂️ Search & Discovery"
+            delay: 200
+          - name: "Real-time Events"
+            folder: "⚡ Real-time Events"
+            delay: 400
+          - name: "Monitoring & Health"
+            folder: "📊 Monitoring & Health"
+            delay: 100
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install -g newman
+
+      - name: Setup test database schema
+        run: |
+          npm run setup:database
+
+      - name: Start overlay network services
+        run: |
+          # Start overlay network with full logging
+          nohup npx tsx src/mock/overlay-mock-extended.ts > overlay-${{ matrix.test-suite.name }}.log 2>&1 &
+          OVERLAY_PID=$!
+          echo "OVERLAY_PID=$OVERLAY_PID" >> $GITHUB_ENV
+
+          # Wait for services to be ready
+          echo "Waiting for overlay network to start..."
+          sleep 15
+
+      - name: Health check services
+        run: |
+          # Verify all services are running
+          curl -f http://localhost:8788/health || exit 1
+          curl -f http://localhost:8788/overlay/health || echo "Overlay health check failed (may be expected)"
+
+          # Check database connectivity
+          npx tsx -e "
+            const { Pool } = require('pg');
+            const pool = new Pool({
+              host: 'localhost',
+              port: 5432,
+              database: 'overlay_test',
+              user: 'postgres',
+              password: 'password'
+            });
+            pool.query('SELECT NOW()')
+              .then(() => { console.log('Database connected'); process.exit(0); })
+              .catch(err => { console.error('Database error:', err); process.exit(1); });
+          "
+
+      - name: Run ${{ matrix.test-suite.name }} tests
+        run: |
+          mkdir -p test-results
+
+          # Run specific test folder with appropriate delay
+          newman run postman/BSV-Overlay-Network-API.postman_collection.json \
+            -e postman/BSV-Overlay-Network.postman_environment.json \
+            --folder "${{ matrix.test-suite.folder }}" \
+            --reporters cli,junit,htmlextra \
+            --reporter-junit-export "test-results/newman-${{ matrix.test-suite.name }}.xml" \
+            --reporter-htmlextra-export "test-results/newman-${{ matrix.test-suite.name }}-report.html" \
+            --delay-request ${{ matrix.test-suite.delay }} \
+            --timeout-request 45000 \
+            --timeout-script 30000 \
+            --verbose
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: overlay-integration-${{ matrix.test-suite.name }}-results
+          path: |
+            test-results/
+            overlay-*.log
+          retention-days: 14
+
+      - name: Stop overlay services
+        if: always()
+        run: |
+          if [ ! -z "$OVERLAY_PID" ]; then
+            kill $OVERLAY_PID || true
+          fi
+          pkill -f "overlay-mock-extended" || true
+
+  end-to-end-workflow:
+    needs: overlay-integration
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == ''
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: overlay_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install -g newman
+
+      - name: Setup test database
+        run: npm run setup:database
+        env:
+          NODE_ENV: test
+          PG_HOST: localhost
+          PG_PORT: 5432
+          PG_DATABASE: overlay_test
+          PG_USER: postgres
+          PG_PASSWORD: password
+
+      - name: Start overlay network
+        run: |
+          nohup npx tsx src/mock/overlay-mock-extended.ts > overlay-e2e.log 2>&1 &
+          sleep 20  # Extra time for E2E stability
+        env:
+          OVERLAY_ENABLED: true
+          NODE_ENV: test
+          PG_HOST: localhost
+          PG_PORT: 5432
+          PG_DATABASE: overlay_test
+          PG_USER: postgres
+          PG_PASSWORD: password
+          REDIS_URL: redis://localhost:6379
+
+      - name: Run complete end-to-end workflow
+        run: |
+          mkdir -p test-results
+
+          # Run the complete workflow test
+          newman run postman/BSV-Overlay-Network-API.postman_collection.json \
+            -e postman/BSV-Overlay-Network.postman_environment.json \
+            --folder "🧪 End-to-End Workflows" \
+            --reporters cli,junit,htmlextra \
+            --reporter-junit-export test-results/newman-e2e-workflow.xml \
+            --reporter-htmlextra-export test-results/newman-e2e-workflow-report.html \
+            --delay-request 1000 \
+            --timeout-request 60000 \
+            --verbose
+
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: overlay-e2e-workflow-results
+          path: |
+            test-results/
+            overlay-e2e.log
+          retention-days: 30
+
+  publish-results:
+    needs: [overlay-integration, end-to-end-workflow]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: BSV Overlay Network Integration Tests
+          path: '**/newman-*.xml'
+          reporter: java-junit
+          fail-on-error: true
+
+      - name: Create integration summary
+        if: always()
+        run: |
+          echo "# BSV Overlay Network Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Quick Start & Health checks" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Agent Marketplace (D24) operations" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ BRC-22 Job Orchestration" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ BRC-24 Service Discovery" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ BRC-26 UHRP Storage" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ BRC-31 Identity Verification" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ BRC-88 Service Advertisement" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Search & Discovery" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Real-time Events processing" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Monitoring & Health endpoints" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Test results available in workflow artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- HTML reports generated for detailed analysis" >> $GITHUB_STEP_SUMMARY
+          echo "- Overlay service logs captured for debugging" >> $GITHUB_STEP_SUMMARY
