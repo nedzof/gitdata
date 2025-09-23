@@ -168,7 +168,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       });
     } catch (error) {
       console.error('[BRC-88] Synchronization failed:', error);
-      this.recordSyncAttempt(null, 'full_sync', 'outgoing', 'failed', 0, error.message);
+      await this.recordSyncAttempt(null, 'full_sync', 'outgoing', 'failed', 0, error.message);
     }
   }
 
@@ -241,22 +241,27 @@ class BRC88SHIPSLAPService extends EventEmitter {
     this.knownPeers.set(peerInfo.identity, serviceNode);
 
     // Store in database
-    this.database
-      .prepare(
-        `
-      INSERT OR REPLACE INTO brc88_peers
+    await this.database.query(
+      `
+      INSERT INTO brc88_peers
       (peer_identity, domain_name, topics_json, services_json, last_seen, is_active)
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (peer_identity) DO UPDATE SET
+        domain_name = EXCLUDED.domain_name,
+        topics_json = EXCLUDED.topics_json,
+        services_json = EXCLUDED.services_json,
+        last_seen = EXCLUDED.last_seen,
+        is_active = EXCLUDED.is_active
     `,
-      )
-      .run(
+      [
         peerInfo.identity,
         peerInfo.domain,
         JSON.stringify(peerInfo.topics),
         JSON.stringify(peerInfo.services),
         Date.now(),
         true,
-      );
+      ]
+    );
 
     this.emit('peer-discovered', serviceNode);
   }
@@ -293,7 +298,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
     peer.lastSeen = Date.now();
     peer.connectionStatus = 'connected';
 
-    this.recordSyncAttempt(
+    await this.recordSyncAttempt(
       peer.identity,
       'peer_sync',
       'outgoing',
@@ -308,26 +313,23 @@ class BRC88SHIPSLAPService extends EventEmitter {
    * Handle peer sync failure
    */
   private async handlePeerSyncFailure(peer: ServiceNode): Promise<void> {
-    const currentAttempts =
-      this.database
-        .prepare(
-          `
-      SELECT sync_attempts FROM brc88_peers WHERE peer_identity = ?
+    const result = await this.database.query(
+      `
+      SELECT sync_attempts FROM brc88_peers WHERE peer_identity = $1
     `,
-        )
-        .get(peer.identity)?.sync_attempts || 0;
+      [peer.identity]
+    );
+    const currentAttempts = result[0]?.sync_attempts || 0;
 
     const newAttempts = currentAttempts + 1;
 
-    this.database
-      .prepare(
-        `
+    await this.database.query(
+      `
       UPDATE brc88_peers
-      SET sync_attempts = ?, connection_status = ?, is_active = ?
-      WHERE peer_identity = ?
+      SET sync_attempts = $1, connection_status = $2, is_active = $3
+      WHERE peer_identity = $4
     `,
-      )
-      .run(
+      [
         newAttempts,
         'disconnected',
         newAttempts < 5, // Deactivate after 5 failed attempts
@@ -337,7 +339,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
     peer.connectionStatus = 'disconnected';
     peer.isActive = newAttempts < 5;
 
-    this.recordSyncAttempt(
+    await this.recordSyncAttempt(
       peer.identity,
       'peer_sync',
       'outgoing',
@@ -428,14 +430,14 @@ class BRC88SHIPSLAPService extends EventEmitter {
 
       // Create SHIP advertisements for each topic
       for (const topic of activeTopics) {
-        const existingAd = this.database
-          .prepare(
-            `
+        const result = await this.database.query(
+          `
           SELECT * FROM brc88_ship_ads
-          WHERE advertiser_identity = ? AND topic_name = ? AND is_active = TRUE
+          WHERE advertiser_identity = $1 AND topic_name = $2 AND is_active = TRUE
         `,
-          )
-          .get(this.myIdentity, topic);
+          [this.myIdentity, topic]
+        );
+        const existingAd = result[0];
 
         if (!existingAd) {
           await this.createSHIPAdvertisement(topic);
@@ -447,14 +449,14 @@ class BRC88SHIPSLAPService extends EventEmitter {
 
       // Create SLAP advertisements for each provider
       for (const provider of providers) {
-        const existingAd = this.database
-          .prepare(
-            `
+        const result = await this.database.query(
+          `
           SELECT * FROM brc88_slap_ads
-          WHERE advertiser_identity = ? AND service_id = ? AND is_active = TRUE
+          WHERE advertiser_identity = $1 AND service_id = $2 AND is_active = TRUE
         `,
-          )
-          .get(this.myIdentity, provider.providerId);
+          [this.myIdentity, provider.providerId]
+        );
+        const existingAd = result[0];
 
         if (!existingAd) {
           await this.createSLAPAdvertisement(provider.providerId);
@@ -540,115 +542,95 @@ class BRC88SHIPSLAPService extends EventEmitter {
   /**
    * Get service statistics
    */
-  getStats(): {
+  async getStats(): Promise<{
     ship: { total: number; active: number; own: number };
     slap: { total: number; active: number; own: number };
     peers: { total: number; active: number; connected: number };
     sync: { attempts: number; successes: number; failures: number };
-  } {
+  }> {
     const myIdentity = this.myIdentity || '';
 
-    const shipTotal =
-      this.database
-        .prepare(
-          `
+    const shipTotalResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc88_ship_ads
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const shipTotal = shipTotalResult[0]?.count || 0;
 
-    const shipActive =
-      this.database
-        .prepare(
-          `
+    const shipActiveResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc88_ship_ads WHERE is_active = TRUE
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const shipActive = shipActiveResult[0]?.count || 0;
 
-    const shipOwn =
-      this.database
-        .prepare(
-          `
+    const shipOwnResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc88_ship_ads
-      WHERE advertiser_identity = ? AND is_active = TRUE
+      WHERE advertiser_identity = $1 AND is_active = TRUE
     `,
-        )
-        .get(myIdentity)?.count || 0;
+      [myIdentity]
+    );
+    const shipOwn = shipOwnResult[0]?.count || 0;
 
-    const slapTotal =
-      this.database
-        .prepare(
-          `
+    const slapTotalResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc88_slap_ads
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const slapTotal = slapTotalResult[0]?.count || 0;
 
-    const slapActive =
-      this.database
-        .prepare(
-          `
+    const slapActiveResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc88_slap_ads WHERE is_active = TRUE
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const slapActive = slapActiveResult[0]?.count || 0;
 
-    const slapOwn =
-      this.database
-        .prepare(
-          `
+    const slapOwnResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc88_slap_ads
-      WHERE advertiser_identity = ? AND is_active = TRUE
+      WHERE advertiser_identity = $1 AND is_active = TRUE
     `,
-        )
-        .get(myIdentity)?.count || 0;
+      [myIdentity]
+    );
+    const slapOwn = slapOwnResult[0]?.count || 0;
 
-    const peersTotal =
-      this.database
-        .prepare(
-          `
+    const peersTotalResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc88_peers
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const peersTotal = peersTotalResult[0]?.count || 0;
 
-    const peersActive =
-      this.database
-        .prepare(
-          `
+    const peersActiveResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc88_peers WHERE is_active = TRUE
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const peersActive = peersActiveResult[0]?.count || 0;
 
-    const peersConnected =
-      this.database
-        .prepare(
-          `
+    const peersConnectedResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc88_peers
       WHERE connection_status = 'connected'
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const peersConnected = peersConnectedResult[0]?.count || 0;
 
-    const syncAttempts =
-      this.database
-        .prepare(
-          `
+    const syncAttemptsResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc88_sync_history
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const syncAttempts = syncAttemptsResult[0]?.count || 0;
 
-    const syncSuccesses =
-      this.database
-        .prepare(
-          `
+    const syncSuccessesResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc88_sync_history WHERE status = 'success'
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const syncSuccesses = syncSuccessesResult[0]?.count || 0;
 
     const syncFailures = syncAttempts - syncSuccesses;
 
@@ -682,15 +664,21 @@ class BRC88SHIPSLAPService extends EventEmitter {
   private async storeSHIPAdvertisement(ad: SHIPAdvertisement): Promise<void> {
     const adId = `ship_${ad.advertiserIdentity}_${ad.topicName}_${ad.timestamp}`;
 
-    this.database
-      .prepare(
-        `
-      INSERT OR REPLACE INTO brc88_ship_ads
+    await this.database.query(
+      `
+      INSERT INTO brc88_ship_ads
       (ad_id, advertiser_identity, domain_name, topic_name, signature, timestamp, is_revocation, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (ad_id) DO UPDATE SET
+        advertiser_identity = EXCLUDED.advertiser_identity,
+        domain_name = EXCLUDED.domain_name,
+        topic_name = EXCLUDED.topic_name,
+        signature = EXCLUDED.signature,
+        timestamp = EXCLUDED.timestamp,
+        is_revocation = EXCLUDED.is_revocation,
+        is_active = EXCLUDED.is_active
     `,
-      )
-      .run(
+      [
         adId,
         ad.advertiserIdentity,
         ad.domainName,
@@ -699,21 +687,28 @@ class BRC88SHIPSLAPService extends EventEmitter {
         ad.timestamp,
         ad.isRevocation || false,
         !ad.isRevocation,
-      );
+      ]
+    );
   }
 
   private async storeSLAPAdvertisement(ad: SLAPAdvertisement): Promise<void> {
     const adId = `slap_${ad.advertiserIdentity}_${ad.serviceId}_${ad.timestamp}`;
 
-    this.database
-      .prepare(
-        `
-      INSERT OR REPLACE INTO brc88_slap_ads
+    await this.database.query(
+      `
+      INSERT INTO brc88_slap_ads
       (ad_id, advertiser_identity, domain_name, service_id, signature, timestamp, is_revocation, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (ad_id) DO UPDATE SET
+        advertiser_identity = EXCLUDED.advertiser_identity,
+        domain_name = EXCLUDED.domain_name,
+        service_id = EXCLUDED.service_id,
+        signature = EXCLUDED.signature,
+        timestamp = EXCLUDED.timestamp,
+        is_revocation = EXCLUDED.is_revocation,
+        is_active = EXCLUDED.is_active
     `,
-      )
-      .run(
+      [
         adId,
         ad.advertiserIdentity,
         ad.domainName,
@@ -722,7 +717,8 @@ class BRC88SHIPSLAPService extends EventEmitter {
         ad.timestamp,
         ad.isRevocation || false,
         !ad.isRevocation,
-      );
+      ]
+    );
   }
 
   private parseSHIPFromScript(outputScript: string): SHIPAdvertisement | null {
@@ -761,25 +757,23 @@ class BRC88SHIPSLAPService extends EventEmitter {
     ];
   }
 
-  private recordSyncAttempt(
+  private async recordSyncAttempt(
     peerIdentity: string | null,
     syncType: string,
     direction: string,
     status: string,
     messageCount: number = 0,
     errorMessage?: string,
-  ): void {
+  ): Promise<void> {
     const syncId = `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    this.database
-      .prepare(
-        `
+    await this.database.query(
+      `
       INSERT INTO brc88_sync_history
       (sync_id, peer_identity, sync_type, direction, status, message_count, error_message, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `,
-      )
-      .run(
+      [
         syncId,
         peerIdentity,
         syncType,
@@ -788,44 +782,42 @@ class BRC88SHIPSLAPService extends EventEmitter {
         messageCount,
         errorMessage || null,
         Date.now(),
-      );
+      ]
+    );
   }
 
   private async cleanupStaleAdvertisements(): Promise<void> {
     const staleThreshold = Date.now() - this.config.advertisementTTL;
 
     // Mark stale SHIP advertisements as inactive
-    this.database
-      .prepare(
-        `
+    await this.database.query(
+      `
       UPDATE brc88_ship_ads
       SET is_active = FALSE
-      WHERE timestamp < ? AND is_active = TRUE
+      WHERE timestamp < $1 AND is_active = TRUE
     `,
-      )
-      .run(staleThreshold);
+      [staleThreshold]
+    );
 
     // Mark stale SLAP advertisements as inactive
-    this.database
-      .prepare(
-        `
+    await this.database.query(
+      `
       UPDATE brc88_slap_ads
       SET is_active = FALSE
-      WHERE timestamp < ? AND is_active = TRUE
+      WHERE timestamp < $1 AND is_active = TRUE
     `,
-      )
-      .run(staleThreshold);
+      [staleThreshold]
+    );
 
     // Mark stale peers as inactive
-    this.database
-      .prepare(
-        `
+    await this.database.query(
+      `
       UPDATE brc88_peers
       SET is_active = FALSE
-      WHERE last_seen < ? AND is_active = TRUE
+      WHERE last_seen < $1 AND is_active = TRUE
     `,
-      )
-      .run(staleThreshold);
+      [staleThreshold]
+    );
   }
 
   /**

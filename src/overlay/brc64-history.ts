@@ -3,10 +3,9 @@
 
 import { EventEmitter } from 'events';
 
-import type Database from 'better-sqlite3';
-
 import type { BRC22SubmitService } from './brc22-submit';
 import type { BRC24LookupService, BRC36UTXO } from './brc24-lookup';
+import type { DatabaseAdapter } from './brc26-uhrp';
 
 export interface HistoricalUTXO extends BRC36UTXO {
   spentAt?: number;
@@ -63,12 +62,12 @@ export interface LineageGraph {
 }
 
 class BRC64HistoryService extends EventEmitter {
-  private database: Database.Database;
+  private database: DatabaseAdapter;
   private brc22Service: BRC22SubmitService;
   private brc24Service: BRC24LookupService;
 
   constructor(
-    database: Database.Database,
+    database: DatabaseAdapter,
     brc22Service: BRC22SubmitService,
     brc24Service: BRC24LookupService,
   ) {
@@ -169,16 +168,26 @@ class BRC64HistoryService extends EventEmitter {
   ): Promise<void> {
     const inputId = `${spendingTxid}:${inputIndex}`;
 
-    this.database
-      .prepare(
-        `
-      INSERT OR REPLACE INTO brc64_historical_inputs
+    await this.database.execute(
+      `
+      INSERT INTO brc64_historical_inputs
       (input_id, spending_txid, input_index, source_txid, source_vout, topic,
        output_script, satoshis, raw_tx, spent_at, original_admitted_at, metadata_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ON CONFLICT (input_id) DO UPDATE SET
+        spending_txid = EXCLUDED.spending_txid,
+        input_index = EXCLUDED.input_index,
+        source_txid = EXCLUDED.source_txid,
+        source_vout = EXCLUDED.source_vout,
+        topic = EXCLUDED.topic,
+        output_script = EXCLUDED.output_script,
+        satoshis = EXCLUDED.satoshis,
+        raw_tx = EXCLUDED.raw_tx,
+        spent_at = EXCLUDED.spent_at,
+        original_admitted_at = EXCLUDED.original_admitted_at,
+        metadata_json = EXCLUDED.metadata_json
     `,
-      )
-      .run(
+      [
         inputId,
         spendingTxid,
         inputIndex,
@@ -191,7 +200,8 @@ class BRC64HistoryService extends EventEmitter {
         Date.now(),
         sourceUTXO.admittedAt,
         JSON.stringify({ topics: transaction.topics }),
-      );
+      ]
+    );
   }
 
   /**
