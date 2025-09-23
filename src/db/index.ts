@@ -1097,22 +1097,22 @@ export async function createTemplate(template: Partial<ContractTemplateRow>): Pr
   const pgClient = getPostgreSQLClient();
 
   const templateId = template.template_id || `tmpl_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  const now = Math.floor(Date.now() / 1000);
+  const now = new Date(); // agent_templates uses timestamp, not integer
 
   await pgClient.query(`
-    INSERT INTO contract_templates (
-      template_id, name, description, template_content, template_type,
-      variables_json, owner_producer_id, created_at, updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    INSERT INTO agent_templates (
+      template_id, template_name, template_config, created_at
+    ) VALUES ($1, $2, $3, $4)
   `, [
     templateId,
     template.name,
-    template.description,
-    template.template_content,
-    template.template_type || 'pdf',
-    template.variables_json,
-    template.owner_producer_id,
-    template.created_at || now,
+    JSON.stringify({
+      description: template.description,
+      content: template.template_content,
+      type: template.template_type || 'pdf',
+      variables: template.variables_json ? JSON.parse(template.variables_json) : null,
+      owner_producer_id: template.owner_producer_id
+    }),
     now
   ]);
 
@@ -1122,7 +1122,23 @@ export async function createTemplate(template: Partial<ContractTemplateRow>): Pr
 export async function getTemplate(templateId: string): Promise<ContractTemplateRow | null> {
   const { getPostgreSQLClient } = await import('./postgresql');
   const pgClient = getPostgreSQLClient();
-  return await pgClient.queryOne('SELECT * FROM contract_templates WHERE template_id = $1', [templateId]);
+
+  const result = await pgClient.queryOne('SELECT * FROM agent_templates WHERE template_id = $1', [templateId]);
+  if (!result) return null;
+
+  // Map the agent_templates structure back to the expected ContractTemplateRow format
+  const config = result.template_config ? JSON.parse(result.template_config) : {};
+  return {
+    template_id: result.template_id,
+    name: result.template_name,
+    description: config.description,
+    template_content: config.content,
+    template_type: config.type || 'pdf',
+    variables_json: config.variables ? JSON.stringify(config.variables) : null,
+    owner_producer_id: config.owner_producer_id,
+    created_at: result.created_at,
+    updated_at: result.created_at // agent_templates doesn't have updated_at, use created_at
+  };
 }
 
 export async function listTemplates(limit = 100, offset = 0): Promise<ContractTemplateRow[]> {
@@ -1130,12 +1146,26 @@ export async function listTemplates(limit = 100, offset = 0): Promise<ContractTe
   const pgClient = getPostgreSQLClient();
 
   const result = await pgClient.query(`
-    SELECT * FROM contract_templates
+    SELECT * FROM agent_templates
     ORDER BY created_at DESC
     LIMIT $1 OFFSET $2
   `, [limit, offset]);
 
-  return result.rows as ContractTemplateRow[];
+  // Map agent_templates structure to ContractTemplateRow format
+  return result.rows.map(row => {
+    const config = row.template_config ? JSON.parse(row.template_config) : {};
+    return {
+      template_id: row.template_id,
+      name: row.template_name,
+      description: config.description,
+      template_content: config.content,
+      template_type: config.type || 'pdf',
+      variables_json: config.variables ? JSON.stringify(config.variables) : null,
+      owner_producer_id: config.owner_producer_id,
+      created_at: row.created_at,
+      updated_at: row.created_at
+    };
+  });
 }
 
 export async function updateTemplate(templateId: string, updates: Partial<ContractTemplateRow>): Promise<ContractTemplateRow | null> {
@@ -1175,21 +1205,55 @@ export async function updateTemplate(templateId: string, updates: Partial<Contra
   params.push(Date.now());
   params.push(templateId);
 
+  // Since agent_templates structure is different, we need to rebuild the entire config
+  // Get current template first
+  const current = await getTemplate(templateId);
+  if (!current) return null;
+
+  const updatedConfig = {
+    description: updates.description !== undefined ? updates.description : current.description,
+    content: updates.template_content !== undefined ? updates.template_content : current.template_content,
+    type: updates.template_type !== undefined ? updates.template_type : current.template_type,
+    variables: updates.variables_json !== undefined ? JSON.parse(updates.variables_json) : JSON.parse(current.variables_json || 'null'),
+    owner_producer_id: updates.owner_producer_id !== undefined ? updates.owner_producer_id : current.owner_producer_id
+  };
+
   const query = `
-    UPDATE contract_templates SET ${setClauses.join(', ')}
-    WHERE template_id = $${paramIndex}
+    UPDATE agent_templates
+    SET template_name = $1, template_config = $2
+    WHERE template_id = $3
     RETURNING *
   `;
 
-  const result = await pgClient.query(query, params);
-  return result.rows[0] || null;
+  const result = await pgClient.query(query, [
+    updates.name !== undefined ? updates.name : current.name,
+    JSON.stringify(updatedConfig),
+    templateId
+  ]);
+
+  if (result.rows.length === 0) return null;
+
+  // Map back to ContractTemplateRow format
+  const row = result.rows[0];
+  const config = JSON.parse(row.template_config);
+  return {
+    template_id: row.template_id,
+    name: row.template_name,
+    description: config.description,
+    template_content: config.content,
+    template_type: config.type,
+    variables_json: config.variables ? JSON.stringify(config.variables) : null,
+    owner_producer_id: config.owner_producer_id,
+    created_at: row.created_at,
+    updated_at: row.created_at
+  };
 }
 
 export async function deleteTemplate(templateId: string): Promise<boolean> {
   const { getPostgreSQLClient } = await import('./postgresql');
   const pgClient = getPostgreSQLClient();
 
-  const result = await pgClient.query('DELETE FROM contract_templates WHERE template_id = $1', [templateId]);
+  const result = await pgClient.query('DELETE FROM agent_templates WHERE template_id = $1', [templateId]);
   return result.rowCount > 0;
 }
 
