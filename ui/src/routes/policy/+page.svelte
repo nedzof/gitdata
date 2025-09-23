@@ -4,7 +4,6 @@
   import { api } from '$lib/api';
 
   // State management
-  let activeTab = 'policies';
   let policies = [];
   let filteredPolicies = [];
   let loading = false;
@@ -16,83 +15,6 @@
   let currentPage = 0;
   let pageSize = 20;
 
-  // Policy templates based on D28-policy.md
-  const policyTemplates = [
-    {
-      id: 'banking-compliance',
-      name: 'Banking Compliance (Ultra-Policy)',
-      description: 'Strict compliance for banking/financial data with EU restrictions and PII controls',
-      category: 'compliance',
-      template: {
-        minConfs: 12,
-        classificationAllowList: ['restricted'],
-        allowRecalled: false,
-        licenseAllowList: ['Internal-Banking-Use-Only'],
-        piiFlagsBlockList: ['has_customer_name', 'has_address'],
-        geoOriginAllowList: ['EU'],
-        maxPricePerByte: 0.5,
-        maxTotalCostForLineage: 250000,
-        maxDataAgeSeconds: 3600,
-        minProducerUptime: 99.9,
-        requiresBillingAccount: true,
-        minRowCount: 1000000,
-        maxNullValuePercentage: 1.0,
-        maxOutlierScore: 3.5,
-        minUniquenessRatio: 0.98,
-        requiresValidSplit: true,
-        maxBiasScore: 0.2,
-        maxDriftScore: 0.15,
-        blockIfInThreatFeed: true,
-        minAnonymizationLevel: { type: 'k-anon', k: 5 }
-      }
-    },
-    {
-      id: 'basic-data-quality',
-      name: 'Basic Data Quality',
-      description: 'Standard data quality checks for general datasets',
-      category: 'data_quality',
-      template: {
-        minConfs: 6,
-        allowRecalled: false,
-        classificationAllowList: ['public', 'internal'],
-        maxLineageDepth: 10,
-        maxDataAgeSeconds: 30 * 24 * 60 * 60, // 30 days
-        minProducerUptime: 95.0,
-        minRowCount: 1000,
-        maxNullValuePercentage: 10.0,
-        minUniquenessRatio: 0.8
-      }
-    },
-    {
-      id: 'privacy-protection',
-      name: 'Privacy Protection',
-      description: 'Privacy-focused policy with PII controls and anonymization',
-      category: 'privacy',
-      template: {
-        minConfs: 6,
-        allowRecalled: false,
-        piiFlagsBlockList: ['has_personal_info', 'has_contact_details'],
-        minAnonymizationLevel: { type: 'k-anon', k: 3 },
-        requiresBillingAccount: true,
-        blockIfInThreatFeed: true
-      }
-    },
-    {
-      id: 'mlops-production',
-      name: 'MLOps Production',
-      description: 'Production ML pipeline with bias and drift controls',
-      category: 'mlops',
-      template: {
-        minConfs: 6,
-        allowRecalled: false,
-        requiresValidSplit: true,
-        maxBiasScore: 0.3,
-        maxDriftScore: 0.2,
-        minUniquenessRatio: 0.9,
-        maxNullValuePercentage: 5.0
-      }
-    }
-  ];
 
   onMount(() => {
     loadPolicies();
@@ -203,9 +125,6 @@
     goto('/policy/new');
   }
 
-  function useTemplate(template) {
-    goto(`/policy/new?template=${template.id}`);
-  }
 
   async function togglePolicy(policy) {
     try {
@@ -286,24 +205,8 @@
     </p>
   </div>
 
-  <!-- Tab Navigation -->
-  <div class="tab-navigation">
-    <button
-      class="tab-button {activeTab === 'policies' ? 'active' : ''}"
-      on:click={() => activeTab = 'policies'}
-    >
-      🛡️ Policy Management ({filteredPolicies.length})
-    </button>
-    <button
-      class="tab-button {activeTab === 'templates' ? 'active' : ''}"
-      on:click={() => activeTab = 'templates'}
-    >
-      📄 Policy Templates ({policyTemplates.length})
-    </button>
-  </div>
 
-  {#if activeTab === 'policies'}
-    <div class="policies-tab">
+  <div class="policies-content">
       <!-- Filters Section -->
       <div class="filters-section">
         <div class="filter-row">
@@ -438,50 +341,7 @@
           </button>
         </div>
       {/if}
-    </div>
-
-  {:else if activeTab === 'templates'}
-    <!-- Templates Tab -->
-    <div class="templates-tab">
-      <div class="templates-header">
-        <h3>Policy Templates</h3>
-        <p>Pre-configured policy templates based on common governance patterns and industry best practices.</p>
-      </div>
-
-      <div class="templates-grid">
-        {#each policyTemplates as template}
-          <div class="template-card">
-            <div class="template-header">
-              <h4>{template.name}</h4>
-              <span class="category-badge category-{template.category}">{template.category}</span>
-            </div>
-            <p class="template-description">{template.description}</p>
-
-            <div class="template-rules">
-              <h5>Key Rules:</h5>
-              <div class="rules-preview">
-                {#each Object.entries(template.template).slice(0, 4) as [key, value]}
-                  <span class="rule-item">
-                    {key}: {typeof value === 'object' ? JSON.stringify(value) : value}
-                  </span>
-                {/each}
-                {#if Object.keys(template.template).length > 4}
-                  <span class="rule-item more">+{Object.keys(template.template).length - 4} more...</span>
-                {/if}
-              </div>
-            </div>
-
-            <button
-              class="btn primary template-btn"
-              on:click={() => useTemplate(template)}
-            >
-              Use This Template
-            </button>
-          </div>
-        {/each}
-      </div>
-    </div>
-  {/if}
+  </div>
 </div>
 
 <style>
@@ -510,37 +370,6 @@
     line-height: 1.5;
   }
 
-  .tab-navigation {
-    display: flex;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 4px;
-    margin-bottom: 20px;
-  }
-
-  .tab-button {
-    flex: 1;
-    padding: 12px 16px;
-    background: none;
-    border: none;
-    color: #8b949e;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    border-radius: 6px;
-    transition: all 0.2s;
-  }
-
-  .tab-button:hover {
-    color: #f0f6fc;
-    background: rgba(255, 255, 255, 0.05);
-  }
-
-  .tab-button.active {
-    background: #238636;
-    color: white;
-  }
 
   .filters-section {
     background: #21262d;
@@ -824,128 +653,6 @@
     to { transform: rotate(360deg); }
   }
 
-  /* Templates Tab Styles */
-  .templates-header {
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 20px;
-  }
-
-  .templates-header h3 {
-    font-size: 20px;
-    font-weight: 600;
-    color: #ffffff;
-    margin-bottom: 8px;
-  }
-
-  .templates-header p {
-    color: #8b949e;
-    line-height: 1.5;
-  }
-
-  .templates-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-    gap: 20px;
-  }
-
-  .template-card {
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 20px;
-    transition: all 0.2s;
-  }
-
-  .template-card:hover {
-    border-color: #58a6ff;
-    box-shadow: 0 4px 8px rgba(88, 166, 255, 0.1);
-  }
-
-  .template-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 12px;
-  }
-
-  .template-header h4 {
-    font-size: 18px;
-    font-weight: 600;
-    color: #ffffff;
-    margin: 0;
-  }
-
-  .category-badge {
-    padding: 4px 8px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-  }
-
-  .category-badge.category-compliance {
-    background: rgba(218, 54, 51, 0.2);
-    color: #da3633;
-  }
-
-  .category-badge.category-data_quality {
-    background: rgba(88, 166, 255, 0.2);
-    color: #58a6ff;
-  }
-
-  .category-badge.category-privacy {
-    background: rgba(247, 185, 85, 0.2);
-    color: #f7b955;
-  }
-
-  .category-badge.category-mlops {
-    background: rgba(46, 160, 67, 0.2);
-    color: #2ea043;
-  }
-
-  .template-description {
-    color: #8b949e;
-    font-size: 14px;
-    line-height: 1.4;
-    margin-bottom: 16px;
-  }
-
-  .template-rules h5 {
-    font-size: 14px;
-    font-weight: 600;
-    color: #f0f6fc;
-    margin-bottom: 8px;
-  }
-
-  .rules-preview {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 16px;
-  }
-
-  .rule-item {
-    background: rgba(255, 255, 255, 0.1);
-    color: #8b949e;
-    padding: 4px 8px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
-  }
-
-  .rule-item.more {
-    background: rgba(88, 166, 255, 0.2);
-    color: #58a6ff;
-    font-family: inherit;
-  }
-
-  .template-btn {
-    width: 100%;
-    justify-content: center;
-  }
 
   @media (max-width: 768px) {
     .filter-row {
@@ -961,18 +668,6 @@
       overflow-x: auto;
     }
 
-    .tab-navigation {
-      flex-direction: column;
-    }
-
-    .templates-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .template-header {
-      flex-direction: column;
-      gap: 8px;
-    }
 
     .action-buttons {
       flex-direction: column;

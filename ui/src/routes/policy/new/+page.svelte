@@ -7,6 +7,9 @@
   let loading = false;
   let saving = false;
   let selectedTemplateId = '';
+  let jsonInput = '';
+  let jsonError = '';
+  let importMethod = 'template'; // 'template' or 'json'
 
   // New policy data
   let newPolicy = {
@@ -21,75 +24,45 @@
     {
       id: 'banking-compliance',
       name: 'Banking Compliance (Ultra-Policy)',
-      description: 'Strict compliance for banking/financial data with EU restrictions and PII controls',
+      description: 'Strict compliance for banking/financial documents with EU restrictions',
       category: 'compliance',
       template: {
         minConfs: 12,
         classificationAllowList: ['restricted'],
         allowRecalled: false,
         licenseAllowList: ['Internal-Banking-Use-Only'],
-        piiFlagsBlockList: ['has_customer_name', 'has_address'],
         geoOriginAllowList: ['EU'],
         maxPricePerByte: 0.5,
         maxTotalCostForLineage: 250000,
         maxDataAgeSeconds: 3600,
-        minProducerUptime: 99.9,
-        requiresBillingAccount: true,
-        minRowCount: 1000000,
-        maxNullValuePercentage: 1.0,
-        maxOutlierScore: 3.5,
-        minUniquenessRatio: 0.98,
-        requiresValidSplit: true,
-        maxBiasScore: 0.2,
-        maxDriftScore: 0.15,
-        blockIfInThreatFeed: true,
-        minAnonymizationLevel: { type: 'k-anon', k: 5 }
+        blockIfInThreatFeed: true
       }
     },
     {
-      id: 'basic-data-quality',
-      name: 'Basic Data Quality',
-      description: 'Standard data quality checks for general datasets',
-      category: 'data_quality',
+      id: 'general-content',
+      name: 'General Content Policy',
+      description: 'Standard policy for general documents and media files',
+      category: 'general',
       template: {
         minConfs: 6,
         allowRecalled: false,
         classificationAllowList: ['public', 'internal'],
         maxLineageDepth: 10,
         maxDataAgeSeconds: 30 * 24 * 60 * 60,
-        minProducerUptime: 95.0,
-        minRowCount: 1000,
-        maxNullValuePercentage: 10.0,
-        minUniquenessRatio: 0.8
+        maxPricePerByte: 1.0,
+        maxTotalCostForLineage: 50000
       }
     },
     {
       id: 'privacy-protection',
       name: 'Privacy Protection',
-      description: 'Privacy-focused policy with PII controls and anonymization',
+      description: 'Privacy-focused policy for sensitive documents',
       category: 'privacy',
       template: {
         minConfs: 6,
         allowRecalled: false,
-        piiFlagsBlockList: ['has_personal_info', 'has_contact_details'],
-        minAnonymizationLevel: { type: 'k-anon', k: 3 },
-        requiresBillingAccount: true,
-        blockIfInThreatFeed: true
-      }
-    },
-    {
-      id: 'mlops-production',
-      name: 'MLOps Production',
-      description: 'Production ML pipeline with bias and drift controls',
-      category: 'mlops',
-      template: {
-        minConfs: 6,
-        allowRecalled: false,
-        requiresValidSplit: true,
-        maxBiasScore: 0.3,
-        maxDriftScore: 0.2,
-        minUniquenessRatio: 0.9,
-        maxNullValuePercentage: 5.0
+        blockIfInThreatFeed: true,
+        maxPricePerByte: 2.0
       }
     }
   ];
@@ -109,7 +82,6 @@
     'Compliance & Legal': [
       { key: 'classificationAllowList', label: 'Classification Allow List', type: 'array', description: 'Allowed data classifications' },
       { key: 'licenseAllowList', label: 'License Allow List', type: 'array', description: 'Allowed data licenses' },
-      { key: 'piiFlagsBlockList', label: 'PII Flags Block List', type: 'array', description: 'Blocked PII flag types' },
       { key: 'geoOriginAllowList', label: 'Geo Origin Allow List', type: 'array', description: 'Allowed geographic origins' }
     ],
     'Content & Schema': [
@@ -120,28 +92,10 @@
     'Economics & Operations': [
       { key: 'maxPricePerByte', label: 'Max Price Per Byte', type: 'number', description: 'Maximum price per byte limit' },
       { key: 'maxTotalCostForLineage', label: 'Max Total Cost', type: 'number', description: 'Maximum total lineage cost' },
-      { key: 'maxDataAgeSeconds', label: 'Max Data Age (seconds)', type: 'number', description: 'Maximum data age in seconds' },
-      { key: 'minProducerUptime', label: 'Min Producer Uptime (%)', type: 'number', description: 'Minimum producer uptime percentage' },
-      { key: 'requiresBillingAccount', label: 'Requires Billing Account', type: 'boolean', description: 'Billing account required' }
-    ],
-    'Data Quality & Profiling': [
-      { key: 'minRowCount', label: 'Min Row Count', type: 'number', description: 'Minimum number of rows' },
-      { key: 'maxRowCount', label: 'Max Row Count', type: 'number', description: 'Maximum number of rows' },
-      { key: 'maxNullValuePercentage', label: 'Max Null Value %', type: 'number', description: 'Maximum null value percentage' },
-      { key: 'requiredDistributionProfileHash', label: 'Required Profile Hash', type: 'string', description: 'Required distribution profile hash' },
-      { key: 'maxOutlierScore', label: 'Max Outlier Score', type: 'number', description: 'Maximum outlier score' },
-      { key: 'minUniquenessRatio', label: 'Min Uniqueness Ratio', type: 'number', description: 'Minimum uniqueness ratio' }
-    ],
-    'MLOps & Model Validation': [
-      { key: 'requiredFeatureSetId', label: 'Required Feature Set ID', type: 'string', description: 'Required feature set identifier' },
-      { key: 'requiresValidSplit', label: 'Requires Valid Split', type: 'boolean', description: 'Valid train/val/test split required' },
-      { key: 'maxBiasScore', label: 'Max Bias Score', type: 'number', description: 'Maximum bias score allowed' },
-      { key: 'maxDriftScore', label: 'Max Drift Score', type: 'number', description: 'Maximum drift score allowed' },
-      { key: 'requiredParentModelId', label: 'Required Parent Model ID', type: 'string', description: 'Required parent model identifier' }
+      { key: 'maxDataAgeSeconds', label: 'Max Data Age (seconds)', type: 'number', description: 'Maximum data age in seconds' }
     ],
     'Security & Privacy': [
-      { key: 'blockIfInThreatFeed', label: 'Block If In Threat Feed', type: 'boolean', description: 'Block if found in threat feeds' },
-      { key: 'minAnonymizationLevel', label: 'Min Anonymization Level', type: 'object', description: 'Minimum anonymization requirements' }
+      { key: 'blockIfInThreatFeed', label: 'Block If In Threat Feed', type: 'boolean', description: 'Block if found in threat feeds' }
     ]
   };
 
@@ -246,6 +200,66 @@
     newPolicy.policy[key] = defaultValue;
     newPolicy.policy = { ...newPolicy.policy };
   }
+
+  function importJsonPolicy() {
+    jsonError = '';
+    try {
+      const parsed = JSON.parse(jsonInput);
+
+      // Validate that it's an object
+      if (typeof parsed !== 'object' || parsed === null) {
+        throw new Error('Policy must be a valid JSON object');
+      }
+
+      // Set the policy
+      newPolicy.policy = parsed;
+
+      // Optionally set name and description if they exist in the JSON
+      if (parsed.name && !newPolicy.name) {
+        newPolicy.name = parsed.name;
+      }
+      if (parsed.description && !newPolicy.description) {
+        newPolicy.description = parsed.description;
+      }
+
+      // Clear the input
+      jsonInput = '';
+
+      // Switch back to template view to show the imported policy
+      importMethod = 'template';
+      selectedTemplateId = 'custom';
+
+    } catch (error) {
+      jsonError = error.message;
+    }
+  }
+
+  function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      jsonInput = e.target.result;
+      importJsonPolicy();
+    };
+    reader.readAsText(file);
+
+    // Clear the file input
+    event.target.value = '';
+  }
+
+  function clearPolicy() {
+    newPolicy = {
+      name: '',
+      description: '',
+      enabled: true,
+      policy: {}
+    };
+    selectedTemplateId = '';
+    jsonInput = '';
+    jsonError = '';
+  }
 </script>
 
 <svelte:head>
@@ -263,35 +277,99 @@
     <p>Configure a new data governance policy with custom rules or start from a template.</p>
   </div>
 
-  <!-- Template Selection -->
+  <!-- Import Method Selection -->
   <div class="section">
-    <h2>Choose a Template</h2>
-    <p class="section-description">Start with a pre-configured template or create from scratch.</p>
+    <h2>Create Policy</h2>
+    <p class="section-description">Choose how to create your policy: use a template, import JSON, or start from scratch.</p>
 
-    <div class="template-selector">
-      <label class="template-option {selectedTemplateId === '' ? 'selected' : ''}">
-        <input type="radio" value="" bind:group={selectedTemplateId} on:change={() => selectTemplate('')} />
-        <div class="template-card">
-          <h3>Start from Scratch</h3>
-          <p>Create a custom policy with your own rules</p>
-        </div>
-      </label>
+    <div class="import-method-selector">
+      <div class="method-tabs">
+        <button
+          class="method-tab {importMethod === 'template' ? 'active' : ''}"
+          on:click={() => importMethod = 'template'}
+        >
+          📄 Templates
+        </button>
+        <button
+          class="method-tab {importMethod === 'json' ? 'active' : ''}"
+          on:click={() => importMethod = 'json'}
+        >
+          🔧 Import JSON
+        </button>
+      </div>
 
-      {#each policyTemplates as template}
-        <label class="template-option {selectedTemplateId === template.id ? 'selected' : ''}">
-          <input type="radio" value={template.id} bind:group={selectedTemplateId} on:change={() => selectTemplate(template.id)} />
-          <div class="template-card">
-            <div class="template-header">
-              <h3>{template.name}</h3>
-              <span class="category-badge category-{template.category}">{template.category}</span>
-            </div>
-            <p>{template.description}</p>
-            <div class="template-rules">
-              <span class="rules-count">{Object.keys(template.template).length} rules</span>
-            </div>
+      {#if importMethod === 'template'}
+        <div class="template-content">
+          <div class="template-dropdown-section">
+            <label>Policy Template (Optional)</label>
+            <select bind:value={selectedTemplateId} on:change={() => selectTemplate(selectedTemplateId)}>
+              <option value="">Start from Scratch</option>
+              {#each policyTemplates as template}
+                <option value={template.id}>{template.name}</option>
+              {/each}
+            </select>
+
+            {#if selectedTemplateId}
+              {@const template = policyTemplates.find(t => t.id === selectedTemplateId)}
+              {#if template}
+                <div class="template-preview">
+                  <div class="template-info">
+                    <span class="category-badge category-{template.category}">{template.category}</span>
+                    <p>{template.description}</p>
+                    <span class="rules-count">{Object.keys(template.template).length} rules included</span>
+                  </div>
+                </div>
+              {/if}
+            {/if}
           </div>
-        </label>
-      {/each}
+        </div>
+
+      {:else if importMethod === 'json'}
+        <div class="json-import-content">
+          <div class="json-input-section">
+            <label>Policy JSON</label>
+            <textarea
+              bind:value={jsonInput}
+              placeholder='Paste your policy JSON here or upload a JSON file...'
+              rows="10"
+            ></textarea>
+
+            <div class="json-actions">
+              <input
+                type="file"
+                accept=".json"
+                on:change={handleFileUpload}
+                style="display: none;"
+                id="json-file-upload"
+              />
+              <label for="json-file-upload" class="btn secondary">
+                📁 Upload JSON File
+              </label>
+              <button
+                class="btn primary"
+                on:click={importJsonPolicy}
+                disabled={!jsonInput.trim()}
+              >
+                Import Policy
+              </button>
+            </div>
+
+            {#if jsonError}
+              <div class="error-message">
+                ❌ {jsonError}
+              </div>
+            {/if}
+          </div>
+        </div>
+      {/if}
+
+      {#if Object.keys(newPolicy.policy).length > 0}
+        <div class="current-policy-actions">
+          <button class="btn secondary" on:click={clearPolicy}>
+            🗑️ Clear Policy
+          </button>
+        </div>
+      {/if}
     </div>
   </div>
 
@@ -765,6 +843,160 @@
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+  }
+
+  /* Import Method Selection Styles */
+  .import-method-selector {
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #0d1117;
+    overflow: hidden;
+  }
+
+  .method-tabs {
+    display: flex;
+    border-bottom: 1px solid #30363d;
+  }
+
+  .method-tab {
+    flex: 1;
+    padding: 12px 16px;
+    background: #21262d;
+    border: none;
+    color: #8b949e;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-right: 1px solid #30363d;
+  }
+
+  .method-tab:last-child {
+    border-right: none;
+  }
+
+  .method-tab:hover {
+    background: #30363d;
+    color: #f0f6fc;
+  }
+
+  .method-tab.active {
+    background: #1f6feb;
+    color: #ffffff;
+  }
+
+  .template-content, .json-import-content {
+    padding: 20px;
+  }
+
+  /* Template Dropdown Styles */
+  .template-dropdown-section {
+    margin-bottom: 16px;
+  }
+
+  .template-dropdown-section label {
+    display: block;
+    margin-bottom: 8px;
+    color: #f0f6fc;
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .template-dropdown-section select {
+    width: 100%;
+    padding: 8px 12px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #f0f6fc;
+    font-size: 14px;
+  }
+
+  .template-dropdown-section select:focus {
+    border-color: #1f6feb;
+    outline: none;
+  }
+
+  .template-preview {
+    margin-top: 12px;
+    padding: 12px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+  }
+
+  .template-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .template-info p {
+    color: #8b949e;
+    margin: 0;
+    line-height: 1.4;
+  }
+
+  /* JSON Import Styles */
+  .json-input-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .json-input-section label {
+    color: #f0f6fc;
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .json-input-section textarea {
+    width: 100%;
+    padding: 12px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #f0f6fc;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    resize: vertical;
+    min-height: 200px;
+  }
+
+  .json-input-section textarea:focus {
+    border-color: #1f6feb;
+    outline: none;
+  }
+
+  .json-input-section textarea::placeholder {
+    color: #6e7681;
+    font-style: italic;
+  }
+
+  .json-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .error-message {
+    padding: 8px 12px;
+    background: rgba(218, 54, 51, 0.1);
+    border: 1px solid #da3633;
+    border-radius: 6px;
+    color: #da3633;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  /* Current Policy Actions */
+  .current-policy-actions {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #30363d;
+    display: flex;
+    justify-content: center;
   }
 
   @media (max-width: 768px) {
