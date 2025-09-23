@@ -61,8 +61,19 @@
     selectedPolicy: 'none', // Policy to apply/prefill from
     classification: 'public',
     license: 'CC-BY-4.0',
-    format: 'application/json'
+    format: 'application/json',
+    // Advanced policy fields (hidden by default) - Only unstructured data applicable
+    advancedSettings: {
+      minConfs: 6,
+      allowRecalled: false,
+      maxDataAgeSeconds: 86400, // 24 hours
+      geoOriginAllowList: [],
+      maxPricePerByte: 1.0,
+      maxTotalCostForLineage: 100000,
+      blockIfInThreatFeed: false
+    }
   };
+
 
   // Enhanced relationship types for lineage tracking
   const relationshipTypes = [
@@ -75,6 +86,63 @@
     { value: 'analyzed', label: 'Analyzed', description: 'Analysis results from source' },
     { value: 'trained', label: 'Trained', description: 'Model trained on source data' },
     { value: 'validated', label: 'Validated', description: 'Validation using source data' }
+  ];
+
+  // Policy templates for prefilling form fields
+  const policyTemplates = [
+    {
+      id: 'none',
+      name: 'No Policy (Manual Settings)',
+      description: 'Configure all settings manually',
+      category: 'manual',
+      template: {}
+    },
+    {
+      id: 'banking-compliance',
+      name: 'Banking Compliance (Ultra-Policy)',
+      description: 'Strict compliance for banking/financial documents with EU restrictions',
+      category: 'compliance',
+      template: {
+        classification: 'restricted',
+        license: 'Commercial',
+        minConfs: 12,
+        allowRecalled: false,
+        maxDataAgeSeconds: 3600, // 1 hour
+        geoOriginAllowList: ['EU'],
+        maxPricePerByte: 0.5,
+        maxTotalCostForLineage: 250000,
+        blockIfInThreatFeed: true
+      }
+    },
+    {
+      id: 'general-content',
+      name: 'General Content Policy',
+      description: 'Standard policy for general documents and media files',
+      category: 'general',
+      template: {
+        classification: 'public',
+        license: 'CC-BY-4.0',
+        minConfs: 6,
+        allowRecalled: false,
+        maxDataAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+        maxPricePerByte: 1.0,
+        maxTotalCostForLineage: 50000
+      }
+    },
+    {
+      id: 'privacy-protection',
+      name: 'Privacy Protection',
+      description: 'Privacy-focused policy for sensitive documents',
+      category: 'privacy',
+      template: {
+        classification: 'restricted',
+        license: 'CC-BY-NC-SA-4.0',
+        minConfs: 6,
+        allowRecalled: false,
+        blockIfInThreatFeed: true,
+        maxPricePerByte: 2.0
+      }
+    }
   ];
 
   onMount(async () => {
@@ -131,31 +199,6 @@
     }
   }
 
-  // Function to handle policy selection and prefill form fields
-  function handlePolicySelection() {
-    if (publishData.selectedPolicy === 'none') return;
-
-    // Find the selected policy
-    const selectedPolicy = availablePolicies.find(p => p.id === publishData.selectedPolicy);
-    if (!selectedPolicy) return;
-
-    // Prefill form fields based on policy
-    if (publishData.selectedPolicy === 'pol_001') {
-      // Production Data Access policy defaults
-      publishData.classification = 'restricted';
-      publishData.license = 'Commercial';
-      publishData.format = 'application/json';
-      publishData.tags = 'production, validated, enterprise';
-    } else if (publishData.selectedPolicy === 'pol_002') {
-      // PII Protection Policy defaults
-      publishData.classification = 'restricted';
-      publishData.license = 'CC-BY-NC-SA-4.0';
-      publishData.format = 'application/json';
-      publishData.tags = 'pii-protected, anonymized, privacy';
-    }
-
-    console.log(`Applied policy ${selectedPolicy.name} with prefilled values`);
-  }
 
   // Function to handle parent asset selection and relationship type
   function handleParentSelection(parentId, selected) {
@@ -186,6 +229,37 @@
     };
     publishData = { ...publishData }; // Trigger reactivity
     console.log('Relationship updated:', parentId, relationshipType);
+  }
+
+  // Handle policy selection and prefill form fields
+  function handlePolicySelection(policyId) {
+    const selectedTemplate = policyTemplates.find(p => p.id === policyId);
+    if (!selectedTemplate) {
+      console.log('No policy selected or policy not found:', policyId);
+      return;
+    }
+
+    console.log('Applying policy template:', selectedTemplate.name);
+
+    // Apply basic form fields
+    if (selectedTemplate.template.classification) {
+      publishData.classification = selectedTemplate.template.classification;
+    }
+    if (selectedTemplate.template.license) {
+      publishData.license = selectedTemplate.template.license;
+    }
+
+    // Apply advanced settings
+    Object.keys(selectedTemplate.template).forEach(key => {
+      if (key !== 'classification' && key !== 'license' && publishData.advancedSettings.hasOwnProperty(key)) {
+        publishData.advancedSettings[key] = selectedTemplate.template[key];
+      }
+    });
+
+
+    // Force reactivity
+    publishData = { ...publishData };
+    console.log('Policy applied:', policyId, publishData);
   }
 
   async function loadAssets() {
@@ -635,10 +709,11 @@
           <select
             id="policy"
             bind:value={publishData.selectedPolicy}
-            on:change={handlePolicySelection}
+            on:change={(e) => handlePolicySelection(e.target.value)}
             class="form-input"
           >
-            {#each availablePolicies as policy}
+            <option value="none">Select a policy template...</option>
+            {#each policyTemplates.filter(p => p.id !== 'none') as policy}
               <option value={policy.id}>{policy.name}</option>
             {/each}
           </select>
@@ -794,6 +869,8 @@
             class="form-input"
           />
         </div>
+
+
         <div class="form-actions">
           <button type="submit" class="button primary">
             Publish
