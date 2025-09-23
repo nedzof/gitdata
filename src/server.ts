@@ -29,13 +29,16 @@ import { d22OverlayStorageRouter } from './routes/d22-overlay-storage';
 import { d06PaymentProcessingRouter } from './routes/d06-payment-processing';
 import { d06AgentPaymentsRouter } from './routes/d06-agent-payments';
 import { d06RevenueManagementRouter } from './routes/d06-revenue-management';
-import { d07StreamingQuotasRouter } from './routes/d07-streaming-quotas';
+import d07StreamingQuotasRouter from './routes/d07-streaming-quotas';
 import { agentMarketplaceRouter } from './routes/agent-marketplace';
 import { producerRouter } from './routes/producer';
 import { streamingMarketRouter } from './routes/streaming-market';
+import { agentsRouter } from './routes/agents';
+import { rulesRouter } from './routes/rules';
+import { jobsRouter } from './routes/jobs';
 import { auditLogger } from './middleware/audit';
 import { metricsMiddleware } from './middleware/metrics';
-import { limitsMiddleware } from './middleware/limits';
+import { rateLimit, limitsMiddleware } from './middleware/limits';
 
 const app = express();
 const PORT = process.env.PORT || 8788;
@@ -114,7 +117,7 @@ app.use('/v1', openlineageRouter());
 app.use('/v1', listingsRouter());
 
 // Streaming and real-time data
-app.use('/v1', d07StreamingQuotasRouter());
+app.use('/v1/streaming', rateLimit('streaming'), d07StreamingQuotasRouter);
 try {
   console.log('🔄 Loading streaming market router...');
   const smRouter = streamingMarketRouter();
@@ -129,6 +132,12 @@ app.use('/v1/producer', producerRouter());
 
 // Agent marketplace
 app.use('/v1/agent-marketplace', agentMarketplaceRouter().router);
+
+// D24 BSV Overlay Network Agent Management
+app.use('/agents', agentsRouter());
+app.use('/rules', rulesRouter());
+app.use('/jobs', jobsRouter());
+app.use('/templates', templatesRouter());
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

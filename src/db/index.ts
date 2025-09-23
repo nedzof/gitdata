@@ -1097,7 +1097,7 @@ export async function createTemplate(template: Partial<ContractTemplateRow>): Pr
   const pgClient = getPostgreSQLClient();
 
   const templateId = template.template_id || `tmpl_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  const now = Date.now();
+  const now = Math.floor(Date.now() / 1000);
 
   await pgClient.query(`
     INSERT INTO contract_templates (
