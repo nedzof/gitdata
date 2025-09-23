@@ -47,9 +47,9 @@ router.get('/streams', async (req, res) => {
         sm.tags,
         sm.price_per_packet,
         sm.last_packet_at,
-        COUNT(rp.id) as total_packets,
-        COUNT(rp.id) FILTER (WHERE rp.created_at >= NOW() - INTERVAL '24 hours') as packets_today,
-        COUNT(sw.id) as active_subscribers,
+        COUNT(rp.version_id) as total_packets,
+        COUNT(rp.version_id) FILTER (WHERE rp.packet_timestamp >= NOW() - INTERVAL '24 hours') as packets_today,
+        COUNT(sw.version_id) as active_subscribers,
         MAX(rp.packet_sequence) as latest_sequence,
         AVG(rp.data_size_bytes) as avg_packet_size
       FROM manifests m
@@ -57,7 +57,7 @@ router.get('/streams', async (req, res) => {
       LEFT JOIN realtime_packets rp ON m.version_id = rp.version_id
       LEFT JOIN stream_webhooks sw ON m.version_id = sw.version_id AND sw.status = 'active'
       ${whereClause}
-      GROUP BY m.id, sm.status, sm.tags, sm.price_per_packet, sm.last_packet_at
+      GROUP BY m.version_id, sm.status, sm.tags, sm.price_per_packet, sm.last_packet_at
       ORDER BY sm.last_packet_at DESC NULLS LAST
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
@@ -68,7 +68,7 @@ router.get('/streams', async (req, res) => {
 
     // Get total count for pagination
     const countQuery = `
-      SELECT COUNT(DISTINCT m.id) as total
+      SELECT COUNT(DISTINCT m.version_id) as total
       FROM manifests m
       LEFT JOIN stream_metadata sm ON m.version_id = sm.version_id
       ${whereClause}
@@ -114,20 +114,20 @@ router.get('/streams/:streamId', async (req, res) => {
         sm.tags,
         sm.price_per_packet,
         sm.last_packet_at,
-        COUNT(rp.id) as total_packets,
-        COUNT(rp.id) FILTER (WHERE rp.created_at >= NOW() - INTERVAL '24 hours') as packets_today,
-        COUNT(rp.id) FILTER (WHERE rp.created_at >= NOW() - INTERVAL '1 hour') as packets_hour,
-        COUNT(sw.id) as active_subscribers,
+        COUNT(rp.version_id) as total_packets,
+        COUNT(rp.version_id) FILTER (WHERE rp.packet_timestamp >= NOW() - INTERVAL '24 hours') as packets_today,
+        COUNT(rp.version_id) FILTER (WHERE rp.packet_timestamp >= NOW() - INTERVAL '1 hour') as packets_hour,
+        COUNT(sw.version_id) as active_subscribers,
         MAX(rp.packet_sequence) as latest_sequence,
         AVG(rp.data_size_bytes) as avg_packet_size,
-        MIN(rp.created_at) as first_packet_at,
-        MAX(rp.created_at) as last_packet_at_precise
+        MIN(rp.packet_timestamp) as first_packet_at,
+        MAX(rp.packet_timestamp) as last_packet_at_precise
       FROM manifests m
       LEFT JOIN stream_metadata sm ON m.version_id = sm.version_id
       LEFT JOIN realtime_packets rp ON m.version_id = rp.version_id
       LEFT JOIN stream_webhooks sw ON m.version_id = sw.version_id AND sw.status = 'active'
       WHERE m.version_id = $1 AND m.is_streaming = true
-      GROUP BY m.id, sm.status, sm.tags, sm.price_per_packet, sm.last_packet_at
+      GROUP BY m.version_id, sm.status, sm.tags, sm.price_per_packet, sm.last_packet_at
     `;
 
     const streamResult = await db.pg.query(streamQuery, [streamId]);
@@ -262,10 +262,10 @@ router.get('/stats', async (req, res) => {
       SELECT
         COUNT(DISTINCT m.version_id) as total_streams,
         COUNT(DISTINCT m.version_id) FILTER (WHERE sm.status = 'active') as active_streams,
-        COUNT(rp.id) as total_packets,
-        COUNT(rp.id) FILTER (WHERE rp.created_at >= NOW() - INTERVAL '24 hours') as packets_today,
+        COUNT(rp.version_id) as total_packets,
+        COUNT(rp.version_id) FILTER (WHERE rp.packet_timestamp >= NOW() - INTERVAL '24 hours') as packets_today,
         COUNT(DISTINCT sw.subscriber_id) as total_subscribers,
-        SUM(sm.price_per_packet * COUNT(rp.id)) as total_revenue
+        0 as total_revenue
       FROM manifests m
       LEFT JOIN stream_metadata sm ON m.version_id = sm.version_id
       LEFT JOIN realtime_packets rp ON m.version_id = rp.version_id
@@ -281,7 +281,7 @@ router.get('/stats', async (req, res) => {
       SELECT
         m.category,
         COUNT(DISTINCT m.version_id) as stream_count,
-        COUNT(rp.id) as total_packets
+        COUNT(rp.version_id) as total_packets
       FROM manifests m
       LEFT JOIN realtime_packets rp ON m.version_id = rp.version_id
       WHERE m.is_streaming = true
