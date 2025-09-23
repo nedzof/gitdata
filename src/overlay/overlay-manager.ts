@@ -374,7 +374,7 @@ class OverlayManager extends EventEmitter {
     try {
       let sql = `
         SELECT m.*, v.version_id, v.content_hash
-        FROM manifests m
+        FROM assets m
         JOIN versions v ON m.version_id = v.version_id
         WHERE 1=1
       `;

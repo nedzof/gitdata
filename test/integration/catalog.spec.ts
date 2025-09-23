@@ -20,7 +20,7 @@ describe('Catalog Integration Test', () => {
     // Clean up any existing data
     const { getPostgreSQLClient } = await import('../../src/db/postgresql');
     const pgClient = getPostgreSQLClient();
-    await pgClient.query('DELETE FROM manifests WHERE dataset_id = $1', [datasetId]);
+    await pgClient.query('DELETE FROM assets WHERE dataset_id = $1', [datasetId]);
     await pgClient.query('DELETE FROM edges WHERE child_version_id = $1 OR parent_version_id = $1', [vChild]);
 
     const mParent = {

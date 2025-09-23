@@ -225,7 +225,7 @@ router.get('/data/:contentHash', async (req, res) => {
     let contentSize = 57; // Default small size
 
     try {
-      const contentQuery = `SELECT title FROM manifests WHERE content_hash = $1`;
+      const contentQuery = `SELECT title FROM assets WHERE content_hash = $1`;
       const contentResult = await pool.query(contentQuery, [contentHash]);
       if (contentResult.rows.length > 0) {
         title = contentResult.rows[0].title;

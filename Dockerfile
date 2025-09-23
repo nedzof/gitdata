@@ -20,12 +20,8 @@ RUN npm ci --legacy-peer-deps && npm cache clean --force
 # Copy source code
 COPY . .
 
-# Copy UI build files
-COPY ui/build ./ui/build
-
-# Copy additional required files
-COPY src/db/postgresql-schema.sql ./src/db/
-COPY src/db/schema-d08-realtime-packets.sql ./src/db/
+# Create required directories and copy optional UI files
+RUN mkdir -p ./ui/build
 
 # Create data directories
 RUN mkdir -p /app/data/headers /app/data/storage /app/logs && \

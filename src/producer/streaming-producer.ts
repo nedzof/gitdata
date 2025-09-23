@@ -212,7 +212,7 @@ export class StreamingProducer {
         sm.tags,
         COUNT(rp.id) as total_packets,
         MAX(rp.created_at) as last_packet_at
-      FROM manifests m
+      FROM assets m
       LEFT JOIN stream_metadata sm ON m.version_id = sm.version_id
       LEFT JOIN realtime_packets rp ON m.version_id = rp.version_id
       WHERE m.producer_public_key = $1 AND m.is_streaming = true
@@ -316,7 +316,7 @@ export class StreamingProducer {
 
   private async getStreamConfig(streamId: string): Promise<any> {
     const result = await this.db.pg.query(`
-      SELECT * FROM manifests WHERE version_id = $1 AND is_streaming = true
+      SELECT * FROM assets WHERE version_id = $1 AND is_streaming = true
     `, [streamId]);
 
     return result.rows[0];

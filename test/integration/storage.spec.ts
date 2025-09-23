@@ -52,7 +52,7 @@ describe('D22 Storage Backend Integration Tests', () => {
 
     // Clean up any existing test data
     await pgClient.query('DELETE FROM receipts WHERE receipt_id = $1', ['receipt-1']);
-    await pgClient.query('DELETE FROM manifests WHERE version_id = $1', ['ver-1']);
+    await pgClient.query('DELETE FROM assets WHERE version_id = $1', ['ver-1']);
     await pgClient.query('DELETE FROM producers WHERE producer_id = $1', ['prod-1']);
 
     await pgClient.query(`INSERT INTO producers (producer_id, display_name, identity_key, payout_script_hex, created_at)

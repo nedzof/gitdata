@@ -112,7 +112,7 @@ describe('Database Setup Integration', () => {
         m.manifest_json::json->'metadata'->>'category' as category,
         p.satoshis,
         COUNT(*) as count
-      FROM manifests m
+      FROM assets m
       JOIN prices p ON m.version_id = p.version_id
       GROUP BY m.classification, m.manifest_json::json->'metadata'->>'category', p.satoshis
       ORDER BY p.satoshis
@@ -207,7 +207,7 @@ describe('Database Setup Integration', () => {
     // All manifests should have corresponding declarations
     const orphanedManifests = await db.pg.query(`
       SELECT m.version_id
-      FROM manifests m
+      FROM assets m
       LEFT JOIN declarations d ON m.version_id = d.version_id
       WHERE d.version_id IS NULL
     `);
@@ -216,7 +216,7 @@ describe('Database Setup Integration', () => {
     // All manifests should have corresponding prices
     const unpricedManifests = await db.pg.query(`
       SELECT m.version_id
-      FROM manifests m
+      FROM assets m
       LEFT JOIN prices p ON m.version_id = p.version_id
       WHERE p.version_id IS NULL
     `);
@@ -225,7 +225,7 @@ describe('Database Setup Integration', () => {
     // All manifests should reference valid producers
     const invalidProducers = await db.pg.query(`
       SELECT m.version_id, m.producer_id
-      FROM manifests m
+      FROM assets m
       LEFT JOIN producers p ON m.producer_id = p.producer_id
       WHERE p.producer_id IS NULL
     `);

@@ -27,7 +27,7 @@ describe('Price Integration Test', () => {
     const pgClient = getPostgreSQLClient();
     await pgClient.query('DELETE FROM price_rules WHERE version_id = $1', [versionId]);
     await pgClient.query('DELETE FROM prices WHERE version_id = $1', [versionId]);
-    await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [versionId]);
+    await pgClient.query('DELETE FROM assets WHERE version_id = $1', [versionId]);
 
     // Insert a manifest row for the version
     await upsertManifest({

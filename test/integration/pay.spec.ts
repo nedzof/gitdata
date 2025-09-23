@@ -27,7 +27,7 @@ describe('Pay Integration Test', () => {
   const testVersionId = 'b'.repeat(64);
   await pgClient.query('DELETE FROM receipts WHERE version_id = $1 OR version_id = $2', [versionId, testVersionId]);
   await pgClient.query('DELETE FROM price_rules'); // Clear all price rules to avoid interference
-  await pgClient.query('DELETE FROM manifests WHERE version_id = $1 OR version_id = $2', [versionId, testVersionId]);
+  await pgClient.query('DELETE FROM assets WHERE version_id = $1 OR version_id = $2', [versionId, testVersionId]);
   await pgClient.query('DELETE FROM prices'); // Clear all price overrides to avoid interference
 
   // Insert manifest row (required) using PostgreSQL

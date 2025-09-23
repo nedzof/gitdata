@@ -120,7 +120,7 @@ export function d06PaymentProcessingRouter(): Router {
 
       // Get manifest and pricing
       const manifestResult = await database.query(
-        'SELECT version_id, content_hash, producer_id, title FROM manifests WHERE version_id = $1',
+        'SELECT version_id, content_hash, producer_id, title FROM assets WHERE version_id = $1',
         [versionId]
       );
 

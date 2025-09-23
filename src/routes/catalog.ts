@@ -128,12 +128,16 @@ export function catalogRouter(): Router {
       const items = filtered.map((r) => ({
         versionId: r.version_id,
         datasetId: r.dataset_id,
-        title: r.title,
-        license: r.license,
-        classification: r.classification,
+        name: r.name,
+        description: r.description,
         contentHash: r.content_hash,
+        mimeType: r.mime_type,
+        sizeBytes: r.size_bytes,
         createdAt: r.created_at,
-        // tags not extracted here; client can parse manifest if needed
+        updatedAt: r.updated_at,
+        // Extract license and classification from policy_meta if available
+        license: r.policy_meta?.license || null,
+        classification: r.policy_meta?.classification || null
       }));
 
       return json(res, 200, {

@@ -26,7 +26,7 @@ describe('D08 Streaming Test Data Integration', () => {
     await db.pg.query('DELETE FROM stream_webhooks WHERE version_id LIKE $1', ['stream-%']);
     await db.pg.query('DELETE FROM realtime_packets WHERE version_id LIKE $1', ['stream-%']);
     await db.pg.query('DELETE FROM stream_metadata WHERE version_id LIKE $1', ['stream-%']);
-    await db.pg.query('DELETE FROM manifests WHERE version_id LIKE $1', ['stream-%']);
+    await db.pg.query('DELETE FROM assets WHERE version_id LIKE $1', ['stream-%']);
   });
 
   test('should setup D08 streaming schema successfully', async () => {
@@ -63,7 +63,7 @@ describe('D08 Streaming Test Data Integration', () => {
     // Verify streaming manifests were created
     const manifests = await db.pg.query(`
       SELECT version_id, title, is_streaming, stream_config
-      FROM manifests WHERE is_streaming = true
+      FROM assets WHERE is_streaming = true
     `);
     expect(manifests.rows.length).toBeGreaterThanOrEqual(4);
 
@@ -187,7 +187,7 @@ describe('D08 Streaming Test Data Integration', () => {
     // Test that all streaming manifests have corresponding metadata
     const orphanedManifests = await db.pg.query(`
       SELECT m.version_id
-      FROM manifests m
+      FROM assets m
       LEFT JOIN stream_metadata sm ON m.version_id = sm.version_id
       WHERE m.is_streaming = true AND sm.version_id IS NULL
     `);

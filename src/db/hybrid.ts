@@ -63,18 +63,18 @@ export class HybridDatabase {
   async getAsset(versionId: string): Promise<ManifestRow | null> {
     // Bypass cache for now to fix test issues - directly query database
     const result = await this.pg.queryOne<ManifestRow>(
-      'SELECT * FROM manifests WHERE version_id = $1',
+      'SELECT * FROM assets WHERE version_id = $1',
       [versionId.toLowerCase()]
     );
     return result;
   }
 
   async upsertAsset(asset: Partial<ManifestRow>): Promise<void> {
-    // Filter to only include columns that exist in the manifests table
+    // Filter to only include columns that exist in the assets table
     const validColumns = [
-      'version_id', 'manifest_hash', 'content_hash', 'title', 'name',
-      'license', 'classification', 'created_at', 'manifest_json',
-      'dataset_id', 'producer_id'
+      'version_id', 'dataset_id', 'producer_id', 'name', 'description',
+      'content_hash', 'mime_type', 'size_bytes', 'policy_meta',
+      'created_at', 'updated_at'
     ];
 
     const filteredAsset = Object.fromEntries(
@@ -105,7 +105,7 @@ export class HybridDatabase {
 
     if (updateSet) {
       await this.pg.query(`
-        INSERT INTO manifests (${columns.join(', ')})
+        INSERT INTO assets (${columns.join(', ')})
         VALUES (${placeholders.join(', ')})
         ON CONFLICT (version_id)
         DO UPDATE SET ${updateSet}
@@ -113,7 +113,7 @@ export class HybridDatabase {
     } else {
       // Only version_id, use INSERT ... ON CONFLICT DO NOTHING
       await this.pg.query(`
-        INSERT INTO manifests (${columns.join(', ')})
+        INSERT INTO assets (${columns.join(', ')})
         VALUES (${placeholders.join(', ')})
         ON CONFLICT (version_id) DO NOTHING
       `, values);
@@ -145,12 +145,12 @@ export class HybridDatabase {
     return this.getFromCacheOrDb(
       cacheKey,
       async () => {
-        let sql = 'SELECT * FROM manifests WHERE 1=1';
+        let sql = 'SELECT * FROM assets WHERE 1=1';
         const params: any[] = [];
         let paramIndex = 1;
 
         if (q) {
-          sql += ` AND (dataset_id ILIKE $${paramIndex} OR version_id ILIKE $${paramIndex + 1} OR manifest_json ILIKE $${paramIndex + 2})`;
+          sql += ` AND (name ILIKE $${paramIndex} OR description ILIKE $${paramIndex + 1} OR policy_meta::text ILIKE $${paramIndex + 2})`;
           const searchTerm = `%${q}%`;
           params.push(searchTerm, searchTerm, searchTerm);
           paramIndex += 3;

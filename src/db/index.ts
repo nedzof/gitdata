@@ -310,7 +310,7 @@ export async function getProducerByDatasetId(datasetId: string): Promise<Produce
 
   // Get producer_id from manifests table using datasetId
   const result = await pgClient.query(
-    'SELECT producer_id FROM manifests WHERE dataset_id = $1 LIMIT 1',
+    'SELECT producer_id FROM assets WHERE dataset_id = $1 LIMIT 1',
     [datasetId]
   );
 
@@ -573,7 +573,7 @@ export async function getProducerIdForVersionAsync(versionId: string): Promise<s
   const { getPostgreSQLClient } = await import('./postgresql');
   const pgClient = getPostgreSQLClient();
 
-  const result = await pgClient.query('SELECT producer_id FROM manifests WHERE version_id = $1', [versionId]);
+  const result = await pgClient.query('SELECT producer_id FROM assets WHERE version_id = $1', [versionId]);
   return result.rows[0]?.producer_id || null;
 }
 
@@ -612,7 +612,7 @@ export function getProducerIdForVersion(db: any, versionId: string): string | nu
     return null;
   }
 
-  const stmt = db.prepare('SELECT producer_id FROM manifests WHERE version_id = ?');
+  const stmt = db.prepare('SELECT producer_id FROM assets WHERE version_id = ?');
   const result = stmt.get(versionId) as { producer_id?: string } | undefined;
   return result?.producer_id || null;
 }
@@ -641,7 +641,7 @@ export function getBestUnitPrice(dbOrVersionId: any, versionIdOrQuantity?: strin
     // Then check price rules
     const ruleStmt = db.prepare(`
       SELECT satoshis, tier_from FROM price_rules
-      WHERE (version_id = ? OR producer_id = (SELECT producer_id FROM manifests WHERE version_id = ?))
+      WHERE (version_id = ? OR producer_id = (SELECT producer_id FROM assets WHERE version_id = ?))
         AND tier_from <= ?
       ORDER BY tier_from DESC LIMIT 1
     `);
@@ -689,7 +689,7 @@ async function getBestUnitPricePostgreSQL(versionId: string, quantity: number, d
   // Check producer-specific rules
   const producerRuleResult = await pgClient.query(`
     SELECT satoshis, tier_from FROM price_rules
-    WHERE producer_id = (SELECT producer_id FROM manifests WHERE version_id = $1) AND tier_from <= $2
+    WHERE producer_id = (SELECT producer_id FROM assets WHERE version_id = $1) AND tier_from <= $2
     ORDER BY tier_from DESC LIMIT 1
   `, [versionId, quantity]);
 
@@ -822,7 +822,7 @@ export async function listListings(limit = 50, offset = 0): Promise<any[]> {
       d.txid,
       d.status,
       d.created_at
-    FROM manifests m
+    FROM assets m
     LEFT JOIN declarations d ON d.version_id = m.version_id
     LEFT JOIN producers p ON p.producer_id = m.producer_id
     ORDER BY d.created_at DESC

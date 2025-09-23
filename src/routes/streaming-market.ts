@@ -52,7 +52,7 @@ router.get('/streams', async (req, res) => {
         COUNT(sw.version_id) as active_subscribers,
         MAX(rp.packet_sequence) as latest_sequence,
         AVG(rp.data_size_bytes) as avg_packet_size
-      FROM manifests m
+      FROM assets m
       LEFT JOIN stream_metadata sm ON m.version_id = sm.version_id
       LEFT JOIN realtime_packets rp ON m.version_id = rp.version_id
       LEFT JOIN stream_webhooks sw ON m.version_id = sw.version_id AND sw.status = 'active'
@@ -69,7 +69,7 @@ router.get('/streams', async (req, res) => {
     // Get total count for pagination
     const countQuery = `
       SELECT COUNT(DISTINCT m.version_id) as total
-      FROM manifests m
+      FROM assets m
       LEFT JOIN stream_metadata sm ON m.version_id = sm.version_id
       ${whereClause}
     `;
@@ -122,7 +122,7 @@ router.get('/streams/:streamId', async (req, res) => {
         AVG(rp.data_size_bytes) as avg_packet_size,
         MIN(rp.packet_timestamp) as first_packet_at,
         MAX(rp.packet_timestamp) as last_packet_at_precise
-      FROM manifests m
+      FROM assets m
       LEFT JOIN stream_metadata sm ON m.version_id = sm.version_id
       LEFT JOIN realtime_packets rp ON m.version_id = rp.version_id
       LEFT JOIN stream_webhooks sw ON m.version_id = sw.version_id AND sw.status = 'active'
@@ -266,7 +266,7 @@ router.get('/stats', async (req, res) => {
         COUNT(rp.version_id) FILTER (WHERE rp.packet_timestamp >= NOW() - INTERVAL '24 hours') as packets_today,
         COUNT(DISTINCT sw.subscriber_id) as total_subscribers,
         0 as total_revenue
-      FROM manifests m
+      FROM assets m
       LEFT JOIN stream_metadata sm ON m.version_id = sm.version_id
       LEFT JOIN realtime_packets rp ON m.version_id = rp.version_id
       LEFT JOIN stream_webhooks sw ON m.version_id = sw.version_id AND sw.status = 'active'
@@ -282,7 +282,7 @@ router.get('/stats', async (req, res) => {
         m.category,
         COUNT(DISTINCT m.version_id) as stream_count,
         COUNT(rp.version_id) as total_packets
-      FROM manifests m
+      FROM assets m
       LEFT JOIN realtime_packets rp ON m.version_id = rp.version_id
       WHERE m.is_streaming = true
       GROUP BY m.category

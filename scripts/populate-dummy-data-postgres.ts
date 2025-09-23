@@ -370,7 +370,7 @@ async function populatePostgreSQLDatabase() {
         ]);
 
         // Find all version IDs for this dataset
-        const versions = await client.query('SELECT version_id FROM manifests WHERE dataset_id = $1', [template.dataset_id]);
+        const versions = await client.query('SELECT version_id FROM assets WHERE dataset_id = $1', [template.dataset_id]);
         for (const row of versions.rows) {
           await client.query(
             'INSERT INTO advisory_targets (advisory_id, version_id, producer_id) VALUES ($1, $2, $3)',

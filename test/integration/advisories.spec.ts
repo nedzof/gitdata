@@ -50,7 +50,7 @@ describe('Advisories Integration Test', () => {
   // Clean up any existing test data (reuse pgClient from above)
   await pgClient.query('DELETE FROM advisory_targets WHERE version_id = $1', [vid]);
   await pgClient.query('DELETE FROM advisories WHERE advisory_id LIKE $1', ['%test%']);
-  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [vid]);
+  await pgClient.query('DELETE FROM assets WHERE version_id = $1', [vid]);
   await pgClient.query('DELETE FROM declarations WHERE version_id = $1', [vid]);
 
   const m = {

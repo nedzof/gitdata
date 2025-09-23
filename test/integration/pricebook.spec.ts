@@ -47,7 +47,7 @@ describe('Pricebook Integration Test', () => {
   // Delete in proper order to avoid foreign key constraint violations
   await pgClient.query('DELETE FROM advisory_targets WHERE producer_id IN (SELECT producer_id FROM producers WHERE identity_key = $1)', [identityKey]);
   await pgClient.query('DELETE FROM price_rules WHERE producer_id IN (SELECT producer_id FROM producers WHERE identity_key = $1)', [identityKey]);
-  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [vid]);
+  await pgClient.query('DELETE FROM assets WHERE version_id = $1', [vid]);
   await pgClient.query('DELETE FROM prices WHERE version_id = $1', [vid]);
   await pgClient.query('DELETE FROM producers WHERE identity_key = $1', [identityKey]);
 

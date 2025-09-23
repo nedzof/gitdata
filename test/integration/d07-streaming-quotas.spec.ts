@@ -53,7 +53,7 @@ describe('D07 Streaming & Quota Management', () => {
     await pool.query('DELETE FROM quota_usage_windows WHERE receipt_id = $1', [testReceiptId]);
     await pool.query('DELETE FROM agent_streaming_sessions WHERE receipt_id = $1', [testReceiptId]);
     await pool.query('DELETE FROM overlay_receipts WHERE receipt_id = $1', [testReceiptId]);
-    await pool.query('DELETE FROM manifests WHERE version_id = $1', [testVersionId]);
+    await pool.query('DELETE FROM assets WHERE version_id = $1', [testVersionId]);
     await pool.end();
   });
 

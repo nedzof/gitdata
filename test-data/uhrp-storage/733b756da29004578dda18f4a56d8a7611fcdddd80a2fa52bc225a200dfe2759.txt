@@ -1,9 +1,0 @@
-
-        PREMIUM DATA AGREEMENT
-
-        Dataset: {{datasetId}}
-        Price: {{price}} satoshis
-        Classification: {{classification}}
-
-        Terms and conditions...
-      

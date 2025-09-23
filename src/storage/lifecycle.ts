@@ -154,7 +154,7 @@ export class StorageLifecycleManager {
         COUNT(CASE WHEN r.last_seen > datetime('now', '-7 days') THEN 1 END) as access_7d,
         COUNT(CASE WHEN r.last_seen > datetime('now', '-30 days') THEN 1 END) as access_30d,
         MAX(r.last_seen) as last_accessed
-      FROM manifests m
+      FROM assets m
       LEFT JOIN receipts r ON m.version_id = r.version_id
       WHERE m.content_hash IS NOT NULL
       GROUP BY m.content_hash, m.created_at
@@ -171,7 +171,7 @@ export class StorageLifecycleManager {
         COUNT(CASE WHEN r.last_seen > NOW() - INTERVAL '7 days' THEN 1 END) as access_7d,
         COUNT(CASE WHEN r.last_seen > NOW() - INTERVAL '30 days' THEN 1 END) as access_30d,
         MAX(r.last_seen) as last_accessed
-      FROM manifests m
+      FROM assets m
       LEFT JOIN receipts r ON m.version_id = r.version_id
       WHERE m.content_hash IS NOT NULL
       GROUP BY m.content_hash, m.created_at
@@ -304,7 +304,7 @@ export class StorageLifecycleManager {
     const { getPostgreSQLClient } = await import('../db/postgresql');
     const pgClient = getPostgreSQLClient();
     const result = await pgClient.query(
-      `SELECT COUNT(*) as count FROM manifests WHERE content_hash = $1`,
+      `SELECT COUNT(*) as count FROM assets WHERE content_hash = $1`,
       [contentHash]
     );
     manifestCount = result.rows[0] as { count: number };

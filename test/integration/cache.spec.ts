@@ -65,7 +65,7 @@ describe('Cache Integration Test', () => {
   // Clean up any existing data for this version
   const { getPostgreSQLClient } = await import('../../src/db/postgresql');
   const pgClient = getPostgreSQLClient();
-  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [vid]);
+  await pgClient.query('DELETE FROM assets WHERE version_id = $1', [vid]);
   await pgClient.query('DELETE FROM declarations WHERE version_id = $1', [vid]);
 
   await upsertManifest({

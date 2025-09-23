@@ -11,7 +11,7 @@ describe('Producers Integration Test', () => {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
   app.use(producersRouter());
-
+  
   // Clean up any existing data
   const { getPostgreSQLClient } = await import('../../src/db/postgresql');
   const pgClient = getPostgreSQLClient();
@@ -19,7 +19,7 @@ describe('Producers Integration Test', () => {
   const versionId = 'a'.repeat(64);
   const datasetId = 'open-images-50k';
   await pgClient.query('DELETE FROM producers WHERE identity_key = $1', [identityKey]);
-  await pgClient.query('DELETE FROM manifests WHERE version_id = $1', [versionId]);
+  await pgClient.query('DELETE FROM assets WHERE version_id = $1', [versionId]);
 
   // Insert a producer
   const producerId = await upsertProducer({

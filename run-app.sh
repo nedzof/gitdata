@@ -1,83 +1,136 @@
 #!/bin/bash
 
-echo "🚀 Starting Gitdata Application (Frictionless Docker Setup)"
-echo "=================================================="
+echo "🚀 Starting BSV Overlay Network Application"
+echo "==========================================="
 
-# Clean up any existing containers
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ Docker is not running. Please start Docker and try again."
+    exit 1
+fi
+
+# Parse command line arguments
+ADMIN_MODE=false
+CLEAN_VOLUMES=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --admin)
+            ADMIN_MODE=true
+            shift
+            ;;
+        --clean)
+            CLEAN_VOLUMES=true
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --admin    Start with admin tools (pgAdmin, Redis Commander)"
+            echo "  --clean    Remove existing data volumes for fresh start"
+            echo "  --help     Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0              # Start basic services"
+            echo "  $0 --admin      # Start with admin tools"
+            echo "  $0 --clean      # Clean volumes and start fresh"
+            exit 0
+            ;;
+        *)
+            echo "❌ Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# Clean up existing containers
 echo "🧹 Cleaning up existing containers..."
-docker stop gitdata-app gitdata-postgres gitdata-redis 2>/dev/null || true
-docker rm gitdata-app gitdata-postgres gitdata-redis 2>/dev/null || true
+docker-compose down --remove-orphans 2>/dev/null || true
 
-# Create network
-echo "🔗 Creating Docker network..."
-docker network create gitdata-net 2>/dev/null || echo "Network already exists"
+# Clean volumes if requested
+if [ "$CLEAN_VOLUMES" = true ]; then
+    echo "🗑️  Removing existing data volumes..."
+    docker-compose down -v 2>/dev/null || true
+fi
 
-# Start PostgreSQL with automatic schema and data
-echo "🗄️ Starting PostgreSQL database with automatic setup..."
-docker run -d --name gitdata-postgres \
-  --network gitdata-net \
-  -e POSTGRES_DB=overlay \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=password \
-  -v $(pwd)/populate-sample-data.sql:/docker-entrypoint-initdb.d/99-sample-data.sql \
-  -v $(pwd)/src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql \
-  -v $(pwd)/src/db/schema-d08-realtime-packets.sql:/docker-entrypoint-initdb.d/02-d08-schema.sql \
-  -v $(pwd)/src/db/schema-d22-overlay-storage.sql:/docker-entrypoint-initdb.d/03-storage-schema.sql \
-  -p 5432:5432 \
-  postgres:15-alpine
+# Build and start services
+echo "🔨 Building and starting services..."
+if [ "$ADMIN_MODE" = true ]; then
+    echo "   - Starting with admin tools (pgAdmin + Redis Commander)"
+    docker-compose --profile admin up --build -d
+else
+    echo "   - Starting core services (PostgreSQL + Redis + App)"
+    docker-compose up --build -d postgres redis app
+fi
 
-# Start Redis
-echo "🔄 Starting Redis cache..."
-docker run -d --name gitdata-redis \
-  --network gitdata-net \
-  -p 6379:6379 \
-  redis:7-alpine redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+# Wait for services to be ready with better health checks
+echo "⏳ Waiting for services to start..."
 
-# Wait for database to initialize
-echo "⏳ Waiting for database initialization (30 seconds)..."
-sleep 30
+# Wait for PostgreSQL
+echo "   - Waiting for PostgreSQL..."
+timeout 60 bash -c 'until docker-compose exec postgres pg_isready -U postgres; do sleep 2; done' || {
+    echo "❌ PostgreSQL failed to start"
+    exit 1
+}
 
-# Start application
-echo "🚀 Starting Gitdata application..."
-docker run -d --name gitdata-app \
-  --network gitdata-net \
-  -p 8788:8788 \
-  -e NODE_ENV=production \
-  -e PG_HOST=gitdata-postgres \
-  -e PG_PORT=5432 \
-  -e PG_DATABASE=overlay \
-  -e PG_USER=postgres \
-  -e PG_PASSWORD=password \
-  -e REDIS_URL=redis://gitdata-redis:6379 \
-  -e ALLOWED_ORIGINS=http://localhost:8788 \
-  gitdata-app
+# Wait for Redis
+echo "   - Waiting for Redis..."
+timeout 30 bash -c 'until docker-compose exec redis redis-cli ping | grep -q PONG; do sleep 2; done' || {
+    echo "❌ Redis failed to start"
+    exit 1
+}
 
-# Wait for application to start
-echo "⏳ Waiting for application to start (15 seconds)..."
-sleep 15
+# Wait for Application
+echo "   - Waiting for application..."
+timeout 120 bash -c 'until curl -sf http://localhost:8788/health > /dev/null; do sleep 3; done' || {
+    echo "❌ Application failed to start"
+    echo "📋 Application logs:"
+    docker-compose logs app --tail=20
+    exit 1
+}
+
+echo "✅ All services are ready!"
 
 # Test the application
-echo "🔍 Testing application..."
-if curl -s http://localhost:8788/health > /dev/null; then
-    echo "✅ Health check passed!"
+echo ""
+echo "🧪 Testing API endpoints..."
+echo "• Health Check: $(curl -s http://localhost:8788/health | jq -r '.status' 2>/dev/null || echo 'OK')"
 
-    # Test market data
-    MARKET_COUNT=$(curl -s "http://localhost:8788/v1/search" | grep -o '"versionId"' | wc -l)
-    echo "📊 Market has $MARKET_COUNT datasets available"
-
-    echo ""
-    echo "🎉 APPLICATION IS READY!"
-    echo "=================================================="
-    echo "🌐 Open your browser to: http://localhost:8788"
-    echo "📊 Market page should show $MARKET_COUNT assets"
-    echo "📈 API endpoint: http://localhost:8788/v1/search"
-    echo ""
-    echo "To stop the application:"
-    echo "docker stop gitdata-app gitdata-postgres gitdata-redis"
-    echo "docker rm gitdata-app gitdata-postgres gitdata-redis"
-
-else
-    echo "❌ Health check failed!"
-    echo "🔍 Checking logs..."
-    docker logs gitdata-app --tail 10
+# Test overlay endpoints if available
+if curl -s http://localhost:8788/overlay/status > /dev/null 2>&1; then
+    OVERLAY_STATUS=$(curl -s http://localhost:8788/overlay/status | jq -r '.enabled' 2>/dev/null || echo 'unknown')
+    echo "• Overlay Network: $OVERLAY_STATUS"
 fi
+
+# Test market data
+MARKET_COUNT=$(curl -s "http://localhost:8788/v1/search" 2>/dev/null | grep -o '"versionId"' | wc -l || echo "0")
+echo "• Market Datasets: $MARKET_COUNT available"
+
+echo ""
+echo "🎉 BSV OVERLAY NETWORK IS READY!"
+echo "================================="
+echo "🌐 Main Application:      http://localhost:8788"
+echo "🔍 Health Check:          http://localhost:8788/health"
+echo "🌊 Overlay Status:        http://localhost:8788/overlay/status"
+echo "📊 Market API:            http://localhost:8788/v1/search"
+echo "💾 Database:              localhost:5432 (postgres/password)"
+echo "🔄 Redis:                 localhost:6379"
+
+if [ "$ADMIN_MODE" = true ]; then
+    echo ""
+    echo "🛠️ Admin Tools:"
+    echo "📊 pgAdmin:               http://localhost:8080 (admin@gitdata.dev/admin)"
+    echo "🔄 Redis Commander:       http://localhost:8081 (admin/admin)"
+fi
+
+echo ""
+echo "💡 Useful commands:"
+echo "   - View logs:           docker-compose logs -f app"
+echo "   - Stop services:       docker-compose down"
+echo "   - Stop + clean:        docker-compose down -v"
+echo "   - Restart app:         docker-compose restart app"
+echo "   - Run API tests:       npm run postman:overlay"
+echo ""
+echo "📚 Use Postman collection: postman/BSV-Overlay-Network-API.postman_collection.json"
