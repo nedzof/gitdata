@@ -6,7 +6,7 @@ import { EventEmitter } from 'events';
 // Using a simplified overlay implementation for now
 // TODO: Integrate full @bsv/overlay Engine when API is better understood
 
-import type { Wallet } from '../../ui/src/lib/brc100-types';
+import type { Wallet } from '../lib/brc100-types';
 
 // Simple overlay interface that can be extended with real BSV overlay later
 interface OverlayEngine extends EventEmitter {

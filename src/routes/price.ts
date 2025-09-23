@@ -97,7 +97,7 @@ export function priceRouter(): Router {
 
     try {
       await upsertPriceRule({
-        version_id: versionId ? String(versionId).toLowerCase() : null,
+        version_id: versionId ? String(versionId).toLowerCase() : undefined,
         producer_id: producerId || null,
         tier_from: Number(tierFrom),
         satoshis: Number(satoshis),
