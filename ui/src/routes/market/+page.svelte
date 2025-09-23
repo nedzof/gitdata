@@ -270,7 +270,7 @@
 
       // Load available assets for parent selection from search endpoint
       try {
-        let searchUrl = '/search';
+        let searchUrl = '/v1/search';
         const params = new URLSearchParams();
 
         if (searchQuery) params.append('q', searchQuery);

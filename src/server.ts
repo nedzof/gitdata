@@ -115,11 +115,20 @@ app.use('/v1', listingsRouter());
 
 // Streaming and real-time data
 app.use('/v1', d07StreamingQuotasRouter());
-app.use('/v1', streamingMarketRouter());
-app.use('/v1', producerRouter());
+try {
+  console.log('🔄 Loading streaming market router...');
+  const smRouter = streamingMarketRouter();
+  console.log('✅ Streaming market router loaded:', typeof smRouter);
+  console.log('🔗 Mounting streaming market at /v1/streaming-market');
+  app.use('/v1/streaming-market', smRouter);
+  console.log('✅ Streaming market router mounted');
+} catch (error) {
+  console.error('❌ Error loading streaming market router:', error);
+}
+app.use('/v1/producer', producerRouter());
 
 // Agent marketplace
-app.use('/v1', agentMarketplaceRouter().router);
+app.use('/v1/agent-marketplace', agentMarketplaceRouter().router);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
