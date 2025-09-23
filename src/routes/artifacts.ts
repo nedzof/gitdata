@@ -1,7 +1,9 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 
-function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
+function json(res: Response, code: number, body: any) {
+  return res.status(code).json(body);
+}
 
 export function artifactsRouter(): Router {
   const router = makeRouter();

@@ -4,12 +4,12 @@ export type Hex = string;
 
 export type OpReturnOutput = {
   vout: number;
-  satoshis: bigint;          // 8-byte little-endian value
-  scriptHex: string;         // full locking script hex
-  hasOpFalse: boolean;       // true if script starts with OP_FALSE before OP_RETURN
-  pushesHex: string[];       // all push data after OP_RETURN as hex
+  satoshis: bigint; // 8-byte little-endian value
+  scriptHex: string; // full locking script hex
+  hasOpFalse: boolean; // true if script starts with OP_FALSE before OP_RETURN
+  pushesHex: string[]; // all push data after OP_RETURN as hex
   pushesAscii: (string | null)[]; // printable ASCII for each push (null if not printable)
-  tagAscii?: string;         // first push as ASCII if printable (e.g., "DLM1", "TRN1")
+  tagAscii?: string; // first push as ASCII if printable (e.g., "DLM1", "TRN1")
 };
 
 /**
@@ -17,16 +17,19 @@ export type OpReturnOutput = {
  */
 function readVarInt(buf: Buffer, o: { i: number }): bigint {
   assert(o.i < buf.length, 'varint out-of-bounds');
-  const first = buf[o.i]; o.i += 1;
+  const first = buf[o.i];
+  o.i += 1;
   if (first < 0xfd) return BigInt(first);
   if (first === 0xfd) {
     assert(o.i + 2 <= buf.length, 'varint u16 out-of-bounds');
-    const v = buf.readUInt16LE(o.i); o.i += 2;
+    const v = buf.readUInt16LE(o.i);
+    o.i += 2;
     return BigInt(v);
   }
   if (first === 0xfe) {
     assert(o.i + 4 <= buf.length, 'varint u32 out-of-bounds');
-    const v = buf.readUInt32LE(o.i); o.i += 4;
+    const v = buf.readUInt32LE(o.i);
+    o.i += 4;
     return BigInt(v);
   }
   assert(o.i + 8 <= buf.length, 'varint u64 out-of-bounds');
@@ -106,11 +109,7 @@ function parseOpReturnScript(script: Buffer): {
     } else if (op === 0x4e) {
       // PUSHDATA4
       if (j + 4 > script.length) break;
-      len =
-        script[j] |
-        (script[j + 1] << 8) |
-        (script[j + 2] << 16) |
-        (script[j + 3] << 24);
+      len = script[j] | (script[j + 1] << 8) | (script[j + 2] << 16) | (script[j + 3] << 24);
       j += 4;
     } else {
       // Non-push after OP_RETURN: stop
@@ -147,10 +146,10 @@ export function findOpReturnOutputs(rawTxHex: Hex): OpReturnOutput[] {
   const vin = Number(readVarInt(tx, o));
   for (let n = 0; n < vin; n++) {
     readSlice(tx, o, 32); // prev txid
-    readSlice(tx, o, 4);  // vout
+    readSlice(tx, o, 4); // vout
     const scriptLen = Number(readVarInt(tx, o));
     readSlice(tx, o, scriptLen); // scriptSig
-    readSlice(tx, o, 4);  // sequence
+    readSlice(tx, o, 4); // sequence
   }
 
   // vout
@@ -200,7 +199,10 @@ export function findFirstOpReturn(rawTxHex: Hex): OpReturnOutput | null {
   return outs.length ? outs[0] : null;
 }
 
-export function detectDlm1OrTrn1(rawTxHex: Hex): { tag: 'DLM1' | 'TRN1' | null; vout: number | null } {
+export function detectDlm1OrTrn1(rawTxHex: Hex): {
+  tag: 'DLM1' | 'TRN1' | null;
+  vout: number | null;
+} {
   const out = findFirstOpReturn(rawTxHex);
   const tag = out?.tagAscii === 'DLM1' ? 'DLM1' : out?.tagAscii === 'TRN1' ? 'TRN1' : null;
   return { tag, vout: out?.vout ?? null };

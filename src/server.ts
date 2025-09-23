@@ -2,50 +2,54 @@
  * Main server entry point for the Gitdata overlay application
  */
 import express from 'express';
-import { healthRouter } from './routes/health';
-import { readyRouter } from './routes/ready';
-import { dataRouter } from './routes/data';
-import { bundleRouter } from './routes/bundle';
-import { priceRouter } from './routes/price';
-import { payRouter } from './routes/pay';
+
+import { auditLogger } from './middleware/audit';
+import { rateLimit, limitsMiddleware } from './middleware/limits';
+import { metricsMiddleware } from './middleware/metrics';
 import { advisoriesRouter } from './routes/advisories';
-import { catalogRouter } from './routes/catalog';
-import { metricsRouter } from './routes/metrics';
-import { producersRouter } from './routes/producers';
-import { paymentsRouter } from './routes/payments';
-import { storageRouter } from './routes/storage';
-import { templatesRouter } from './routes/templates';
+import { agentMarketplaceRouter } from './routes/agent-marketplace';
+import { agentsRouter } from './routes/agents';
 import { artifactsRouter } from './routes/artifacts';
-import { walletRouter } from './routes/wallet';
-import { identityRouter } from './routes/identity';
-import { overlayRouter } from './routes/overlay';
-import { overlayBrcRouter } from './routes/overlay-brc';
-import { listingsRouter } from './routes/listings';
-import { openlineageRouter } from './routes/openlineage';
-import { submitBuilderRouter } from './routes/submit-builder';
-import { submitReceiverRouterWrapper } from './routes/submit-receiver';
-import { producersRegisterRouter } from './routes/producers-register';
-import { d22OverlayStorageRouter } from './routes/d22-overlay-storage';
-import { d06PaymentProcessingRouter } from './routes/d06-payment-processing';
+import { bundleRouter } from './routes/bundle';
+import { catalogRouter } from './routes/catalog';
 import { d06AgentPaymentsRouter } from './routes/d06-agent-payments';
+import { d06PaymentProcessingRouter } from './routes/d06-payment-processing';
 import { d06RevenueManagementRouter } from './routes/d06-revenue-management';
 import d07StreamingQuotasRouter from './routes/d07-streaming-quotas';
-import { agentMarketplaceRouter } from './routes/agent-marketplace';
-import { producerRouter } from './routes/producer';
-import { streamingMarketRouter } from './routes/streaming-market';
-import { agentsRouter } from './routes/agents';
-import { rulesRouter } from './routes/rules';
+import { d22OverlayStorageRouter } from './routes/d22-overlay-storage';
+import { dataRouter } from './routes/data';
+import { healthRouter } from './routes/health';
+import { identityRouter } from './routes/identity';
 import { jobsRouter } from './routes/jobs';
-import { auditLogger } from './middleware/audit';
-import { metricsMiddleware } from './middleware/metrics';
-import { rateLimit, limitsMiddleware } from './middleware/limits';
+import { listingsRouter } from './routes/listings';
+import { metricsRouter } from './routes/metrics';
+import { openlineageRouter } from './routes/openlineage';
+import { overlayRouter } from './routes/overlay';
+import { overlayBrcRouter } from './routes/overlay-brc';
+import { payRouter } from './routes/pay';
+import { paymentsRouter } from './routes/payments';
+import { priceRouter } from './routes/price';
+import { producerRouter } from './routes/producer';
+import { producersRouter } from './routes/producers';
+import { producersRegisterRouter } from './routes/producers-register';
+import { readyRouter } from './routes/ready';
+import { rulesRouter } from './routes/rules';
+import { storageRouter } from './routes/storage';
+import { streamingMarketRouter } from './routes/streaming-market';
+import { submitBuilderRouter } from './routes/submit-builder';
+import { submitReceiverRouterWrapper } from './routes/submit-receiver';
+import { templatesRouter } from './routes/templates';
+import { walletRouter } from './routes/wallet';
 
 const app = express();
 const PORT = process.env.PORT || 8788;
 
 // Basic CORS configuration
 app.use((req, res, next) => {
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5173'];
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+    'http://localhost:3000',
+    'http://localhost:5173',
+  ];
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -147,14 +151,14 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     return res.status(413).json({
       success: false,
       error: 'Request entity too large',
-      message: 'The request payload exceeds the maximum allowed size'
+      message: 'The request payload exceeds the maximum allowed size',
     });
   }
 
   res.status(500).json({
     success: false,
     error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'An unexpected error occurred'
+    message: process.env.NODE_ENV === 'development' ? err.message : 'An unexpected error occurred',
   });
 });
 
@@ -165,7 +169,7 @@ app.get('*', (req: express.Request, res: express.Response) => {
     return res.status(404).json({
       success: false,
       error: 'Not found',
-      message: `Route ${req.method} ${req.originalUrl} not found`
+      message: `Route ${req.method} ${req.originalUrl} not found`,
     });
   }
 

@@ -11,9 +11,26 @@ function getLimits(): LimitsConfig {
   try {
     const raw = process.env.RATE_LIMITS_JSON;
     if (raw) return JSON.parse(raw);
-  } catch {}
+  } catch {
+    // Ignore JSON parse errors and use defaults
+  }
   // Defaults (permissive for development - 200 requests per minute each)
-  return { submit: 200, bundle: 200, ready: 200, price: 200, data: 200, pay: 200, agents: 200, rules: 200, jobs: 200, models: 200, payments: 200, storage: 200, ingest: 200, policies: 200 };
+  return {
+    submit: 200,
+    bundle: 200,
+    ready: 200,
+    price: 200,
+    data: 200,
+    pay: 200,
+    agents: 200,
+    rules: 200,
+    jobs: 200,
+    models: 200,
+    payments: 200,
+    storage: 200,
+    ingest: 200,
+    policies: 200,
+  };
 }
 
 type Bucket = { tokens: number; lastRefillMs: number; capacity: number; ratePerMs: number };

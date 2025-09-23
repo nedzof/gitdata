@@ -59,13 +59,13 @@ export function enforceAgentRegistrationPolicy() {
         return res.status(429).json({
           error: 'rate-limit-exceeded',
           message: `Maximum ${AGENTS_MAX_PER_IP} agent registrations per IP per hour`,
-          retryAfter: Math.ceil((AGENT_RATE_WINDOW - (now - ipData.lastReset)) / 1000)
+          retryAfter: Math.ceil((AGENT_RATE_WINDOW - (now - ipData.lastReset)) / 1000),
         });
       }
 
       // Increment counter on successful registration
       const originalSend = res.send;
-      res.send = function(data) {
+      res.send = function (data) {
         if (res.statusCode < 300) {
           ipData!.count++;
         }
@@ -95,7 +95,7 @@ export function enforceRuleConcurrency() {
         return res.status(503).json({
           error: 'concurrency-limit-exceeded',
           message: `Maximum ${RULES_MAX_CONCURRENCY} concurrent jobs allowed`,
-          currentRunning: runningJobsCount
+          currentRunning: runningJobsCount,
         });
       }
 
@@ -126,7 +126,7 @@ export function enforceJobCreationPolicy() {
             error: 'job-queue-limit-exceeded',
             message: `Maximum ${JOBS_MAX_PENDING_PER_RULE} pending jobs per rule`,
             ruleId,
-            pendingCount
+            pendingCount,
           });
         }
       }
@@ -154,12 +154,15 @@ export function enforceResourceLimits() {
       return res.status(413).json({
         error: 'request-too-large',
         message: `Request size ${contentLength} exceeds maximum ${MAX_REQUEST_SIZE} bytes`,
-        maxSize: MAX_REQUEST_SIZE
+        maxSize: MAX_REQUEST_SIZE,
       });
     }
 
     // Check template content limits for contract templates
-    if ((req.path.includes('/templates') || req.originalUrl.includes('/templates')) && req.body?.content) {
+    if (
+      (req.path.includes('/templates') || req.originalUrl.includes('/templates')) &&
+      req.body?.content
+    ) {
       const contentSize = Buffer.byteLength(req.body.content, 'utf8');
       const MAX_TEMPLATE_SIZE = 100 * 1024; // 100KB
 
@@ -167,7 +170,7 @@ export function enforceResourceLimits() {
         return res.status(413).json({
           error: 'template-too-large',
           message: `Template content size ${contentSize} exceeds maximum ${MAX_TEMPLATE_SIZE} bytes`,
-          maxSize: MAX_TEMPLATE_SIZE
+          maxSize: MAX_TEMPLATE_SIZE,
         });
       }
     }
@@ -191,7 +194,7 @@ export function enforceAgentSecurityPolicy() {
         if (!allowedSchemes.includes(parsed.protocol)) {
           return res.status(400).json({
             error: 'invalid-webhook-url',
-            message: 'Webhook URLs must use HTTP or HTTPS protocols'
+            message: 'Webhook URLs must use HTTP or HTTPS protocols',
           });
         }
 
@@ -213,23 +216,25 @@ export function enforceAgentSecurityPolicy() {
           ) {
             return res.status(400).json({
               error: 'invalid-webhook-url',
-              message: 'Webhook URLs cannot point to private networks in production'
+              message: 'Webhook URLs cannot point to private networks in production',
             });
           }
         }
 
         // Require HTTPS in production (and tests that want to test this)
-        if ((process.env.NODE_ENV === 'production' || req.headers['x-test-webhook-validation']) && parsed.protocol !== 'https:') {
+        if (
+          (process.env.NODE_ENV === 'production' || req.headers['x-test-webhook-validation']) &&
+          parsed.protocol !== 'https:'
+        ) {
           return res.status(400).json({
             error: 'invalid-webhook-url',
-            message: 'Webhook URLs must use HTTPS in production'
+            message: 'Webhook URLs must use HTTPS in production',
           });
         }
-
       } catch (error) {
         return res.status(400).json({
           error: 'invalid-webhook-url',
-          message: 'Invalid webhook URL format'
+          message: 'Invalid webhook URL format',
         });
       }
     }
@@ -243,7 +248,7 @@ export function enforceAgentSecurityPolicy() {
         return res.status(400).json({
           error: 'too-many-capabilities',
           message: `Maximum ${MAX_CAPABILITIES} capabilities allowed`,
-          provided: capabilities.length
+          provided: capabilities.length,
         });
       }
 
@@ -253,7 +258,7 @@ export function enforceAgentSecurityPolicy() {
           return res.status(400).json({
             error: 'invalid-capability',
             message: 'Capability names must be alphanumeric strings under 50 characters',
-            invalid: cap
+            invalid: cap,
           });
         }
       }
@@ -279,17 +284,17 @@ export function getPolicyMetrics() {
       failed: currentConcurrency.failed,
       dead: currentConcurrency.dead,
       maxConcurrency: RULES_MAX_CONCURRENCY,
-      concurrencyUtilization: currentConcurrency.running / RULES_MAX_CONCURRENCY
+      concurrencyUtilization: currentConcurrency.running / RULES_MAX_CONCURRENCY,
     },
     agents: {
       maxPerIP: AGENTS_MAX_PER_IP,
       rateWindowHours: AGENT_RATE_WINDOW / (60 * 60 * 1000),
-      activeRateLimits: agentRegistrations.size
+      activeRateLimits: agentRegistrations.size,
     },
     limits: {
       maxRequestSize: 1024 * 1024,
       maxTemplateSize: 100 * 1024,
-      maxPendingJobsPerRule: JOBS_MAX_PENDING_PER_RULE
-    }
+      maxPendingJobsPerRule: JOBS_MAX_PENDING_PER_RULE,
+    },
   };
 }

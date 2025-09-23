@@ -1017,6 +1017,377 @@ UNION ALL
 SELECT 'enterprise', 'Enterprise quota policy', 21474836480, 214748364800, 2147483648000, 2000, 20000, 200000, 20, 200.0
 WHERE NOT EXISTS (SELECT 1 FROM quota_policies WHERE policy_name = 'enterprise');
 
+-- =====================================
+-- BRC OVERLAY NETWORK TABLES (from src/overlay)
+-- =====================================
+
+-- BRC-22 UTXO Tracking Tables
+CREATE TABLE IF NOT EXISTS brc22_utxos (
+    id SERIAL PRIMARY KEY,
+    utxo_id TEXT UNIQUE NOT NULL, -- txid:vout format
+    topic TEXT NOT NULL,
+    txid TEXT NOT NULL,
+    vout INTEGER NOT NULL,
+    output_script TEXT NOT NULL,
+    satoshis BIGINT NOT NULL,
+    admitted_at BIGINT NOT NULL,
+    spent_at BIGINT,
+    spent_by_txid TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(topic, txid, vout)
+);
+
+CREATE TABLE IF NOT EXISTS brc22_transactions (
+    id SERIAL PRIMARY KEY,
+    txid TEXT UNIQUE NOT NULL,
+    raw_tx TEXT NOT NULL,
+    topics_json TEXT NOT NULL,
+    inputs_json TEXT,
+    mapi_responses_json TEXT,
+    proof TEXT,
+    processed_at BIGINT NOT NULL,
+    status TEXT DEFAULT 'success',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- BRC-24 Lookup Service Tables
+CREATE TABLE IF NOT EXISTS brc24_queries (
+    id SERIAL PRIMARY KEY,
+    query_id TEXT UNIQUE NOT NULL,
+    provider TEXT NOT NULL,
+    query_json TEXT NOT NULL,
+    requester_id TEXT,
+    results_count INTEGER DEFAULT 0,
+    processed_at BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS brc24_provider_data (
+    id SERIAL PRIMARY KEY,
+    provider_id TEXT NOT NULL,
+    data_key TEXT NOT NULL,
+    data_value TEXT NOT NULL,
+    category TEXT DEFAULT 'general',
+    updated_at BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider_id, data_key)
+);
+
+-- BRC-26 UHRP (Unified Hosting and Routing Protocol) Tables
+CREATE TABLE IF NOT EXISTS uhrp_advertisements (
+    id SERIAL PRIMARY KEY,
+    advertiser_identity TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    host_url TEXT NOT NULL,
+    availability_score DECIMAL(3,2) DEFAULT 1.0,
+    price_per_mb_satoshis INTEGER DEFAULT 0,
+    geographic_region TEXT,
+    expires_at BIGINT NOT NULL,
+    signature TEXT NOT NULL,
+    utxo_id TEXT,
+    timestamp_created BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(advertiser_identity, content_hash, host_url)
+);
+
+CREATE TABLE IF NOT EXISTS uhrp_content (
+    id SERIAL PRIMARY KEY,
+    content_hash TEXT UNIQUE NOT NULL,
+    content_size BIGINT NOT NULL,
+    mime_type TEXT,
+    local_path TEXT,
+    download_count INTEGER DEFAULT 0,
+    last_accessed BIGINT,
+    expires_at BIGINT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS uhrp_hosts (
+    id SERIAL PRIMARY KEY,
+    host_identity TEXT UNIQUE NOT NULL,
+    host_url TEXT NOT NULL,
+    public_key TEXT,
+    reputation_score DECIMAL(3,2) DEFAULT 1.0,
+    last_seen BIGINT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS uhrp_downloads (
+    id SERIAL PRIMARY KEY,
+    content_hash TEXT NOT NULL,
+    downloader_identity TEXT,
+    host_url TEXT NOT NULL,
+    download_started BIGINT NOT NULL,
+    download_completed BIGINT,
+    bytes_downloaded BIGINT DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- BRC-64 Historical Input and Lineage Tracking Tables
+CREATE TABLE IF NOT EXISTS brc64_historical_inputs (
+    id SERIAL PRIMARY KEY,
+    utxo_id TEXT UNIQUE NOT NULL,
+    input_txid TEXT NOT NULL,
+    input_vout INTEGER NOT NULL,
+    spending_txid TEXT NOT NULL,
+    spending_input_index INTEGER NOT NULL,
+    captured_at BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS brc64_lineage_edges (
+    id SERIAL PRIMARY KEY,
+    parent_utxo TEXT NOT NULL,
+    child_utxo TEXT NOT NULL,
+    relationship TEXT NOT NULL,
+    evidence_txid TEXT,
+    timestamp_created BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(parent_utxo, child_utxo, relationship)
+);
+
+CREATE TABLE IF NOT EXISTS brc64_history_cache (
+    id SERIAL PRIMARY KEY,
+    cache_key TEXT UNIQUE NOT NULL,
+    result_json TEXT NOT NULL,
+    expiry BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- BRC-88 SHIP/SLAP Advertisement Tables
+CREATE TABLE IF NOT EXISTS brc88_ship_ads (
+    id SERIAL PRIMARY KEY,
+    advertiser_identity TEXT NOT NULL,
+    domain_name TEXT NOT NULL,
+    topic_name TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    timestamp_created BIGINT NOT NULL,
+    utxo_id TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(advertiser_identity, topic_name)
+);
+
+CREATE TABLE IF NOT EXISTS brc88_slap_ads (
+    id SERIAL PRIMARY KEY,
+    advertiser_identity TEXT NOT NULL,
+    domain_name TEXT NOT NULL,
+    service_id TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    timestamp_created BIGINT NOT NULL,
+    utxo_id TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(advertiser_identity, service_id)
+);
+
+CREATE TABLE IF NOT EXISTS brc88_peers (
+    id SERIAL PRIMARY KEY,
+    peer_identity TEXT UNIQUE NOT NULL,
+    domain_name TEXT NOT NULL,
+    topics_json TEXT NOT NULL,
+    services_json TEXT NOT NULL,
+    last_seen BIGINT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    sync_attempts INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS brc88_sync_history (
+    id SERIAL PRIMARY KEY,
+    peer_identity TEXT NOT NULL,
+    sync_type TEXT NOT NULL, -- 'ship' or 'slap'
+    status TEXT NOT NULL, -- 'success', 'failed', 'partial'
+    records_synced INTEGER DEFAULT 0,
+    started_at BIGINT NOT NULL,
+    completed_at BIGINT,
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Overlay Network Management Tables
+CREATE TABLE IF NOT EXISTS overlay_messages (
+    id SERIAL PRIMARY KEY,
+    message_id TEXT UNIQUE NOT NULL,
+    topic TEXT NOT NULL,
+    message_type TEXT NOT NULL,
+    sender_id TEXT,
+    data_json TEXT NOT NULL,
+    timestamp_sent BIGINT NOT NULL,
+    confirmation_status TEXT DEFAULT 'pending',
+    overlay_txid TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS overlay_subscriptions (
+    id SERIAL PRIMARY KEY,
+    topic TEXT NOT NULL,
+    subscriber_id TEXT NOT NULL,
+    subscription_type TEXT DEFAULT 'active',
+    subscribed_at BIGINT NOT NULL,
+    last_message_at BIGINT,
+    message_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(topic, subscriber_id)
+);
+
+CREATE TABLE IF NOT EXISTS overlay_peers (
+    id SERIAL PRIMARY KEY,
+    peer_id TEXT UNIQUE NOT NULL,
+    peer_identity TEXT,
+    endpoint_url TEXT,
+    topics_supported TEXT[],
+    last_seen BIGINT NOT NULL,
+    connection_status TEXT DEFAULT 'discovered',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Payment Management Tables (Overlay specific)
+CREATE TABLE IF NOT EXISTS overlay_payment_quotes (
+    id SERIAL PRIMARY KEY,
+    quote_id TEXT UNIQUE NOT NULL,
+    version_id TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    pricing_tier TEXT DEFAULT 'standard',
+    unit_price_sat BIGINT NOT NULL,
+    quantity INTEGER DEFAULT 1,
+    total_sat BIGINT NOT NULL,
+    payer_identity TEXT,
+    expires_at BIGINT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS overlay_payment_receipts (
+    id SERIAL PRIMARY KEY,
+    receipt_id TEXT UNIQUE NOT NULL,
+    quote_id TEXT,
+    payment_txid TEXT,
+    payment_vout INTEGER,
+    confirmation_height INTEGER,
+    status TEXT DEFAULT 'pending',
+    confirmed_at BIGINT,
+    expires_at BIGINT,
+    overlay_topics TEXT[],
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Streaming Service Tables (UHRP extended)
+CREATE TABLE IF NOT EXISTS uhrp_streaming_content (
+    id SERIAL PRIMARY KEY,
+    content_id TEXT UNIQUE NOT NULL,
+    content_hash TEXT NOT NULL,
+    stream_profile TEXT NOT NULL,
+    chunk_size INTEGER DEFAULT 1048576, -- 1MB chunks
+    total_chunks INTEGER NOT NULL,
+    duration_seconds INTEGER,
+    bitrate_kbps INTEGER,
+    resolution TEXT,
+    codec TEXT,
+    upload_completed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS uhrp_content_chunks (
+    id SERIAL PRIMARY KEY,
+    content_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    chunk_hash TEXT NOT NULL,
+    chunk_size INTEGER NOT NULL,
+    storage_path TEXT,
+    chunk_data BYTEA,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(content_id, chunk_index)
+);
+
+CREATE TABLE IF NOT EXISTS uhrp_streaming_profiles (
+    id SERIAL PRIMARY KEY,
+    profile_name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    max_bitrate_kbps INTEGER NOT NULL,
+    max_resolution TEXT NOT NULL,
+    supported_codecs TEXT[] NOT NULL,
+    chunk_duration_seconds INTEGER DEFAULT 10,
+    adaptive_streaming BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS uhrp_upload_sessions (
+    id SERIAL PRIMARY KEY,
+    session_id TEXT UNIQUE NOT NULL,
+    content_hash TEXT NOT NULL,
+    uploader_identity TEXT,
+    total_size BIGINT NOT NULL,
+    uploaded_size BIGINT DEFAULT 0,
+    chunk_count INTEGER NOT NULL,
+    uploaded_chunks INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'active',
+    expires_at BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS uhrp_transcoding_jobs (
+    id SERIAL PRIMARY KEY,
+    job_id TEXT UNIQUE NOT NULL,
+    content_id TEXT NOT NULL,
+    source_profile TEXT NOT NULL,
+    target_profile TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    progress_percentage INTEGER DEFAULT 0,
+    started_at BIGINT,
+    completed_at BIGINT,
+    error_message TEXT,
+    output_content_id TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================
+-- BRC OVERLAY NETWORK INDEXES
+-- =====================================
+
+-- BRC-22 indexes
+CREATE INDEX IF NOT EXISTS idx_brc22_utxos_topic ON brc22_utxos(topic);
+CREATE INDEX IF NOT EXISTS idx_brc22_utxos_spent ON brc22_utxos(spent_at);
+CREATE INDEX IF NOT EXISTS idx_brc22_utxos_txid_vout ON brc22_utxos(txid, vout);
+CREATE INDEX IF NOT EXISTS idx_brc22_transactions_processed ON brc22_transactions(processed_at);
+
+-- BRC-24 indexes
+CREATE INDEX IF NOT EXISTS idx_brc24_queries_provider ON brc24_queries(provider, processed_at);
+CREATE INDEX IF NOT EXISTS idx_brc24_provider_data_provider ON brc24_provider_data(provider_id);
+
+-- BRC-26 UHRP indexes
+CREATE INDEX IF NOT EXISTS idx_uhrp_advertisements_content ON uhrp_advertisements(content_hash);
+CREATE INDEX IF NOT EXISTS idx_uhrp_advertisements_expires ON uhrp_advertisements(expires_at);
+CREATE INDEX IF NOT EXISTS idx_uhrp_content_hash ON uhrp_content(content_hash);
+CREATE INDEX IF NOT EXISTS idx_uhrp_downloads_content ON uhrp_downloads(content_hash);
+
+-- BRC-64 indexes
+CREATE INDEX IF NOT EXISTS idx_brc64_historical_inputs_spending ON brc64_historical_inputs(spending_txid);
+CREATE INDEX IF NOT EXISTS idx_brc64_lineage_edges_parent ON brc64_lineage_edges(parent_utxo);
+CREATE INDEX IF NOT EXISTS idx_brc64_lineage_edges_child ON brc64_lineage_edges(child_utxo);
+CREATE INDEX IF NOT EXISTS idx_brc64_history_cache_expiry ON brc64_history_cache(expiry);
+
+-- BRC-88 indexes
+CREATE INDEX IF NOT EXISTS idx_brc88_ship_ads_topic ON brc88_ship_ads(topic_name);
+CREATE INDEX IF NOT EXISTS idx_brc88_slap_ads_service ON brc88_slap_ads(service_id);
+CREATE INDEX IF NOT EXISTS idx_brc88_peers_active ON brc88_peers(is_active, last_seen);
+
+-- Overlay network indexes
+CREATE INDEX IF NOT EXISTS idx_overlay_messages_topic ON overlay_messages(topic, timestamp_sent);
+CREATE INDEX IF NOT EXISTS idx_overlay_subscriptions_topic ON overlay_subscriptions(topic);
+CREATE INDEX IF NOT EXISTS idx_overlay_peers_status ON overlay_peers(connection_status, last_seen);
+
+-- Payment indexes
+CREATE INDEX IF NOT EXISTS idx_overlay_payment_quotes_version ON overlay_payment_quotes(version_id);
+CREATE INDEX IF NOT EXISTS idx_overlay_payment_quotes_expires ON overlay_payment_quotes(expires_at);
+CREATE INDEX IF NOT EXISTS idx_overlay_payment_receipts_txid ON overlay_payment_receipts(payment_txid);
+
+-- Streaming indexes
+CREATE INDEX IF NOT EXISTS idx_uhrp_streaming_content_hash ON uhrp_streaming_content(content_hash);
+CREATE INDEX IF NOT EXISTS idx_uhrp_content_chunks_content ON uhrp_content_chunks(content_id);
+CREATE INDEX IF NOT EXISTS idx_uhrp_upload_sessions_expires ON uhrp_upload_sessions(expires_at);
+
 -- Insert default BRC-31 identity for testing/development
 INSERT INTO payment_identities (identity_key, verification_level, trust_score)
 VALUES ('02deadbeef1234567890abcdef1234567890abcdef1234567890abcdef123456', 'basic', 1.0)

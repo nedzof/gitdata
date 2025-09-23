@@ -2,9 +2,11 @@
 // Event-driven rule processing with BRC-22 job orchestration
 
 import { EventEmitter } from 'events';
-import { DatabaseAdapter } from '../overlay/brc26-uhrp';
-import { PostgreSQLBRC22SubmitService } from '../overlay/brc-services-postgresql';
-import { OverlayAgentRegistry, OverlayAgent } from './overlay-agent-registry';
+
+import type { PostgreSQLBRC22SubmitService } from '../overlay/brc-services-postgresql';
+import type { DatabaseAdapter } from '../overlay/brc26-uhrp';
+
+import type { OverlayAgentRegistry, OverlayAgent } from './overlay-agent-registry';
 
 export interface OverlayRule {
   ruleId: string;
@@ -94,7 +96,7 @@ export class OverlayRuleEngine extends EventEmitter {
   constructor(
     database: DatabaseAdapter,
     brc22Service: PostgreSQLBRC22SubmitService,
-    agentRegistry: OverlayAgentRegistry
+    agentRegistry: OverlayAgentRegistry,
   ) {
     super();
     this.database = database;
@@ -203,27 +205,30 @@ export class OverlayRuleEngine extends EventEmitter {
         successfulExecutions: 0,
         failedExecutions: 0,
         avgExecutionTime: 0,
-        successRate: 0
+        successRate: 0,
       },
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     };
 
-    await this.database.execute(`
+    await this.database.execute(
+      `
       INSERT INTO overlay_rules
       (rule_id, name, overlay_topics, when_condition, find_strategy, actions, owner_producer_id, created_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-    `, [
-      rule.ruleId,
-      rule.name,
-      rule.overlayTopics,
-      JSON.stringify(rule.whenCondition),
-      JSON.stringify(rule.findStrategy),
-      JSON.stringify(rule.actions),
-      rule.ownerProducerId,
-      new Date(rule.createdAt),
-      new Date(rule.updatedAt)
-    ]);
+    `,
+      [
+        rule.ruleId,
+        rule.name,
+        rule.overlayTopics,
+        JSON.stringify(rule.whenCondition),
+        JSON.stringify(rule.findStrategy),
+        JSON.stringify(rule.actions),
+        rule.ownerProducerId,
+        new Date(rule.createdAt),
+        new Date(rule.updatedAt),
+      ],
+    );
 
     // Subscribe to overlay topics
     if (rule.overlayTopics.length > 0) {
@@ -259,7 +264,10 @@ export class OverlayRuleEngine extends EventEmitter {
       await this.updateRuleTriggerStats(rule.ruleId);
 
       // Evaluate predicate if present
-      if (rule.whenCondition.predicate && !this.evaluatePredicate(rule.whenCondition.predicate, triggerEvent)) {
+      if (
+        rule.whenCondition.predicate &&
+        !this.evaluatePredicate(rule.whenCondition.predicate, triggerEvent)
+      ) {
         console.log(`[RULE-ENGINE] Rule ${rule.ruleId} predicate not satisfied`);
         return [];
       }
@@ -283,18 +291,17 @@ export class OverlayRuleEngine extends EventEmitter {
       // Record successful execution
       await this.recordRuleExecution(rule.ruleId, {
         triggerEvent,
-        foundAgents: foundAgents.map(a => ({
+        foundAgents: foundAgents.map((a) => ({
           agentId: a.agentId,
           name: a.name,
-          capabilities: a.capabilities.map(c => c.name)
+          capabilities: a.capabilities.map((c) => c.name),
         })),
         createdJobs,
         executionTimeMs: Date.now() - startTime,
-        success: true
+        success: true,
       });
 
       this.emit('rule-executed', { ruleId: rule.ruleId, jobIds: createdJobs, triggerEvent });
-
     } catch (error) {
       console.error(`[RULE-ENGINE] Rule execution failed for ${rule.ruleId}:`, error);
 
@@ -304,7 +311,7 @@ export class OverlayRuleEngine extends EventEmitter {
         createdJobs: [],
         executionTimeMs: Date.now() - startTime,
         success: false,
-        errorMessage: error.message
+        errorMessage: error.message,
       });
 
       this.emit('rule-execution-failed', { ruleId: rule.ruleId, error, triggerEvent });
@@ -348,24 +355,30 @@ export class OverlayRuleEngine extends EventEmitter {
     return foundAgents;
   }
 
-  private async findAgentsFromRegistry(strategy: FindStrategy, triggerEvent: any): Promise<OverlayAgent[]> {
+  private async findAgentsFromRegistry(
+    strategy: FindStrategy,
+    triggerEvent: any,
+  ): Promise<OverlayAgent[]> {
     const query: any = { ...(strategy.query || {}) };
 
     // Add capability requirements
     if (strategy.requireAll) {
       // Find agents that have ALL required capabilities
       const agents = await this.agentRegistry.searchAgents(query);
-      return agents.filter(agent =>
-        strategy.requireAll!.every(requiredCap =>
-          agent.capabilities.some(cap => cap.name === requiredCap)
-        )
+      return agents.filter((agent) =>
+        strategy.requireAll!.every((requiredCap) =>
+          agent.capabilities.some((cap) => cap.name === requiredCap),
+        ),
       );
     }
 
     return this.agentRegistry.searchAgents(query);
   }
 
-  private async findAgentsByCapability(strategy: FindStrategy, triggerEvent: any): Promise<OverlayAgent[]> {
+  private async findAgentsByCapability(
+    strategy: FindStrategy,
+    triggerEvent: any,
+  ): Promise<OverlayAgent[]> {
     const capability = strategy.query?.capability;
     if (!capability) return [];
 
@@ -373,11 +386,14 @@ export class OverlayRuleEngine extends EventEmitter {
       capability,
       region: strategy.query?.region,
       minReputation: strategy.query?.minReputation || 0.5,
-      limit: strategy.limit
+      limit: strategy.limit,
     });
   }
 
-  private async findAgentsFromOverlay(strategy: FindStrategy, triggerEvent: any): Promise<OverlayAgent[]> {
+  private async findAgentsFromOverlay(
+    strategy: FindStrategy,
+    triggerEvent: any,
+  ): Promise<OverlayAgent[]> {
     // In a full implementation, this would query the overlay network
     // For now, fall back to registry search
     return this.findAgentsFromRegistry(strategy, triggerEvent);
@@ -390,13 +406,14 @@ export class OverlayRuleEngine extends EventEmitter {
     rule: OverlayRule,
     action: RuleAction,
     agents: OverlayAgent[],
-    triggerEvent: any
+    triggerEvent: any,
   ): Promise<string[]> {
     const jobIds: string[] = [];
 
     // Determine which agents can handle this action
-    const eligibleAgents = agents.filter(agent =>
-      !action.capability || agent.capabilities.some(cap => cap.name === action.capability)
+    const eligibleAgents = agents.filter(
+      (agent) =>
+        !action.capability || agent.capabilities.some((cap) => cap.name === action.capability),
     );
 
     if (eligibleAgents.length === 0) {
@@ -418,30 +435,31 @@ export class OverlayRuleEngine extends EventEmitter {
             coordinationData: {
               action: action.action,
               payload: action.payload,
-              timeout: action.timeout || 30000
-            }
+              timeout: action.timeout || 30000,
+            },
           });
           jobIds.push(jobId);
         }
         break;
 
-      case 'overlay.coordinate':
+      case 'overlay.coordinate': {
         // Create coordinated multi-agent job
         const jobId = await this.createJob({
           ruleId: rule.ruleId,
           targetId: triggerEvent.targetId || triggerEvent.datasetId,
-          assignedAgents: eligibleAgents.map(a => a.agentId),
+          assignedAgents: eligibleAgents.map((a) => a.agentId),
           coordinationData: {
             action: action.action,
             workflow: action.workflow || 'parallel',
             steps: action.steps || [],
-            timeout: action.timeout || 60000
-          }
+            timeout: action.timeout || 60000,
+          },
         });
         jobIds.push(jobId);
         break;
+      }
 
-      case 'overlay.distribute':
+      case 'overlay.distribute': {
         // Distribute work among multiple agents
         const chunkSize = Math.ceil(eligibleAgents.length / (action.parallelism || 5));
         for (let i = 0; i < eligibleAgents.length; i += chunkSize) {
@@ -449,19 +467,20 @@ export class OverlayRuleEngine extends EventEmitter {
           const jobId = await this.createJob({
             ruleId: rule.ruleId,
             targetId: triggerEvent.targetId || triggerEvent.datasetId,
-            assignedAgents: agentChunk.map(a => a.agentId),
+            assignedAgents: agentChunk.map((a) => a.agentId),
             coordinationData: {
               action: action.action,
               chunkIndex: Math.floor(i / chunkSize),
               totalChunks: Math.ceil(eligibleAgents.length / chunkSize),
-              parallelism: action.parallelism
-            }
+              parallelism: action.parallelism,
+            },
           });
           jobIds.push(jobId);
         }
         break;
+      }
 
-      case 'brc22.submit':
+      case 'brc22.submit': {
         // Submit transaction via BRC-22
         const txJobId = await this.createJob({
           ruleId: rule.ruleId,
@@ -470,13 +489,14 @@ export class OverlayRuleEngine extends EventEmitter {
           coordinationData: {
             action: action.action,
             topic: action.topic,
-            transaction: action.transaction
-          }
+            transaction: action.transaction,
+          },
         });
         jobIds.push(txJobId);
         break;
+      }
 
-      case 'brc26.store':
+      case 'brc26.store': {
         // Store artifact via BRC-26
         const storeJobId = await this.createJob({
           ruleId: rule.ruleId,
@@ -486,11 +506,12 @@ export class OverlayRuleEngine extends EventEmitter {
             action: action.action,
             type: action.type,
             templateId: action.templateId,
-            variables: action.variables
-          }
+            variables: action.variables,
+          },
         });
         jobIds.push(storeJobId);
         break;
+      }
 
       default:
         console.warn(`[RULE-ENGINE] Unknown action type: ${action.action}`);
@@ -513,22 +534,29 @@ export class OverlayRuleEngine extends EventEmitter {
     const now = Date.now();
     const nextRunAt = now + (jobData.delaySeconds || 0) * 1000;
 
-    await this.database.execute(`
+    await this.database.execute(
+      `
       INSERT INTO overlay_jobs
       (job_id, rule_id, target_id, state, assigned_agents, coordination_data, next_run_at, created_at, updated_at)
       VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8)
-    `, [
-      jobId,
-      jobData.ruleId,
-      jobData.targetId,
-      jobData.assignedAgents,
-      jobData.coordinationData ? JSON.stringify(jobData.coordinationData) : null,
-      Math.floor(nextRunAt / 1000),
-      new Date(now),
-      new Date(now)
-    ]);
+    `,
+      [
+        jobId,
+        jobData.ruleId,
+        jobData.targetId,
+        jobData.assignedAgents,
+        jobData.coordinationData ? JSON.stringify(jobData.coordinationData) : null,
+        Math.floor(nextRunAt / 1000),
+        new Date(now),
+        new Date(now),
+      ],
+    );
 
-    this.emit('job-created', { jobId, ruleId: jobData.ruleId, assignedAgents: jobData.assignedAgents });
+    this.emit('job-created', {
+      jobId,
+      ruleId: jobData.ruleId,
+      assignedAgents: jobData.assignedAgents,
+    });
     return jobId;
   }
 
@@ -539,7 +567,8 @@ export class OverlayRuleEngine extends EventEmitter {
     const now = Math.floor(Date.now() / 1000);
 
     // Claim next available job
-    const result = await this.database.query(`
+    const result = await this.database.query(
+      `
       UPDATE overlay_jobs
       SET state = 'running', updated_at = $1
       WHERE job_id = (
@@ -550,7 +579,9 @@ export class OverlayRuleEngine extends EventEmitter {
         FOR UPDATE SKIP LOCKED
       )
       RETURNING *
-    `, [new Date(), now]);
+    `,
+      [new Date(), now],
+    );
 
     if (result.length === 0) return; // No jobs to process
 
@@ -602,7 +633,7 @@ export class OverlayRuleEngine extends EventEmitter {
     // Mark job as completed
     await this.updateJobState(job.jobId, 'done', {
       completedAt: Date.now(),
-      executedActions: [action]
+      executedActions: [action],
     });
   }
 
@@ -612,7 +643,7 @@ export class OverlayRuleEngine extends EventEmitter {
     console.log(`[RULE-ENGINE] Notifying agents:`, job.assignedAgents);
 
     // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
   private async executeCoordinateAction(job: OverlayJob): Promise<void> {
@@ -622,12 +653,12 @@ export class OverlayRuleEngine extends EventEmitter {
       // Execute steps in sequence
       for (const step of steps || []) {
         console.log(`[RULE-ENGINE] Executing sequential step:`, step);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise((resolve) => setTimeout(resolve, 50));
       }
     } else {
       // Execute in parallel (default)
       console.log(`[RULE-ENGINE] Executing parallel coordination for agents:`, job.assignedAgents);
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 
@@ -636,7 +667,7 @@ export class OverlayRuleEngine extends EventEmitter {
     console.log(`[RULE-ENGINE] Executing distributed job chunk ${chunkIndex + 1}/${totalChunks}`);
 
     // Simulate distributed processing
-    await new Promise(resolve => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
 
   private async executeBRC22Action(job: OverlayJob): Promise<void> {
@@ -647,7 +678,7 @@ export class OverlayRuleEngine extends EventEmitter {
       rawTx: '01000000' + '00'.repeat(60), // Mock transaction
       inputs: {},
       topics: [topic],
-      mapiResponses: []
+      mapiResponses: [],
     });
 
     if (submission.status !== 'success') {
@@ -656,7 +687,7 @@ export class OverlayRuleEngine extends EventEmitter {
 
     // Update job with transaction ID
     await this.updateJobState(job.jobId, 'running', {
-      overlayTransactionId: 'tx_' + Date.now().toString(16)
+      overlayTransactionId: 'tx_' + Date.now().toString(16),
     });
   }
 
@@ -667,11 +698,11 @@ export class OverlayRuleEngine extends EventEmitter {
     console.log(`[RULE-ENGINE] Storing ${type} artifact with template ${templateId}`);
 
     // Simulate artifact storage
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Update job with artifact hash
     await this.updateJobState(job.jobId, 'running', {
-      artifactHash: 'brc26_' + Date.now().toString(16)
+      artifactHash: 'brc26_' + Date.now().toString(16),
     });
   }
 
@@ -692,11 +723,14 @@ export class OverlayRuleEngine extends EventEmitter {
       const delay = baseDelay * Math.pow(backoffFactor, job.attempts);
       const nextRunAt = Math.floor((Date.now() + delay) / 1000);
 
-      await this.database.execute(`
+      await this.database.execute(
+        `
         UPDATE overlay_jobs
         SET state = 'queued', attempts = attempts + 1, next_run_at = $1, last_error = $2, updated_at = $3
         WHERE job_id = $4
-      `, [nextRunAt, errorMessage, new Date(), job.jobId]);
+      `,
+        [nextRunAt, errorMessage, new Date(), job.jobId],
+      );
 
       this.emit('job-retry-scheduled', { jobId: job.jobId, attempt: job.attempts + 1, delay });
     }
@@ -709,13 +743,14 @@ export class OverlayRuleEngine extends EventEmitter {
     jobId: string,
     state: OverlayJob['state'],
     evidenceUpdate?: any,
-    error?: string
+    error?: string,
   ): Promise<void> {
     let sql = 'UPDATE overlay_jobs SET state = $1, updated_at = $2';
     const params: any[] = [state, new Date()];
 
     if (evidenceUpdate) {
-      sql += ', evidence_package = COALESCE(evidence_package, \'{}\'::jsonb) || $' + (params.length + 1);
+      sql +=
+        ", evidence_package = COALESCE(evidence_package, '{}'::jsonb) || $" + (params.length + 1);
       params.push(JSON.stringify(evidenceUpdate));
     }
 
@@ -781,7 +816,9 @@ export class OverlayRuleEngine extends EventEmitter {
     const subscribedRules = this.subscriptions.get(topic);
     if (!subscribedRules || subscribedRules.size === 0) return;
 
-    console.log(`[RULE-ENGINE] Processing overlay event for topic ${topic}, ${subscribedRules.size} rules subscribed`);
+    console.log(
+      `[RULE-ENGINE] Processing overlay event for topic ${topic}, ${subscribedRules.size} rules subscribed`,
+    );
 
     for (const ruleId of subscribedRules) {
       try {
@@ -828,34 +865,46 @@ export class OverlayRuleEngine extends EventEmitter {
    */
   private evaluatePredicate(predicate: PredicateExpression, context: any): boolean {
     if (predicate.and) {
-      return predicate.and.every(p => this.evaluatePredicate(p, context));
+      return predicate.and.every((p) => this.evaluatePredicate(p, context));
     }
     if (predicate.or) {
-      return predicate.or.some(p => this.evaluatePredicate(p, context));
+      return predicate.or.some((p) => this.evaluatePredicate(p, context));
     }
     if (predicate.not) {
       return !this.evaluatePredicate(predicate.not, context);
     }
     if (predicate.eq) {
-      return Object.entries(predicate.eq).every(([key, value]) => this.getValue(context, key) === value);
+      return Object.entries(predicate.eq).every(
+        ([key, value]) => this.getValue(context, key) === value,
+      );
     }
     if (predicate.gt) {
-      return Object.entries(predicate.gt).every(([key, value]) => this.getValue(context, key) > value);
+      return Object.entries(predicate.gt).every(
+        ([key, value]) => this.getValue(context, key) > value,
+      );
     }
     if (predicate.gte) {
-      return Object.entries(predicate.gte).every(([key, value]) => this.getValue(context, key) >= value);
+      return Object.entries(predicate.gte).every(
+        ([key, value]) => this.getValue(context, key) >= value,
+      );
     }
     if (predicate.lt) {
-      return Object.entries(predicate.lt).every(([key, value]) => this.getValue(context, key) < value);
+      return Object.entries(predicate.lt).every(
+        ([key, value]) => this.getValue(context, key) < value,
+      );
     }
     if (predicate.lte) {
-      return Object.entries(predicate.lte).every(([key, value]) => this.getValue(context, key) <= value);
+      return Object.entries(predicate.lte).every(
+        ([key, value]) => this.getValue(context, key) <= value,
+      );
     }
     if (predicate.includes) {
       return Object.entries(predicate.includes).every(([key, value]) => {
         const val = this.getValue(context, key);
         if (Array.isArray(val)) {
-          return val.some(item => String(item).toLowerCase().includes(String(value).toLowerCase()));
+          return val.some((item) =>
+            String(item).toLowerCase().includes(String(value).toLowerCase()),
+          );
         }
         if (typeof val === 'string') {
           return val.toLowerCase().includes(String(value).toLowerCase());
@@ -872,13 +921,16 @@ export class OverlayRuleEngine extends EventEmitter {
 
   // Helper methods for database operations
   async getRule(ruleId: string): Promise<OverlayRule | null> {
-    const results = await this.database.query(`
+    const results = await this.database.query(
+      `
       SELECT rule_id, name, enabled, overlay_topics, when_condition, find_strategy, actions,
              owner_producer_id, execution_stats, last_triggered_at,
              EXTRACT(EPOCH FROM created_at) * 1000 as created_at,
              EXTRACT(EPOCH FROM updated_at) * 1000 as updated_at
       FROM overlay_rules WHERE rule_id = $1
-    `, [ruleId]);
+    `,
+      [ruleId],
+    );
 
     if (results.length === 0) return null;
     return this.mapRowToRule(results[0]);
@@ -896,23 +948,28 @@ export class OverlayRuleEngine extends EventEmitter {
     `;
 
     const results = await this.database.query(sql);
-    return results.map(row => this.mapRowToRule(row));
+    return results.map((row) => this.mapRowToRule(row));
   }
 
   async getJob(jobId: string): Promise<OverlayJob | null> {
-    const results = await this.database.query(`
+    const results = await this.database.query(
+      `
       SELECT job_id, rule_id, target_id, overlay_transaction_id, state, assigned_agents,
              coordination_data, attempts, next_run_at, last_error, evidence_package, lineage_data,
              EXTRACT(EPOCH FROM created_at) * 1000 as created_at,
              EXTRACT(EPOCH FROM updated_at) * 1000 as updated_at
       FROM overlay_jobs WHERE job_id = $1
-    `, [jobId]);
+    `,
+      [jobId],
+    );
 
     if (results.length === 0) return null;
     return this.mapRowToJob(results[0]);
   }
 
-  async listJobs(filters: { state?: string; ruleId?: string; agentId?: string } = {}): Promise<OverlayJob[]> {
+  async listJobs(
+    filters: { state?: string; ruleId?: string; agentId?: string } = {},
+  ): Promise<OverlayJob[]> {
     let sql = `
       SELECT job_id, rule_id, target_id, overlay_transaction_id, state, assigned_agents,
              coordination_data, attempts, next_run_at, last_error, evidence_package, lineage_data,
@@ -940,24 +997,32 @@ export class OverlayRuleEngine extends EventEmitter {
     sql += ` ORDER BY updated_at DESC LIMIT 100`;
 
     const results = await this.database.query(sql, params);
-    return results.map(row => this.mapRowToJob(row));
+    return results.map((row) => this.mapRowToJob(row));
   }
 
   private async updateRuleTriggerStats(ruleId: string): Promise<void> {
-    await this.database.execute(`
+    await this.database.execute(
+      `
       UPDATE overlay_rules
       SET execution_stats = jsonb_set(execution_stats, '{totalTriggers}', (COALESCE((execution_stats->>'totalTriggers')::int, 0) + 1)::text::jsonb),
           last_triggered_at = $1,
           updated_at = $2
       WHERE rule_id = $3
-    `, [Math.floor(Date.now() / 1000), new Date(), ruleId]);
+    `,
+      [Math.floor(Date.now() / 1000), new Date(), ruleId],
+    );
   }
 
-  private async updateRuleExecutionStats(ruleId: string, executionTimeMs: number, success: boolean): Promise<void> {
+  private async updateRuleExecutionStats(
+    ruleId: string,
+    executionTimeMs: number,
+    success: boolean,
+  ): Promise<void> {
     // Update execution statistics
     const successField = success ? 'successfulExecutions' : 'failedExecutions';
 
-    await this.database.execute(`
+    await this.database.execute(
+      `
       UPDATE overlay_rules
       SET execution_stats = jsonb_set(
             jsonb_set(
@@ -972,10 +1037,13 @@ export class OverlayRuleEngine extends EventEmitter {
           ),
           updated_at = $2
       WHERE rule_id = $3
-    `, [executionTimeMs, new Date(), ruleId]);
+    `,
+      [executionTimeMs, new Date(), ruleId],
+    );
 
     // Calculate and update success rate
-    await this.database.execute(`
+    await this.database.execute(
+      `
       UPDATE overlay_rules
       SET execution_stats = jsonb_set(execution_stats, '{successRate}',
         CASE
@@ -985,23 +1053,28 @@ export class OverlayRuleEngine extends EventEmitter {
         END
       )
       WHERE rule_id = $1
-    `, [ruleId]);
+    `,
+      [ruleId],
+    );
   }
 
   private async recordRuleExecution(ruleId: string, execution: any): Promise<void> {
-    await this.database.execute(`
+    await this.database.execute(
+      `
       INSERT INTO rule_executions
       (rule_id, trigger_event, found_agents, created_jobs, execution_time_ms, success, error_message)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
-    `, [
-      ruleId,
-      JSON.stringify(execution.triggerEvent),
-      JSON.stringify(execution.foundAgents),
-      JSON.stringify(execution.createdJobs),
-      execution.executionTimeMs,
-      execution.success,
-      execution.errorMessage || null
-    ]);
+    `,
+      [
+        ruleId,
+        JSON.stringify(execution.triggerEvent),
+        JSON.stringify(execution.foundAgents),
+        JSON.stringify(execution.createdJobs),
+        execution.executionTimeMs,
+        execution.success,
+        execution.errorMessage || null,
+      ],
+    );
   }
 
   private mapRowToRule(row: any): OverlayRule {
@@ -1010,28 +1083,27 @@ export class OverlayRuleEngine extends EventEmitter {
       name: row.name,
       enabled: row.enabled,
       overlayTopics: row.overlay_topics || [],
-      whenCondition: typeof row.when_condition === 'string'
-        ? JSON.parse(row.when_condition)
-        : row.when_condition,
-      findStrategy: typeof row.find_strategy === 'string'
-        ? JSON.parse(row.find_strategy)
-        : row.find_strategy,
-      actions: typeof row.actions === 'string'
-        ? JSON.parse(row.actions)
-        : row.actions,
+      whenCondition:
+        typeof row.when_condition === 'string'
+          ? JSON.parse(row.when_condition)
+          : row.when_condition,
+      findStrategy:
+        typeof row.find_strategy === 'string' ? JSON.parse(row.find_strategy) : row.find_strategy,
+      actions: typeof row.actions === 'string' ? JSON.parse(row.actions) : row.actions,
       ownerProducerId: row.owner_producer_id,
-      executionStats: typeof row.execution_stats === 'string'
-        ? JSON.parse(row.execution_stats)
-        : row.execution_stats || {
-            totalTriggers: 0,
-            successfulExecutions: 0,
-            failedExecutions: 0,
-            avgExecutionTime: 0,
-            successRate: 0
-          },
+      executionStats:
+        typeof row.execution_stats === 'string'
+          ? JSON.parse(row.execution_stats)
+          : row.execution_stats || {
+              totalTriggers: 0,
+              successfulExecutions: 0,
+              failedExecutions: 0,
+              avgExecutionTime: 0,
+              successRate: 0,
+            },
       lastTriggeredAt: row.last_triggered_at ? parseInt(row.last_triggered_at) * 1000 : undefined,
       createdAt: parseInt(row.created_at),
-      updatedAt: parseInt(row.updated_at)
+      updatedAt: parseInt(row.updated_at),
     };
   }
 
@@ -1043,20 +1115,21 @@ export class OverlayRuleEngine extends EventEmitter {
       overlayTransactionId: row.overlay_transaction_id,
       state: row.state,
       assignedAgents: row.assigned_agents || [],
-      coordinationData: typeof row.coordination_data === 'string'
-        ? JSON.parse(row.coordination_data)
-        : row.coordination_data,
+      coordinationData:
+        typeof row.coordination_data === 'string'
+          ? JSON.parse(row.coordination_data)
+          : row.coordination_data,
       attempts: row.attempts,
       nextRunAt: parseInt(row.next_run_at) * 1000,
       lastError: row.last_error,
-      evidencePackage: typeof row.evidence_package === 'string'
-        ? JSON.parse(row.evidence_package)
-        : row.evidence_package,
-      lineageData: typeof row.lineage_data === 'string'
-        ? JSON.parse(row.lineage_data)
-        : row.lineage_data,
+      evidencePackage:
+        typeof row.evidence_package === 'string'
+          ? JSON.parse(row.evidence_package)
+          : row.evidence_package,
+      lineageData:
+        typeof row.lineage_data === 'string' ? JSON.parse(row.lineage_data) : row.lineage_data,
       createdAt: parseInt(row.created_at),
-      updatedAt: parseInt(row.updated_at)
+      updatedAt: parseInt(row.updated_at),
     };
   }
 

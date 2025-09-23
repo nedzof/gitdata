@@ -1,11 +1,12 @@
-import { getCacheTTLs } from './ttls';
 import { getRedisClient } from '../db/redis';
+
+import { getCacheTTLs } from './ttls';
 
 type CacheKey = string; // `${versionId}:${depth}`
 
 export type BundleCacheEntry = {
   assembledAt: number; // ms since epoch
-  body: any;           // the bundle JSON (structure only; confirmations will be recomputed on read)
+  body: any; // the bundle JSON (structure only; confirmations will be recomputed on read)
   meetsPolicyAtWrite: boolean; // whether at write time all envelopes met minConfs
 };
 
@@ -46,11 +47,15 @@ export async function bundlesGet(key: CacheKey): Promise<BundleCacheEntry | unde
   return ent;
 }
 
-export async function bundlesSet(key: CacheKey, body: any, meetsPolicyAtWrite: boolean): Promise<void> {
+export async function bundlesSet(
+  key: CacheKey,
+  body: any,
+  meetsPolicyAtWrite: boolean,
+): Promise<void> {
   const entry: BundleCacheEntry = {
     assembledAt: Date.now(),
     body,
-    meetsPolicyAtWrite
+    meetsPolicyAtWrite,
   };
 
   if (useRedis) {

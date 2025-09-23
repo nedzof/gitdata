@@ -1,5 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
+
 import { searchManifests, listVersionsByDataset, getParents } from '../db';
 
 function json(res: Response, code: number, body: any) {
@@ -47,7 +48,7 @@ export function catalogRouter(): Router {
       // Filter by datasetId if specified
       let filteredRows = allRows;
       if (datasetId) {
-        filteredRows = allRows.filter(r => r.dataset_id === datasetId);
+        filteredRows = allRows.filter((r) => r.dataset_id === datasetId);
       }
 
       // Manual pagination with offset
@@ -58,10 +59,11 @@ export function catalogRouter(): Router {
         if (!tag) return true;
         try {
           const m = JSON.parse(r.manifest_json || '{}');
-          const tags: string[] =
-            Array.isArray(m?.metadata?.tags) ? m.metadata.tags :
-            Array.isArray(m?.tags) ? m.tags :
-            [];
+          const tags: string[] = Array.isArray(m?.metadata?.tags)
+            ? m.metadata.tags
+            : Array.isArray(m?.tags)
+              ? m.tags
+              : [];
           return tags.map((t) => String(t).toLowerCase()).includes(tag);
         } catch {
           return false;
@@ -76,9 +78,12 @@ export function catalogRouter(): Router {
         async function getChildren(versionId: string): Promise<string[]> {
           const { getHybridDatabase } = await import('../db/hybrid');
           const db = getHybridDatabase();
-          const result = await db.pg.query(`
+          const result = await db.pg.query(
+            `
             SELECT child_version_id FROM edges WHERE parent_version_id = $1
-          `, [versionId]);
+          `,
+            [versionId],
+          );
           return result.rows.map((row: any) => row.child_version_id);
         }
 
@@ -137,7 +142,7 @@ export function catalogRouter(): Router {
         updatedAt: r.updated_at,
         // Extract license and classification from policy_meta if available
         license: r.policy_meta?.license || null,
-        classification: r.policy_meta?.classification || null
+        classification: r.policy_meta?.classification || null,
       }));
 
       return json(res, 200, {
@@ -183,12 +188,14 @@ export function catalogRouter(): Router {
       // Manual pagination for versions
       const paginatedVersions = versions.slice(offset, offset + limit);
 
-      const items = await Promise.all(paginatedVersions.map(async (v) => ({
-        versionId: v.version_id,
-        parents: await getParents(v.version_id),
-        createdAt: v.created_at,
-        contentHash: v.content_hash,
-      })));
+      const items = await Promise.all(
+        paginatedVersions.map(async (v) => ({
+          versionId: v.version_id,
+          parents: await getParents(v.version_id),
+          createdAt: v.created_at,
+          contentHash: v.content_hash,
+        })),
+      );
 
       return json(res, 200, {
         items,
@@ -231,11 +238,14 @@ export function catalogRouter(): Router {
         if (visited.has(versionId)) return [];
         visited.add(versionId);
 
-        const result = await db.pg.query(`
+        const result = await db.pg.query(
+          `
           SELECT parent_version_id, relationship_type
           FROM edges
           WHERE child_version_id = $1
-        `, [versionId]);
+        `,
+          [versionId],
+        );
 
         const ancestors = [];
         for (const row of result.rows) {
@@ -248,7 +258,7 @@ export function catalogRouter(): Router {
               producer: manifest.producer_id,
               classification: manifest.classification,
               relationshipType: row.relationship_type,
-              type: 'ancestor'
+              type: 'ancestor',
             };
             ancestors.push(node);
 
@@ -261,15 +271,21 @@ export function catalogRouter(): Router {
       }
 
       // Helper function to recursively get all descendants
-      async function getDescendants(versionId: string, visited = new Set<string>()): Promise<any[]> {
+      async function getDescendants(
+        versionId: string,
+        visited = new Set<string>(),
+      ): Promise<any[]> {
         if (visited.has(versionId)) return [];
         visited.add(versionId);
 
-        const result = await db.pg.query(`
+        const result = await db.pg.query(
+          `
           SELECT child_version_id, relationship_type
           FROM edges
           WHERE parent_version_id = $1
-        `, [versionId]);
+        `,
+          [versionId],
+        );
 
         const descendants = [];
         for (const row of result.rows) {
@@ -282,7 +298,7 @@ export function catalogRouter(): Router {
               producer: manifest.producer_id,
               classification: manifest.classification,
               relationshipType: row.relationship_type,
-              type: 'descendant'
+              type: 'descendant',
             };
             descendants.push(node);
 
@@ -297,7 +313,7 @@ export function catalogRouter(): Router {
       // Get all ancestors and descendants
       const [ancestors, descendants] = await Promise.all([
         getAncestors(versionId),
-        getDescendants(versionId)
+        getDescendants(versionId),
       ]);
 
       // Build the complete lineage tree
@@ -308,15 +324,15 @@ export function catalogRouter(): Router {
           datasetId: currentDataset.dataset_id,
           producer: currentDataset.producer_id,
           classification: currentDataset.classification,
-          type: 'current'
+          type: 'current',
         },
         upstream: ancestors,
         downstream: descendants,
         summary: {
           totalAncestors: ancestors.length,
           totalDescendants: descendants.length,
-          totalNodes: ancestors.length + descendants.length + 1
-        }
+          totalNodes: ancestors.length + descendants.length + 1,
+        },
       };
 
       return json(res, 200, lineageTree);

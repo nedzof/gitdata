@@ -1,11 +1,12 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import { getDeclarationByVersion, getManifest, getParents } from '../db';
-import { verifyEnvelopeAgainstHeaders } from '../spv/verify-envelope';
-import { getHeadersSnapshot } from '../spv/headers-cache';
+
 import { bundlesGet, bundlesSet, bundlesInvalidate, bundlesKey } from '../cache/bundles';
-import { metricsRoute } from '../middleware/metrics';
+import { getDeclarationByVersion, getManifest, getParents } from '../db';
 import { cacheHit, cacheMiss, observeProofLatency } from '../metrics/registry';
+import { metricsRoute } from '../middleware/metrics';
+import { getHeadersSnapshot } from '../spv/headers-cache';
+import { verifyEnvelopeAgainstHeaders } from '../spv/verify-envelope';
 
 const BUNDLE_MAX_DEPTH = Number(process.env.BUNDLE_MAX_DEPTH || 8);
 const POLICY_MIN_CONFS = Number(process.env.POLICY_MIN_CONFS || 1);
@@ -71,9 +72,7 @@ async function collectLineage(root: string, depth = BUNDLE_MAX_DEPTH) {
  * Recompute confirmations for a cached bundle using current headers snapshot.
  * Also enforce POLICY_MIN_CONFS; if violated, return { ok:false, reason }.
  */
-async function recomputeConfsAndEnforce(
-  bundle: any,
-): Promise<{ ok: boolean; reason?: string }> {
+async function recomputeConfsAndEnforce(bundle: any): Promise<{ ok: boolean; reason?: string }> {
   const HEADERS_FILE = process.env.HEADERS_FILE || './data/headers.json';
   const idx = getHeadersSnapshot(HEADERS_FILE);
   for (const p of bundle.proofs as any[]) {
@@ -119,7 +118,8 @@ export function bundleRouter(): Router {
         } else {
           if (VALIDATE_BUNDLE && validateBundleFn) {
             const vb = validateBundleFn(body);
-            if (!vb.ok) return res.status(500).json({ error: 'bundle-schema-invalid', details: vb.errors });
+            if (!vb.ok)
+              return res.status(500).json({ error: 'bundle-schema-invalid', details: vb.errors });
           }
           res.setHeader('x-cache', 'hit');
           return res.status(200).json(body);
@@ -139,7 +139,9 @@ export function bundleRouter(): Router {
         const env = p.envelope;
         const vr = await verifyEnvelopeAgainstHeaders(env, idx, POLICY_MIN_CONFS);
         if (!vr.ok) {
-          return res.status(409).json({ error: 'invalid-envelope', versionId: p.versionId, reason: vr.reason });
+          return res
+            .status(409)
+            .json({ error: 'invalid-envelope', versionId: p.versionId, reason: vr.reason });
         }
         p.envelope.confirmations = vr.confirmations ?? 0;
       }
@@ -155,7 +157,8 @@ export function bundleRouter(): Router {
 
       if (VALIDATE_BUNDLE && validateBundleFn) {
         const vb = validateBundleFn(bundle);
-        if (!vb.ok) return res.status(500).json({ error: 'bundle-schema-invalid', details: vb.errors });
+        if (!vb.ok)
+          return res.status(500).json({ error: 'bundle-schema-invalid', details: vb.errors });
       }
 
       // 3) Cache (structure only). confirmations dynamic on future reads.

@@ -1,7 +1,9 @@
 // D24 agents router for testing
-import { Router } from 'express';
-import { getPostgreSQLClient } from '../db/postgresql';
 import crypto from 'crypto';
+
+import { Router } from 'express';
+
+import { getPostgreSQLClient } from '../db/postgresql';
 
 export function agentsRouter() {
   const router = Router();
@@ -12,7 +14,7 @@ export function agentsRouter() {
     try {
       const result = await pgClient.query('SELECT * FROM agents ORDER BY created_at DESC');
       // Map database fields to API format
-      const mappedItems = result.rows.map(row => ({
+      const mappedItems = result.rows.map((row) => ({
         agentId: row.agent_id,
         name: row.name,
         webhookUrl: row.webhook_url,
@@ -20,7 +22,7 @@ export function agentsRouter() {
         status: row.status,
         identityKey: row.identity_key,
         lastPingAt: row.last_ping_at,
-        createdAt: row.created_at
+        createdAt: row.created_at,
       }));
       res.json({ items: mappedItems, total: mappedItems.length });
     } catch (error) {
@@ -41,10 +43,13 @@ export function agentsRouter() {
       const agentId = crypto.randomUUID();
 
       const now = new Date(); // Unix timestamp in seconds (fits in integer)
-      await pgClient.query(`
+      await pgClient.query(
+        `
         INSERT INTO agents (agent_id, name, webhook_url, capabilities_json, status, created_at)
         VALUES ($1, $2, $3, $4, 'active', $5)
-      `, [agentId, name, webhookUrl, JSON.stringify(capabilities), now]);
+      `,
+        [agentId, name, webhookUrl, JSON.stringify(capabilities), now],
+      );
 
       res.status(201).json({
         success: true,
@@ -52,7 +57,7 @@ export function agentsRouter() {
         status: 'active',
         name,
         webhookUrl,
-        capabilities
+        capabilities,
       });
     } catch (error) {
       console.error('Error registering agent:', error);
@@ -76,7 +81,7 @@ export function agentsRouter() {
 
       const result = await pgClient.query(query, params);
       // Map database fields to API format
-      const mappedItems = result.rows.map(row => ({
+      const mappedItems = result.rows.map((row) => ({
         agentId: row.agent_id,
         name: row.name,
         webhookUrl: row.webhook_url,
@@ -84,7 +89,7 @@ export function agentsRouter() {
         status: row.status,
         identityKey: row.identity_key,
         lastPingAt: row.last_ping_at,
-        createdAt: row.created_at
+        createdAt: row.created_at,
       }));
       res.json({ items: mappedItems, total: mappedItems.length });
     } catch (error) {
@@ -99,7 +104,8 @@ export function agentsRouter() {
       const { agentId } = req.params;
 
       // Validate UUID format
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(agentId)) {
         return res.status(404).json({ error: 'not-found' });
       }
@@ -120,7 +126,7 @@ export function agentsRouter() {
         status: agent.status,
         identityKey: agent.identity_key,
         lastPingAt: agent.last_ping_at,
-        createdAt: agent.created_at
+        createdAt: agent.created_at,
       };
 
       res.json(mappedAgent);
@@ -136,7 +142,8 @@ export function agentsRouter() {
       const { agentId } = req.params;
 
       // Validate UUID format
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(agentId)) {
         return res.status(404).json({ error: 'not-found' });
       }
@@ -144,11 +151,14 @@ export function agentsRouter() {
       const now = new Date();
 
       // Update last ping timestamp
-      const result = await pgClient.query(`
+      const result = await pgClient.query(
+        `
         UPDATE agents SET last_ping_at = $1, status = 'up'
         WHERE agent_id = $2
         RETURNING *
-      `, [now, agentId]);
+      `,
+        [now, agentId],
+      );
 
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'not-found' });

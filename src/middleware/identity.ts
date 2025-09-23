@@ -15,9 +15,10 @@
  * On failure: 401 { error: 'unauthorized', hint }
  */
 
-import type { Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
+
 import { secp256k1 } from '@noble/curves/secp256k1';
+import type { Request, Response, NextFunction } from 'express';
 
 const IDENTITY_REQUIRED = /^true$/i.test(process.env.IDENTITY_REQUIRED || 'false');
 const NONCE_TTL_SEC = Number(process.env.NONCE_TTL_SEC || 120);
@@ -41,7 +42,11 @@ function isCompressedPubKey(hex: string): boolean {
   return /^[0-9a-fA-F]{66}$/.test(hex) && (hex.startsWith('02') || hex.startsWith('03'));
 }
 
-async function verifySigEcdsa(sigHex: string, msgHashHex: string, pubKeyHex: string): Promise<boolean> {
+async function verifySigEcdsa(
+  sigHex: string,
+  msgHashHex: string,
+  pubKeyHex: string,
+): Promise<boolean> {
   try {
     const msg = Buffer.from(msgHashHex, 'hex');
     const pub = Buffer.from(pubKeyHex, 'hex');
@@ -75,7 +80,11 @@ async function verifySigEcdsa(sigHex: string, msgHashHex: string, pubKeyHex: str
  * If required=true, missing/invalid signature → 401.
  */
 export function requireIdentity(required = IDENTITY_REQUIRED) {
-  return async function identityMiddleware(req: Request & { identityKey?: string }, res: Response, next: NextFunction) {
+  return async function identityMiddleware(
+    req: Request & { identityKey?: string },
+    res: Response,
+    next: NextFunction,
+  ) {
     try {
       const idKey = normalizeHex(String(req.headers['x-identity-key'] || ''));
       const nonce = String(req.headers['x-nonce'] || '');
@@ -87,7 +96,10 @@ export function requireIdentity(required = IDENTITY_REQUIRED) {
       }
 
       if (!isCompressedPubKey(idKey)) {
-        return res.status(401).json({ error: 'unauthorized', hint: 'missing/invalid X-Identity-Key (compressed pubkey hex)' });
+        return res.status(401).json({
+          error: 'unauthorized',
+          hint: 'missing/invalid X-Identity-Key (compressed pubkey hex)',
+        });
       }
       if (!nonce || nonce.length < 8) {
         return res.status(401).json({ error: 'unauthorized', hint: 'missing/invalid X-Nonce' });

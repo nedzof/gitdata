@@ -9,10 +9,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export type CompactHeader = {
-  raw: string;       // 80-byte header hex
-  hash: string;      // big-endian hex
-  prevHash: string;  // big-endian hex
-  merkleRoot: string;// big-endian hex
+  raw: string; // 80-byte header hex
+  hash: string; // big-endian hex
+  prevHash: string; // big-endian hex
+  merkleRoot: string; // big-endian hex
   height: number;
   time: number;
 };
@@ -52,12 +52,14 @@ function isHeader(h: any): h is CompactHeader {
 function validateChain(headers: CompactHeader[]) {
   if (!Array.isArray(headers) || headers.length === 0) throw new Error('empty headers');
   for (let i = 1; i < headers.length; i++) {
-    const cur = headers[i], prev = headers[i - 1];
+    const cur = headers[i],
+      prev = headers[i - 1];
     if (!isHeader(prev) || !isHeader(cur)) throw new Error(`invalid header at ${i}`);
     if (cur.prevHash.toLowerCase() !== prev.hash.toLowerCase()) {
       throw new Error(`chain break at ${i}: ${cur.prevHash} != ${prev.hash}`);
     }
-    if (cur.height !== prev.height + 1) throw new Error(`bad height at ${i}: ${cur.height} vs ${prev.height}`);
+    if (cur.height !== prev.height + 1)
+      throw new Error(`bad height at ${i}: ${cur.height} vs ${prev.height}`);
   }
 }
 
@@ -113,12 +115,25 @@ export async function startHeaderHotReload(file: string, intervalMs = 5000) {
           // commit
           await loadHeadersFile(file);
           last = txt;
-          // eslint-disable-next-line no-console
-          console.log(JSON.stringify({ t: new Date().toISOString(), msg: 'headers.reloaded', bestHeight: state.bestHeight, tip: state.tipHash }));
+
+          console.log(
+            JSON.stringify({
+              t: new Date().toISOString(),
+              msg: 'headers.reloaded',
+              bestHeight: state.bestHeight,
+              tip: state.tipHash,
+            }),
+          );
         }
       }
     } catch (e: any) {
-      console.error(JSON.stringify({ t: new Date().toISOString(), msg: 'headers.reload.error', err: e?.message || String(e) }));
+      console.error(
+        JSON.stringify({
+          t: new Date().toISOString(),
+          msg: 'headers.reload.error',
+          err: e?.message || String(e),
+        }),
+      );
     } finally {
       setTimeout(tick, intervalMs).unref?.();
     }

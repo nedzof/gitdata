@@ -2,8 +2,10 @@
 // Implements standardized lookup services for querying overlay state
 
 import { EventEmitter } from 'events';
-import Database from 'better-sqlite3';
-import { BRC22SubmitService } from './brc22-submit';
+
+import type Database from 'better-sqlite3';
+
+import type { BRC22SubmitService } from './brc22-submit';
 
 export interface BRC24Query {
   provider: string;
@@ -35,12 +37,23 @@ export interface LookupProvider {
   providerId: string;
   name: string;
   description: string;
-  processQuery: (query: any, requesterId?: string) => Promise<Array<{
-    topic: string;
-    txid: string;
-    vout: number;
-  }>>;
-  onUTXOAdded?: (topic: string, txid: string, vout: number, outputScript: string, satoshis: number) => void;
+  processQuery: (
+    query: any,
+    requesterId?: string,
+  ) => Promise<
+    Array<{
+      topic: string;
+      txid: string;
+      vout: number;
+    }>
+  >;
+  onUTXOAdded?: (
+    topic: string,
+    txid: string,
+    vout: number,
+    outputScript: string,
+    satoshis: number,
+  ) => void;
   onUTXOSpent?: (topic: string, txid: string, vout: number) => void;
 }
 
@@ -66,43 +79,13 @@ class BRC24LookupService extends EventEmitter {
   }
 
   /**
-   * Set up database tables for BRC-24 lookup operations
+   * Database tables are now created in the main schema at /src/db/postgresql-schema-complete.sql
+   * This method is kept for compatibility but no longer creates tables
    */
   private setupDatabase(): void {
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS brc24_queries (
-        query_id TEXT PRIMARY KEY,
-        provider TEXT NOT NULL,
-        query_json TEXT NOT NULL,
-        requester_identity TEXT,
-        payment_required BOOLEAN DEFAULT FALSE,
-        payment_amount_sat INTEGER DEFAULT 0,
-        payment_status TEXT DEFAULT 'none',
-        results_count INTEGER DEFAULT 0,
-        processed_at INTEGER NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-      )
-    `);
-
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS brc24_provider_data (
-        provider_id TEXT NOT NULL,
-        topic TEXT NOT NULL,
-        data_key TEXT NOT NULL,
-        data_value TEXT NOT NULL,
-        utxo_count INTEGER DEFAULT 0,
-        last_updated INTEGER NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-        PRIMARY KEY (provider_id, topic, data_key)
-      )
-    `);
-
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS idx_brc24_queries_provider ON brc24_queries(provider);
-      CREATE INDEX IF NOT EXISTS idx_brc24_queries_processed ON brc24_queries(processed_at);
-      CREATE INDEX IF NOT EXISTS idx_brc24_provider_data_topic ON brc24_provider_data(topic);
-      CREATE INDEX IF NOT EXISTS idx_brc24_provider_data_updated ON brc24_provider_data(last_updated);
-    `);
+    // Tables are now created centrally in the main database schema
+    // BRC-24 tables: brc24_queries, brc24_provider_data
+    console.log('BRC-24 database tables managed by central schema');
   }
 
   /**
@@ -117,12 +100,12 @@ class BRC24LookupService extends EventEmitter {
       processQuery: async (query: { topic: string; limit?: number }) => {
         const utxos = this.brc22Service.getTopicUTXOs(query.topic, false);
         const limit = query.limit || 100;
-        return utxos.slice(0, limit).map(utxo => ({
+        return utxos.slice(0, limit).map((utxo) => ({
           topic: query.topic,
           txid: utxo.txid,
-          vout: utxo.vout
+          vout: utxo.vout,
         }));
-      }
+      },
     });
 
     // Dataset search provider
@@ -139,10 +122,10 @@ class BRC24LookupService extends EventEmitter {
         return this.searchDatasets(query);
       },
       onUTXOAdded: (topic, txid, vout, outputScript, satoshis) => {
-        if (topic.includes('dataset') || topic.includes('manifest')) {
+        if (topic.includes('dataset') || topic.includes('asset')) {
           this.indexDatasetUTXO(topic, txid, vout, outputScript);
         }
-      }
+      },
     });
 
     // Payment tracking provider
@@ -162,7 +145,7 @@ class BRC24LookupService extends EventEmitter {
         if (topic.includes('payment')) {
           this.indexPaymentUTXO(topic, txid, vout, outputScript, satoshis);
         }
-      }
+      },
     });
 
     // Agent services provider
@@ -182,7 +165,7 @@ class BRC24LookupService extends EventEmitter {
         if (topic.includes('agent')) {
           this.indexAgentUTXO(topic, txid, vout, outputScript);
         }
-      }
+      },
     });
 
     // Lineage tracker provider
@@ -203,7 +186,7 @@ class BRC24LookupService extends EventEmitter {
         if (topic.includes('lineage') || topic.includes('provenance')) {
           this.indexLineageUTXO(topic, txid, vout, outputScript);
         }
-      }
+      },
     });
   }
 
@@ -254,10 +237,7 @@ class BRC24LookupService extends EventEmitter {
   /**
    * Process a BRC-24 lookup query
    */
-  async processLookup(
-    queryRequest: BRC24Query,
-    requesterId?: string
-  ): Promise<BRC24Response> {
+  async processLookup(queryRequest: BRC24Query, requesterId?: string): Promise<BRC24Response> {
     try {
       // Check if provider is supported
       const provider = this.lookupProviders.get(queryRequest.provider);
@@ -266,8 +246,8 @@ class BRC24LookupService extends EventEmitter {
           status: 'error',
           error: {
             code: 'ERR_LOOKUP_SERVICE_NOT_SUPPORTED',
-            description: `Lookup provider '${queryRequest.provider}' is not supported on this node`
-          }
+            description: `Lookup provider '${queryRequest.provider}' is not supported on this node`,
+          },
         };
       }
 
@@ -278,8 +258,8 @@ class BRC24LookupService extends EventEmitter {
           status: 'error',
           error: {
             code: 'ERR_PAYMENT_REQUIRED',
-            description: `Payment of ${paymentReq.amountSat} satoshis required: ${paymentReq.description}`
-          }
+            description: `Payment of ${paymentReq.amountSat} satoshis required: ${paymentReq.description}`,
+          },
         };
       }
 
@@ -297,22 +277,21 @@ class BRC24LookupService extends EventEmitter {
         queryId,
         provider: queryRequest.provider,
         results: utxos.length,
-        requesterId
+        requesterId,
       });
 
       return {
         status: 'success',
-        utxos
+        utxos,
       };
-
     } catch (error) {
       console.error('BRC-24 lookup processing failed:', error);
       return {
         status: 'error',
         error: {
           code: 'ERR_LOOKUP_FAILED',
-          description: error.message
-        }
+          description: error.message,
+        },
       };
     }
   }
@@ -322,7 +301,7 @@ class BRC24LookupService extends EventEmitter {
    */
   private async checkPaymentRequirement(
     queryRequest: BRC24Query,
-    requesterId?: string
+    requesterId?: string,
   ): Promise<PaymentRequirement> {
     // Simplified payment logic - in production this would be more sophisticated
     const provider = this.lookupProviders.get(queryRequest.provider);
@@ -348,7 +327,7 @@ class BRC24LookupService extends EventEmitter {
     return {
       required: false, // Set to true to require payments
       amountSat,
-      description: `Query processing fee for ${provider?.name || 'unknown service'}`
+      description: `Query processing fee for ${provider?.name || 'unknown service'}`,
     };
   }
 
@@ -356,20 +335,24 @@ class BRC24LookupService extends EventEmitter {
    * Hydrate UTXO identifiers with full BRC-36 information
    */
   private async hydrateUTXOs(
-    identifiers: Array<{ topic: string; txid: string; vout: number }>
+    identifiers: Array<{ topic: string; txid: string; vout: number }>,
   ): Promise<BRC36UTXO[]> {
     const utxos: BRC36UTXO[] = [];
 
     for (const identifier of identifiers) {
       // Get UTXO from BRC-22 service
       const topicUTXOs = this.brc22Service.getTopicUTXOs(identifier.topic, false);
-      const utxo = topicUTXOs.find(u => u.txid === identifier.txid && u.vout === identifier.vout);
+      const utxo = topicUTXOs.find((u) => u.txid === identifier.txid && u.vout === identifier.vout);
 
       if (utxo) {
         // Get transaction record for additional data
-        const txRecord = this.database.prepare(`
+        const txRecord = this.database
+          .prepare(
+            `
           SELECT * FROM brc22_transactions WHERE txid = ?
-        `).get(identifier.txid);
+        `,
+          )
+          .get(identifier.txid);
 
         utxos.push({
           txid: utxo.txid,
@@ -380,7 +363,7 @@ class BRC24LookupService extends EventEmitter {
           rawTx: txRecord?.raw_tx || '',
           proof: txRecord?.proof || undefined,
           inputs: txRecord?.inputs_json || undefined,
-          mapiResponses: txRecord?.mapi_responses_json || undefined
+          mapiResponses: txRecord?.mapi_responses_json || undefined,
         });
       }
     }
@@ -395,20 +378,24 @@ class BRC24LookupService extends EventEmitter {
     queryId: string,
     queryRequest: BRC24Query,
     requesterId: string | undefined,
-    resultsCount: number
+    resultsCount: number,
   ): Promise<void> {
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       INSERT INTO brc24_queries
       (query_id, provider, query_json, requester_identity, results_count, processed_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      queryId,
-      queryRequest.provider,
-      JSON.stringify(queryRequest.query),
-      requesterId || null,
-      resultsCount,
-      Date.now()
-    );
+    `,
+      )
+      .run(
+        queryId,
+        queryRequest.provider,
+        JSON.stringify(queryRequest.query),
+        requesterId || null,
+        resultsCount,
+        Date.now(),
+      );
   }
 
   // Provider-specific query implementations
@@ -423,7 +410,7 @@ class BRC24LookupService extends EventEmitter {
     const limit = query.limit || 50;
 
     // Search in dataset-related topics
-    const topics = ['gitdata.d01a.manifest', 'gitdata.dataset.public', 'gitdata.dataset.commercial'];
+    const topics = ['gitdata.d01a.asset', 'gitdata.dataset.public', 'gitdata.dataset.commercial'];
 
     for (const topic of topics) {
       if (query.classification && !topic.includes(query.classification)) {
@@ -529,9 +516,20 @@ class BRC24LookupService extends EventEmitter {
     this.updateProviderData('dataset_search', topic, `${txid}:${vout}`, outputScript);
   }
 
-  private indexPaymentUTXO(topic: string, txid: string, vout: number, outputScript: string, satoshis: number): void {
+  private indexPaymentUTXO(
+    topic: string,
+    txid: string,
+    vout: number,
+    outputScript: string,
+    satoshis: number,
+  ): void {
     // Index payment information
-    this.updateProviderData('payment_tracker', topic, `${txid}:${vout}`, JSON.stringify({ outputScript, satoshis }));
+    this.updateProviderData(
+      'payment_tracker',
+      topic,
+      `${txid}:${vout}`,
+      JSON.stringify({ outputScript, satoshis }),
+    );
   }
 
   private indexAgentUTXO(topic: string, txid: string, vout: number, outputScript: string): void {
@@ -544,12 +542,21 @@ class BRC24LookupService extends EventEmitter {
     this.updateProviderData('lineage_tracker', topic, `${txid}:${vout}`, outputScript);
   }
 
-  private updateProviderData(providerId: string, topic: string, dataKey: string, dataValue: string): void {
-    this.database.prepare(`
+  private updateProviderData(
+    providerId: string,
+    topic: string,
+    dataKey: string,
+    dataValue: string,
+  ): void {
+    this.database
+      .prepare(
+        `
       INSERT OR REPLACE INTO brc24_provider_data
       (provider_id, topic, data_key, data_value, utxo_count, last_updated)
       VALUES (?, ?, ?, ?, 1, ?)
-    `).run(providerId, topic, dataKey, dataValue, Date.now());
+    `,
+      )
+      .run(providerId, topic, dataKey, dataValue, Date.now());
   }
 
   /**
@@ -560,10 +567,10 @@ class BRC24LookupService extends EventEmitter {
     name: string;
     description: string;
   }> {
-    return Array.from(this.lookupProviders.values()).map(provider => ({
+    return Array.from(this.lookupProviders.values()).map((provider) => ({
       providerId: provider.providerId,
       name: provider.name,
-      description: provider.description
+      description: provider.description,
     }));
   }
 
@@ -578,34 +585,54 @@ class BRC24LookupService extends EventEmitter {
     const providerStats: Record<string, { queries: number; recentQueries: number }> = {};
 
     for (const [providerId] of this.lookupProviders) {
-      const queries = this.database.prepare(`
+      const queries =
+        this.database
+          .prepare(
+            `
         SELECT COUNT(*) as count FROM brc24_queries WHERE provider = ?
-      `).get(providerId)?.count || 0;
+      `,
+          )
+          .get(providerId)?.count || 0;
 
-      const recentQueries = this.database.prepare(`
+      const recentQueries =
+        this.database
+          .prepare(
+            `
         SELECT COUNT(*) as count FROM brc24_queries
         WHERE provider = ? AND processed_at > ?
-      `).get(providerId, Date.now() - 3600000)?.count || 0; // Last hour
+      `,
+          )
+          .get(providerId, Date.now() - 3600000)?.count || 0; // Last hour
 
       providerStats[providerId] = { queries, recentQueries };
     }
 
-    const totalQueries = this.database.prepare(`
+    const totalQueries =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc24_queries
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
     const indexedData: Record<string, number> = {};
     const providers = Array.from(this.lookupProviders.keys());
     for (const providerId of providers) {
-      indexedData[providerId] = this.database.prepare(`
+      indexedData[providerId] =
+        this.database
+          .prepare(
+            `
         SELECT COUNT(*) as count FROM brc24_provider_data WHERE provider_id = ?
-      `).get(providerId)?.count || 0;
+      `,
+          )
+          .get(providerId)?.count || 0;
     }
 
     return {
       providers: providerStats,
       totalQueries,
-      indexedData
+      indexedData,
     };
   }
 

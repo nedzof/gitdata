@@ -3,6 +3,7 @@
  */
 
 import { Router } from 'express';
+
 import { getHybridDatabase } from '../db/hybrid';
 import { realtimeStreamingService } from '../services/realtime-streaming';
 
@@ -85,15 +86,15 @@ router.get('/streams', async (req, res) => {
           total,
           limit: parseInt(limit as string),
           offset: parseInt(offset as string),
-          hasMore: parseInt(offset as string) + parseInt(limit as string) < total
-        }
-      }
+          hasMore: parseInt(offset as string) + parseInt(limit as string) < total,
+        },
+      },
     });
   } catch (error) {
     console.error('Error fetching streaming market:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -135,7 +136,7 @@ router.get('/streams/:streamId', async (req, res) => {
     if (streamResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'Stream not found'
+        error: 'Stream not found',
       });
     }
 
@@ -152,20 +153,20 @@ router.get('/streams/:streamId', async (req, res) => {
       data: {
         stream,
         stats,
-        recentPackets: recentPackets.map(p => ({
+        recentPackets: recentPackets.map((p) => ({
           sequence: p.packet_sequence,
           timestamp: p.packet_timestamp,
           confirmations: p.confirmations,
           status: p.confirmation_status,
-          size: p.data_size_bytes
-        }))
-      }
+          size: p.data_size_bytes,
+        })),
+      },
     });
   } catch (error) {
     console.error('Error fetching stream details:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -182,7 +183,7 @@ router.post('/streams/:streamId/subscribe', async (req, res) => {
     if (!webhookUrl || !subscriberId) {
       return res.status(400).json({
         success: false,
-        error: 'Webhook URL and subscriber ID are required'
+        error: 'Webhook URL and subscriber ID are required',
       });
     }
 
@@ -191,21 +192,21 @@ router.post('/streams/:streamId/subscribe', async (req, res) => {
       webhook_url: webhookUrl,
       subscriber_id: subscriberId,
       delivery_mode: deliveryMode,
-      min_confirmations: minConfirmations
+      min_confirmations: minConfirmations,
     });
 
     res.json({
       success: true,
       data: {
         webhookId: webhook.id,
-        message: 'Successfully subscribed to stream'
-      }
+        message: 'Successfully subscribed to stream',
+      },
     });
   } catch (error) {
     console.error('Error subscribing to stream:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -222,7 +223,7 @@ router.post('/streams/:streamId/subscribe-agent', async (req, res) => {
     if (!agentId) {
       return res.status(400).json({
         success: false,
-        error: 'Agent ID is required'
+        error: 'Agent ID is required',
       });
     }
 
@@ -231,21 +232,21 @@ router.post('/streams/:streamId/subscribe-agent', async (req, res) => {
       agent_id: agentId,
       processing_mode: processingMode,
       trigger_conditions: triggerConditions,
-      agent_webhook_url: agentWebhookUrl
+      agent_webhook_url: agentWebhookUrl,
     });
 
     res.json({
       success: true,
       data: {
         subscriptionId: subscription.id,
-        message: 'AI agent successfully subscribed to stream'
-      }
+        message: 'AI agent successfully subscribed to stream',
+      },
     });
   } catch (error) {
     console.error('Error subscribing agent to stream:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -301,16 +302,16 @@ router.get('/stats', async (req, res) => {
           totalPackets: parseInt(stats.total_packets) || 0,
           packetsToday: parseInt(stats.packets_today) || 0,
           totalSubscribers: parseInt(stats.total_subscribers) || 0,
-          totalRevenue: parseFloat(stats.total_revenue) || 0
+          totalRevenue: parseFloat(stats.total_revenue) || 0,
         },
-        categories: categoryResult.rows
-      }
+        categories: categoryResult.rows,
+      },
     });
   } catch (error) {
     console.error('Error fetching marketplace stats:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -333,19 +334,20 @@ router.get('/streams/:streamId/live-stats', async (req, res) => {
       latestSequence: parseInt(stats.latest_sequence) || 0,
       avgPacketSize: parseFloat(stats.avg_packet_size) || 0,
       lastPacketAt: recentPackets[0]?.packet_timestamp || null,
-      isActive: recentPackets.length > 0 &&
-                new Date().getTime() - new Date(recentPackets[0].packet_timestamp).getTime() < 300000 // 5 minutes
+      isActive:
+        recentPackets.length > 0 &&
+        new Date().getTime() - new Date(recentPackets[0].packet_timestamp).getTime() < 300000, // 5 minutes
     };
 
     res.json({
       success: true,
-      data: liveStats
+      data: liveStats,
     });
   } catch (error) {
     console.error('Error fetching live stats:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });

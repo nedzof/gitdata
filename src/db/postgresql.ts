@@ -1,6 +1,8 @@
-import { Pool, PoolClient, PoolConfig } from 'pg';
 import fs from 'fs';
 import path from 'path';
+
+import type { PoolClient, PoolConfig } from 'pg';
+import { Pool } from 'pg';
 
 export interface PostgreSQLConfig extends PoolConfig {
   url?: string;
@@ -18,13 +20,13 @@ export class PostgreSQLClient {
       max: config.poolMax || parseInt(process.env.PG_POOL_MAX || '20'),
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
-      ...config
+      ...config,
     };
 
     if (config.url || process.env.PG_URL) {
       this.pool = new Pool({
         connectionString: config.url || process.env.PG_URL,
-        ...this.config
+        ...this.config,
       });
     } else {
       this.pool = new Pool({
@@ -34,7 +36,7 @@ export class PostgreSQLClient {
         user: process.env.PG_USER || 'postgres',
         password: process.env.PG_PASSWORD,
         ssl: process.env.PG_SSL === 'true' ? { rejectUnauthorized: false } : false,
-        ...this.config
+        ...this.config,
       });
     }
 
@@ -126,14 +128,14 @@ export async function upsertRecord<T extends Record<string, any>>(
   table: string,
   record: T,
   conflictColumns: string[],
-  updateColumns?: string[]
+  updateColumns?: string[],
 ): Promise<void> {
   const columns = Object.keys(record);
   const values = Object.values(record);
   const placeholders = values.map((_, i) => `$${i + 1}`);
 
-  const updateCols = updateColumns || columns.filter(col => !conflictColumns.includes(col));
-  const updateSet = updateCols.map(col => `${col} = EXCLUDED.${col}`).join(', ');
+  const updateCols = updateColumns || columns.filter((col) => !conflictColumns.includes(col));
+  const updateSet = updateCols.map((col) => `${col} = EXCLUDED.${col}`).join(', ');
 
   const sql = `
     INSERT INTO ${table} (${columns.join(', ')})
@@ -148,7 +150,7 @@ export async function upsertRecord<T extends Record<string, any>>(
 export async function insertRecord<T extends Record<string, any>>(
   client: PostgreSQLClient,
   table: string,
-  record: T
+  record: T,
 ): Promise<void> {
   const columns = Object.keys(record);
   const values = Object.values(record);
@@ -167,7 +169,7 @@ export async function updateRecord<T extends Record<string, any>>(
   table: string,
   record: Partial<T>,
   whereClause: string,
-  whereParams: any[]
+  whereParams: any[],
 ): Promise<void> {
   const columns = Object.keys(record);
   const values = Object.values(record);
@@ -186,7 +188,7 @@ export async function deleteRecord(
   client: PostgreSQLClient,
   table: string,
   whereClause: string,
-  whereParams: any[]
+  whereParams: any[],
 ): Promise<number> {
   const sql = `DELETE FROM ${table} WHERE ${whereClause}`;
   const result = await client.query(sql, whereParams);

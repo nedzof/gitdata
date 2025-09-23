@@ -1,7 +1,9 @@
 // D24 rules router with database persistence
-import { Router } from 'express';
-import { getPostgreSQLClient } from '../db/postgresql';
 import crypto from 'crypto';
+
+import { Router } from 'express';
+
+import { getPostgreSQLClient } from '../db/postgresql';
 
 export function rulesRouter() {
   const router = Router();
@@ -13,7 +15,7 @@ export function rulesRouter() {
       const result = await pgClient.query('SELECT * FROM overlay_rules ORDER BY created_at DESC');
 
       // Map database fields to API format
-      const mappedItems = result.rows.map(row => ({
+      const mappedItems = result.rows.map((row) => ({
         ruleId: row.rule_id,
         name: row.name,
         description: row.description,
@@ -21,7 +23,7 @@ export function rulesRouter() {
         triggers: row.trigger_config || [],
         actions: row.action_config || [],
         createdAt: row.created_at,
-        updatedAt: row.updated_at
+        updatedAt: row.updated_at,
       }));
 
       res.json({ items: mappedItems, total: mappedItems.length });
@@ -42,23 +44,26 @@ export function rulesRouter() {
 
       const ruleId = crypto.randomUUID();
 
-      await pgClient.query(`
+      await pgClient.query(
+        `
         INSERT INTO overlay_rules (
           rule_id, name, description, trigger_config, action_config,
           when_condition, find_strategy, actions, enabled
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      `, [
-        ruleId,
-        name,
-        description,
-        JSON.stringify(triggers),
-        JSON.stringify(actions),
-        JSON.stringify({ triggers }), // when_condition
-        JSON.stringify({ type: 'basic' }), // find_strategy
-        JSON.stringify(actions), // actions column
-        enabled
-      ]);
+      `,
+        [
+          ruleId,
+          name,
+          description,
+          JSON.stringify(triggers),
+          JSON.stringify(actions),
+          JSON.stringify({ triggers }), // when_condition
+          JSON.stringify({ type: 'basic' }), // find_strategy
+          JSON.stringify(actions), // actions column
+          enabled,
+        ],
+      );
 
       res.status(201).json({ success: true, ruleId });
     } catch (error) {
@@ -71,7 +76,9 @@ export function rulesRouter() {
   router.get('/:ruleId', async (req, res) => {
     try {
       const { ruleId } = req.params;
-      const result = await pgClient.query('SELECT * FROM overlay_rules WHERE rule_id = $1', [ruleId]);
+      const result = await pgClient.query('SELECT * FROM overlay_rules WHERE rule_id = $1', [
+        ruleId,
+      ]);
 
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'not-found' });
@@ -87,7 +94,7 @@ export function rulesRouter() {
         triggers: rule.trigger_config || [],
         actions: rule.action_config || [],
         createdAt: rule.created_at,
-        updatedAt: rule.updated_at
+        updatedAt: rule.updated_at,
       };
 
       res.json(mappedRule);
@@ -104,7 +111,9 @@ export function rulesRouter() {
       const { name, description, triggers, actions, enabled } = req.body;
 
       // Check if rule exists
-      const existingRule = await pgClient.query('SELECT * FROM overlay_rules WHERE rule_id = $1', [ruleId]);
+      const existingRule = await pgClient.query('SELECT * FROM overlay_rules WHERE rule_id = $1', [
+        ruleId,
+      ]);
       if (existingRule.rows.length === 0) {
         return res.status(404).json({ error: 'not-found' });
       }
@@ -149,7 +158,8 @@ export function rulesRouter() {
 
       updateFields.push(`updated_at = NOW()`);
 
-      if (updateFields.length === 1) { // only updated_at
+      if (updateFields.length === 1) {
+        // only updated_at
         return res.status(400).json({ error: 'no-updates-provided' });
       }
 
@@ -175,7 +185,7 @@ export function rulesRouter() {
         triggers: updatedRule.trigger_config || [],
         actions: updatedRule.action_config || [],
         createdAt: updatedRule.created_at,
-        updatedAt: updatedRule.updated_at
+        updatedAt: updatedRule.updated_at,
       };
 
       res.json(mappedRule);
@@ -190,7 +200,10 @@ export function rulesRouter() {
     try {
       const { ruleId } = req.params;
 
-      const result = await pgClient.query('DELETE FROM overlay_rules WHERE rule_id = $1 RETURNING *', [ruleId]);
+      const result = await pgClient.query(
+        'DELETE FROM overlay_rules WHERE rule_id = $1 RETURNING *',
+        [ruleId],
+      );
 
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'not-found' });

@@ -3,9 +3,10 @@
  * Enterprise Data Delivery Platform with BRC Standards Integration
  */
 
+import crypto from 'crypto';
+
 import { Router } from 'express';
 import { Pool } from 'pg';
-import crypto from 'crypto';
 
 const router = Router();
 
@@ -28,18 +29,31 @@ function hashIP(ip: string): string {
 }
 
 function hashUserAgent(userAgent: string): string {
-  return crypto.createHash('sha256').update(userAgent || 'unknown').digest('hex').substring(0, 16);
+  return crypto
+    .createHash('sha256')
+    .update(userAgent || 'unknown')
+    .digest('hex')
+    .substring(0, 16);
 }
 
 // Quota validation middleware
-async function validateQuota(receiptId: string, requestedBytes: number = 0, contentHash?: string): Promise<{
+async function validateQuota(
+  receiptId: string,
+  requestedBytes: number = 0,
+  contentHash?: string,
+): Promise<{
   allowed: boolean;
   quotaStatus: any;
   errorMessage?: string;
 }> {
   try {
     // Check if this is a performance test - bypass quota for performance tests
-    if (contentHash && (contentHash.includes('perf-test') || contentHash.includes('200mb') || contentHash.includes('1gb'))) {
+    if (
+      contentHash &&
+      (contentHash.includes('perf-test') ||
+        contentHash.includes('200mb') ||
+        contentHash.includes('1gb'))
+    ) {
       console.log(`🧪 Bypassing quota validation for performance test: ${contentHash}`);
       return {
         allowed: true,
@@ -48,9 +62,9 @@ async function validateQuota(receiptId: string, requestedBytes: number = 0, cont
           windows: {
             hour: { bytesUsed: 0, bytesAllowed: Number.MAX_SAFE_INTEGER },
             day: { bytesUsed: 0, bytesAllowed: Number.MAX_SAFE_INTEGER },
-            month: { bytesUsed: 0, bytesAllowed: Number.MAX_SAFE_INTEGER }
-          }
-        }
+            month: { bytesUsed: 0, bytesAllowed: Number.MAX_SAFE_INTEGER },
+          },
+        },
       };
     }
 
@@ -69,7 +83,7 @@ async function validateQuota(receiptId: string, requestedBytes: number = 0, cont
       return {
         allowed: true,
         quotaStatus: { policyName: 'development' },
-        errorMessage: null
+        errorMessage: null,
       };
     }
 
@@ -81,21 +95,21 @@ async function validateQuota(receiptId: string, requestedBytes: number = 0, cont
     const windowQueries = {
       hour: {
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()),
-        end: new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1)
+        end: new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1),
       },
       day: {
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
-        end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+        end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1),
       },
       month: {
         start: new Date(now.getFullYear(), now.getMonth(), 1),
-        end: new Date(now.getFullYear(), now.getMonth() + 1, 1)
-      }
+        end: new Date(now.getFullYear(), now.getMonth() + 1, 1),
+      },
     };
 
     const quotaStatus = {
       windows: {},
-      burst: { available: false, bytesAllowance: 0, bytesUsed: 0 }
+      burst: { available: false, bytesAllowance: 0, bytesUsed: 0 },
     };
 
     // Check each time window
@@ -108,7 +122,10 @@ async function validateQuota(receiptId: string, requestedBytes: number = 0, cont
       `;
 
       const usageResult = await pool.query(usageQuery, [
-        receiptId, windowType, window.start, window.end
+        receiptId,
+        windowType,
+        window.start,
+        window.end,
       ]);
 
       const usage = usageResult.rows[0] || { bytes_used: 0, requests_used: 0, burst_bytes_used: 0 };
@@ -123,7 +140,7 @@ async function validateQuota(receiptId: string, requestedBytes: number = 0, cont
         bytesAllowed,
         requestsUsed: parseInt(usage.requests_used),
         requestsAllowed,
-        utilizationPercentage: (usage.bytes_used / bytesAllowed) * 100
+        utilizationPercentage: (usage.bytes_used / bytesAllowed) * 100,
       };
 
       // Check if quota would be exceeded
@@ -131,7 +148,7 @@ async function validateQuota(receiptId: string, requestedBytes: number = 0, cont
         return {
           allowed: false,
           quotaStatus,
-          errorMessage: `${windowType} quota exceeded: ${usage.bytes_used + requestedBytes} > ${bytesAllowed} bytes`
+          errorMessage: `${windowType} quota exceeded: ${usage.bytes_used + requestedBytes} > ${bytesAllowed} bytes`,
         };
       }
     }
@@ -142,7 +159,7 @@ async function validateQuota(receiptId: string, requestedBytes: number = 0, cont
         available: true,
         bytesAllowance: policy.burst_bytes_allowance,
         bytesUsed: quotaStatus.windows.hour?.bytesUsed || 0,
-        durationMinutes: policy.burst_duration_minutes
+        durationMinutes: policy.burst_duration_minutes,
       };
     }
 
@@ -154,13 +171,20 @@ async function validateQuota(receiptId: string, requestedBytes: number = 0, cont
 }
 
 // Update quota usage with deduplication to prevent infinite accumulation
-async function updateQuotaUsage(receiptId: string, bytesUsed: number, requestCount: number = 1): Promise<void> {
+async function updateQuotaUsage(
+  receiptId: string,
+  bytesUsed: number,
+  requestCount: number = 1,
+): Promise<void> {
   try {
     const now = new Date();
     const windows = [
-      { type: 'hour', start: new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()) },
+      {
+        type: 'hour',
+        start: new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()),
+      },
       { type: 'day', start: new Date(now.getFullYear(), now.getMonth(), now.getDate()) },
-      { type: 'month', start: new Date(now.getFullYear(), now.getMonth(), 1) }
+      { type: 'month', start: new Date(now.getFullYear(), now.getMonth(), 1) },
     ];
 
     // Get the default 'standard' policy ID if no specific receipt policy exists
@@ -174,7 +198,9 @@ async function updateQuotaUsage(receiptId: string, bytesUsed: number, requestCou
     const policyId = policyResult.rows[0]?.policy_id;
 
     if (!policyId) {
-      console.warn(`No standard quota policy found, skipping quota update for receipt ${receiptId}`);
+      console.warn(
+        `No standard quota policy found, skipping quota update for receipt ${receiptId}`,
+      );
       return;
     }
 
@@ -196,7 +222,13 @@ async function updateQuotaUsage(receiptId: string, bytesUsed: number, requestCou
       `;
 
       await pool.query(upsertQuery, [
-        receiptId, policyId, window.type, window.start, windowEnd, bytesUsed, requestCount
+        receiptId,
+        policyId,
+        window.type,
+        window.start,
+        windowEnd,
+        bytesUsed,
+        requestCount,
       ]);
     }
   } catch (error) {
@@ -238,9 +270,13 @@ router.get('/data/:contentHash', async (req, res) => {
     let mockContent = `Mock content for ${title} - ${contentHash}`;
 
     // Check if this is a performance test request (detect by content hash pattern)
-    if (contentHash.includes('perf-test') || contentHash.includes('200mb') || contentHash.includes('1gb')) {
+    if (
+      contentHash.includes('perf-test') ||
+      contentHash.includes('200mb') ||
+      contentHash.includes('1gb')
+    ) {
       // Extract chunk info from query parameters
-      const chunkIndex = parseInt(req.query.chunkIndex as string || '0');
+      const chunkIndex = parseInt((req.query.chunkIndex as string) || '0');
 
       // Determine chunk size based on test type
       let chunkSizeMB = 10; // Default 10MB per chunk for 200MB tests
@@ -258,53 +294,58 @@ router.get('/data/:contentHash', async (req, res) => {
       mockContent = chunkHeader + dataPattern.repeat(chunksNeeded);
       contentSize = Buffer.byteLength(mockContent);
 
-      console.log(`📦 Generated performance test chunk ${chunkIndex + 1}: ${(contentSize / (1024 * 1024)).toFixed(2)}MB`);
+      console.log(
+        `📦 Generated performance test chunk ${chunkIndex + 1}: ${(contentSize / (1024 * 1024)).toFixed(2)}MB`,
+      );
     } else {
       contentSize = Buffer.byteLength(mockContent);
     }
 
     // Check if this is a performance test - bypass quota for performance tests
-    const isPerformanceTest = contentHash.includes('perf-test') ||
-                              contentHash.includes('200mb') ||
-                              contentHash.includes('1gb');
+    const isPerformanceTest =
+      contentHash.includes('perf-test') ||
+      contentHash.includes('200mb') ||
+      contentHash.includes('1gb');
 
     if (!isPerformanceTest) {
       // Only apply quota limits for non-performance test requests
       try {
         const quotaCheck = await validateQuota(receiptId as string, contentSize, contentHash);
-        if (quotaCheck && !quotaCheck.allowed && quotaCheck.errorMessage && quotaCheck.errorMessage.includes('quota exceeded')) {
+        if (
+          quotaCheck &&
+          !quotaCheck.allowed &&
+          quotaCheck.errorMessage &&
+          quotaCheck.errorMessage.includes('quota exceeded')
+        ) {
           return res.status(429).json({
             error: 'Quota exceeded',
-            message: quotaCheck.errorMessage
+            message: quotaCheck.errorMessage,
           });
         }
       } catch (quotaError) {
         // Ignore quota errors and continue
       }
     } else {
-      console.log(`🧪 Performance test detected - bypassing ALL quota validation for ${contentHash}`);
+      console.log(
+        `🧪 Performance test detected - bypassing ALL quota validation for ${contentHash}`,
+      );
     }
 
     // Generate session ID
-    const streamingSessionId = sessionId as string || generateSessionId();
+    const streamingSessionId = (sessionId as string) || generateSessionId();
 
     // Try to record streaming usage (non-blocking) - skip for performance tests
     if (!isPerformanceTest) {
       try {
-        await pool.query(`
+        await pool.query(
+          `
           INSERT INTO streaming_usage (
             receipt_id, content_hash, session_id, bytes_streamed,
             delivery_method, completion_percentage, stream_end_time
           ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [
-          receiptId,
-          contentHash,
-          streamingSessionId,
-          contentSize,
-          'direct',
-          100.0,
-          new Date()
-        ]);
+        `,
+          [receiptId, contentHash, streamingSessionId, contentSize, 'direct', 100.0, new Date()],
+        );
       } catch (streamingError) {
         console.warn('Streaming usage recording failed (non-critical):', streamingError.message);
       }
@@ -327,7 +368,6 @@ router.get('/data/:contentHash', async (req, res) => {
 
     // Send content
     res.send(mockContent);
-
   } catch (error) {
     console.error('Streaming error:', error);
     res.status(500).json({ error: 'Streaming failed', details: error.message });
@@ -346,7 +386,7 @@ router.post('/sessions', async (req, res) => {
       webhookUrl,
       sessionType = 'webhook',
       qualityRequirements = {},
-      estimatedBytes = 0
+      estimatedBytes = 0,
     } = req.body;
 
     if (!receiptId) {
@@ -370,13 +410,16 @@ router.post('/sessions', async (req, res) => {
     if (agentId?.includes('performance-test')) {
       try {
         const expiryDate = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
-        await pool.query(`
+        await pool.query(
+          `
           INSERT INTO overlay_receipts (
             receipt_id, version_id, content_hash, quota_tier,
             payer_address, unit_price_satoshis, total_satoshis, expires_at
           ) VALUES ($1, $2, $3, 'premium', 'perf-test-address', 100, 100, $4)
           ON CONFLICT (receipt_id) DO NOTHING
-        `, [receiptId, crypto.randomUUID(), 'perf-test-content', expiryDate]);
+        `,
+          [receiptId, crypto.randomUUID(), 'perf-test-content', expiryDate],
+        );
 
         console.log(`📝 Created temporary receipt for performance test: ${receiptId}`);
       } catch (receiptError) {
@@ -403,7 +446,7 @@ router.post('/sessions', async (req, res) => {
       JSON.stringify({ ...qualityRequirements, webhookUrl }),
       estimatedBytes,
       estimatedCost,
-      'active'
+      'active',
     ]);
 
     res.json({
@@ -415,9 +458,8 @@ router.post('/sessions', async (req, res) => {
       estimatedBytes,
       estimatedCostSatoshis: estimatedCost,
       quotaStatus: quotaStatus,
-      status: 'created'
+      status: 'created',
     });
-
   } catch (error) {
     console.error('Session creation error:', error);
     res.status(500).json({ error: 'Session creation failed' });
@@ -455,10 +497,7 @@ router.get('/sessions/:sessionId', async (req, res) => {
       AND created_at >= $2
     `;
 
-    const usageResult = await pool.query(usageQuery, [
-      session.receipt_id,
-      session.created_at
-    ]);
+    const usageResult = await pool.query(usageQuery, [session.receipt_id, session.created_at]);
 
     const usage = usageResult.rows[0];
 
@@ -468,8 +507,8 @@ router.get('/sessions/:sessionId', async (req, res) => {
       type: typeof session.estimated_cost_satoshis,
       hardcodedReturn: 200,
       responseWillBe: {
-        estimatedCostSatoshis: 200
-      }
+        estimatedCostSatoshis: 200,
+      },
     });
 
     const response = {
@@ -490,12 +529,11 @@ router.get('/sessions/:sessionId', async (req, res) => {
       })(),
       status: session.session_status,
       createdAt: session.created_at,
-      updatedAt: session.updated_at
+      updatedAt: session.updated_at,
     };
 
     console.log('Final response being sent:', response);
     res.json(response);
-
   } catch (error) {
     console.error('Session status error:', error);
     res.status(500).json({ error: 'Failed to get session status' });
@@ -541,22 +579,21 @@ router.get('/quotas/:receiptId', async (req, res) => {
       receiptId,
       quotaPolicy: {
         policyName: policy.policy_name,
-        tier: policy.policy_name
+        tier: policy.policy_name,
       },
       windows: quotaCheck.quotaStatus.windows,
       burst: quotaCheck.quotaStatus.burst,
       concurrent: {
         activeStreams,
         maxAllowed: policy.max_concurrent_streams,
-        peakBandwidthMbps: policy.max_bandwidth_mbps
+        peakBandwidthMbps: policy.max_bandwidth_mbps,
       },
       performance: {
         averageLatencyMs: 48,
         errorRate: 0.001,
-        cacheHitRate: 0.85
-      }
+        cacheHitRate: 0.85,
+      },
     });
-
   } catch (error) {
     console.error('Quota status error:', error);
     res.status(500).json({ error: 'Failed to get quota status' });
@@ -579,7 +616,7 @@ router.post('/quotas/policies', async (req, res) => {
       requestsPerDay,
       requestsPerMonth,
       maxConcurrentStreams = 1,
-      maxBandwidthMbps = 10.0
+      maxBandwidthMbps = 10.0,
     } = req.body;
 
     if (!policyName) {
@@ -607,16 +644,22 @@ router.post('/quotas/policies', async (req, res) => {
     `;
 
     const result = await pool.query(policyQuery, [
-      policyName, description, bytesPerHour, bytesPerDay, bytesPerMonth,
-      requestsPerHour, requestsPerDay, requestsPerMonth,
-      maxConcurrentStreams, maxBandwidthMbps
+      policyName,
+      description,
+      bytesPerHour,
+      bytesPerDay,
+      bytesPerMonth,
+      requestsPerHour,
+      requestsPerDay,
+      requestsPerMonth,
+      maxConcurrentStreams,
+      maxBandwidthMbps,
     ]);
 
     res.json({
       policy: result.rows[0],
-      status: 'created'
+      status: 'created',
     });
-
   } catch (error) {
     console.error('Policy creation error:', error);
     res.status(500).json({ error: 'Failed to create policy' });
@@ -655,12 +698,12 @@ router.get('/resolve/:contentHash', async (req, res) => {
             availabilityScore: 0.98,
             averageLatencyMs: 45,
             bandwidthMbps: 100.0,
-            uptimePercentage: 99.5
+            uptimePercentage: 99.5,
           },
           geographic: {
             region: 'US',
-            cdnEnabled: true
-          }
+            cdnEnabled: true,
+          },
         },
         {
           hostUrl: `https://host2.overlay.network/data/${contentHash}`,
@@ -669,13 +712,13 @@ router.get('/resolve/:contentHash', async (req, res) => {
             availabilityScore: 0.95,
             averageLatencyMs: 52,
             bandwidthMbps: 85.0,
-            uptimePercentage: 98.2
+            uptimePercentage: 98.2,
           },
           geographic: {
             region: 'EU',
-            cdnEnabled: false
-          }
-        }
+            cdnEnabled: false,
+          },
+        },
       ];
 
       return res.json({
@@ -683,9 +726,9 @@ router.get('/resolve/:contentHash', async (req, res) => {
         hosts: mockHosts,
         recommendations: {
           primaryHost: mockHosts[0].hostUrl,
-          failoverOrder: mockHosts.slice(1).map(h => h.hostUrl),
-          routingStrategy: 'performance'
-        }
+          failoverOrder: mockHosts.slice(1).map((h) => h.hostUrl),
+          routingStrategy: 'performance',
+        },
       });
     }
 
@@ -693,27 +736,26 @@ router.get('/resolve/:contentHash', async (req, res) => {
 
     res.json({
       contentHash,
-      hosts: hosts.map(host => ({
+      hosts: hosts.map((host) => ({
         hostUrl: host.host_url,
         publicKey: host.host_public_key,
         performance: {
           availabilityScore: parseFloat(host.availability_score),
           averageLatencyMs: host.average_latency_ms,
           bandwidthMbps: parseFloat(host.bandwidth_mbps),
-          uptimePercentage: parseFloat(host.uptime_percentage)
+          uptimePercentage: parseFloat(host.uptime_percentage),
         },
         geographic: {
           region: host.host_region,
-          cdnEnabled: host.cdn_enabled
-        }
+          cdnEnabled: host.cdn_enabled,
+        },
       })),
       recommendations: {
         primaryHost: hosts[0].host_url,
-        failoverOrder: hosts.slice(1).map(h => h.host_url),
-        routingStrategy: 'performance'
-      }
+        failoverOrder: hosts.slice(1).map((h) => h.host_url),
+        routingStrategy: 'performance',
+      },
     });
-
   } catch (error) {
     console.error('Content resolution error:', error);
     res.status(500).json({ error: 'Content resolution failed' });
@@ -726,14 +768,7 @@ router.get('/resolve/:contentHash', async (req, res) => {
  */
 router.post('/report-host', async (req, res) => {
   try {
-    const {
-      contentHash,
-      hostUrl,
-      latencyMs,
-      bandwidthMbps,
-      success,
-      errorMessage
-    } = req.body;
+    const { contentHash, hostUrl, latencyMs, bandwidthMbps, success, errorMessage } = req.body;
 
     if (!contentHash || !hostUrl) {
       return res.status(400).json({ error: 'Content hash and host URL required' });
@@ -760,11 +795,10 @@ router.post('/report-host', async (req, res) => {
       latencyMs || 0,
       bandwidthMbps || 0,
       success ? 1 : 0,
-      success ? 0 : 1
+      success ? 0 : 1,
     ]);
 
     res.json({ status: 'reported' });
-
   } catch (error) {
     console.error('Host reporting error:', error);
     res.status(500).json({ error: 'Host reporting failed' });

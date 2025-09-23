@@ -1,7 +1,8 @@
-import Ajv from 'ajv';
-import addFormats from 'ajv-formats';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
 
 // Facet registry type definitions
 interface FacetRegistry {
@@ -43,7 +44,7 @@ export class FacetValidator {
     this.ajv = new Ajv({
       allErrors: true,
       strict: false,
-      removeAdditional: false
+      removeAdditional: false,
     });
     addFormats(this.ajv);
 
@@ -82,7 +83,7 @@ export class FacetValidator {
     const result: ValidationResult = {
       valid: true,
       errors: [],
-      warnings: []
+      warnings: [],
     };
 
     // Validate core OpenLineage structure
@@ -107,7 +108,11 @@ export class FacetValidator {
     for (let i = 0; i < datasets.length; i++) {
       const dataset = datasets[i];
       if (dataset.facets) {
-        const datasetFacetsValidation = this.validateFacets(dataset.facets, 'dataset', `dataset[${i}]`);
+        const datasetFacetsValidation = this.validateFacets(
+          dataset.facets,
+          'dataset',
+          `dataset[${i}]`,
+        );
         if (!datasetFacetsValidation.valid) {
           result.valid = false;
           result.errors.push(...datasetFacetsValidation.errors);
@@ -169,7 +174,12 @@ export class FacetValidator {
     return result;
   }
 
-  private validateSingleFacet(facetName: string, facetData: any, context: string, prefix: string = ''): ValidationResult {
+  private validateSingleFacet(
+    facetName: string,
+    facetData: any,
+    context: string,
+    prefix: string = '',
+  ): ValidationResult {
     const result: ValidationResult = { valid: true, errors: [], warnings: [] };
     const fullName = prefix ? `${prefix}.${facetName}` : facetName;
 
@@ -177,7 +187,9 @@ export class FacetValidator {
     const facetSize = JSON.stringify(facetData).length;
     if (facetSize > this.registry.validation.maxFacetSize) {
       result.valid = false;
-      result.errors.push(`Facet ${fullName} exceeds size limit: ${facetSize} > ${this.registry.validation.maxFacetSize}`);
+      result.errors.push(
+        `Facet ${fullName} exceeds size limit: ${facetSize} > ${this.registry.validation.maxFacetSize}`,
+      );
       return result;
     }
 
@@ -196,7 +208,9 @@ export class FacetValidator {
 
     // Check context
     if (!facetDef.context.includes(context)) {
-      result.warnings.push(`Facet ${fullName} used in unexpected context: ${context}, expected: ${facetDef.context.join(', ')}`);
+      result.warnings.push(
+        `Facet ${fullName} used in unexpected context: ${context}, expected: ${facetDef.context.join(', ')}`,
+      );
     }
 
     // Validate against schema if available
@@ -208,7 +222,9 @@ export class FacetValidator {
         result.valid = false;
         const errors = validator.errors || [];
         for (const error of errors) {
-          result.errors.push(`Schema validation error in ${fullName}: ${error.instancePath} ${error.message}`);
+          result.errors.push(
+            `Schema validation error in ${fullName}: ${error.instancePath} ${error.message}`,
+          );
         }
       }
     }
@@ -231,7 +247,7 @@ export class FacetValidator {
   }
 
   public isKnownFacet(facetName: string): boolean {
-    return this.registry.facets.hasOwnProperty(facetName);
+    return Object.prototype.hasOwnProperty.call(this.registry.facets, facetName);
   }
 
   public getRequiredFacets(context: string): string[] {

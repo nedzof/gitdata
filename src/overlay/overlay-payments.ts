@@ -1,11 +1,14 @@
 // BSV Overlay Payment Integration
 // Handles payment flows over the overlay network
 
-import { walletService } from '../../ui/src/lib/wallet';
-import { OverlayManager } from './overlay-manager';
-import { D01A_TOPICS, TopicGenerator } from './overlay-config';
 import { EventEmitter } from 'events';
-import Database from 'better-sqlite3';
+
+import type Database from 'better-sqlite3';
+
+import { walletService } from '../../ui/src/lib/wallet';
+
+import { D01A_TOPICS, TopicGenerator } from './overlay-config';
+import type { OverlayManager } from './overlay-manager';
 
 export interface PaymentQuote {
   quoteId: string;
@@ -55,42 +58,13 @@ class OverlayPaymentService extends EventEmitter {
   }
 
   /**
-   * Set up database tables for overlay payments
+   * Database tables are now created in the main schema at /src/db/postgresql-schema-complete.sql
+   * This method is kept for compatibility but no longer creates tables
    */
   private setupDatabase(): void {
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS overlay_payment_quotes (
-        quote_id TEXT PRIMARY KEY,
-        receipt_id TEXT NOT NULL,
-        version_id TEXT NOT NULL,
-        amount_sat INTEGER NOT NULL,
-        outputs_json TEXT NOT NULL,
-        expires_at INTEGER NOT NULL,
-        template_hash TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        status TEXT DEFAULT 'active'
-      )
-    `);
-
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS overlay_payment_receipts (
-        receipt_id TEXT PRIMARY KEY,
-        quote_id TEXT,
-        txid TEXT,
-        status TEXT DEFAULT 'pending',
-        amount_sat INTEGER NOT NULL,
-        buyer_public_key TEXT,
-        created_at INTEGER NOT NULL,
-        confirmed_at INTEGER,
-        FOREIGN KEY (quote_id) REFERENCES overlay_payment_quotes(quote_id)
-      )
-    `);
-
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS idx_overlay_quotes_expires ON overlay_payment_quotes(expires_at);
-      CREATE INDEX IF NOT EXISTS idx_overlay_receipts_status ON overlay_payment_receipts(status);
-      CREATE INDEX IF NOT EXISTS idx_overlay_receipts_txid ON overlay_payment_receipts(txid);
-    `);
+    // Tables are now created centrally in the main database schema
+    // Overlay payment tables: overlay_payment_quotes, overlay_payment_receipts
+    console.log('Overlay payment database tables managed by central schema');
   }
 
   /**
@@ -121,12 +95,16 @@ class OverlayPaymentService extends EventEmitter {
       }
 
       // Check if version exists and get pricing
-      const version = this.database.prepare(`
+      const version = this.database
+        .prepare(
+          `
         SELECT v.*, m.unit_price_sat, m.classification
         FROM versions v
-        JOIN manifests m ON v.version_id = m.version_id
+        JOIN assets m ON v.version_id = m.version_id
         WHERE v.version_id = ?
-      `).get(request.versionId);
+      `,
+        )
+        .get(request.versionId);
 
       if (!version) {
         throw new Error(`Version not found: ${request.versionId}`);
@@ -140,13 +118,13 @@ class OverlayPaymentService extends EventEmitter {
         {
           scriptHex: await this.getPaymentScript(), // Producer payment script
           satoshis: Math.floor(totalAmount * 0.95), // 95% to producer
-          description: `Payment for ${request.versionId}`
+          description: `Payment for ${request.versionId}`,
         },
         {
           scriptHex: await this.getOverlayFeeScript(), // Platform fee script
           satoshis: Math.floor(totalAmount * 0.05), // 5% platform fee
-          description: 'Platform fee'
-        }
+          description: 'Platform fee',
+        },
       ];
 
       // Generate quote
@@ -156,26 +134,30 @@ class OverlayPaymentService extends EventEmitter {
         versionId: request.versionId,
         amountSat: totalAmount,
         outputs,
-        expiresAt: Date.now() + (10 * 60 * 1000), // 10 minutes
+        expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
         templateHash: this.generateTemplateHash(outputs),
-        createdAt: Date.now()
+        createdAt: Date.now(),
       };
 
       // Store quote
-      this.database.prepare(`
+      this.database
+        .prepare(
+          `
         INSERT INTO overlay_payment_quotes
         (quote_id, receipt_id, version_id, amount_sat, outputs_json, expires_at, template_hash, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        quote.quoteId,
-        quote.receiptId,
-        quote.versionId,
-        quote.amountSat,
-        JSON.stringify(quote.outputs),
-        quote.expiresAt,
-        quote.templateHash,
-        quote.createdAt
-      );
+      `,
+        )
+        .run(
+          quote.quoteId,
+          quote.receiptId,
+          quote.versionId,
+          quote.amountSat,
+          JSON.stringify(quote.outputs),
+          quote.expiresAt,
+          quote.templateHash,
+          quote.createdAt,
+        );
 
       this.pendingQuotes.set(quote.quoteId, quote);
 
@@ -184,7 +166,6 @@ class OverlayPaymentService extends EventEmitter {
 
       this.emit('quote-created', quote);
       return quote;
-
     } catch (error) {
       throw new Error(`Failed to create payment quote: ${error.message}`);
     }
@@ -200,8 +181,8 @@ class OverlayPaymentService extends EventEmitter {
   }): Promise<PaymentReceipt> {
     try {
       // Get quote
-      const quote = this.pendingQuotes.get(submission.quoteId) ||
-        this.getQuoteFromDatabase(submission.quoteId);
+      const quote =
+        this.pendingQuotes.get(submission.quoteId) || this.getQuoteFromDatabase(submission.quoteId);
 
       if (!quote) {
         throw new Error(`Quote not found: ${submission.quoteId}`);
@@ -221,23 +202,27 @@ class OverlayPaymentService extends EventEmitter {
         txid,
         status: 'pending',
         amountSat: quote.amountSat,
-        createdAt: Date.now()
+        createdAt: Date.now(),
       };
 
       // Store receipt
-      this.database.prepare(`
+      this.database
+        .prepare(
+          `
         INSERT INTO overlay_payment_receipts
         (receipt_id, quote_id, txid, status, amount_sat, buyer_public_key, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        receipt.receiptId,
-        quote.quoteId,
-        receipt.txid,
-        receipt.status,
-        receipt.amountSat,
-        submission.buyerPublicKey,
-        receipt.createdAt
-      );
+      `,
+        )
+        .run(
+          receipt.receiptId,
+          quote.quoteId,
+          receipt.txid,
+          receipt.status,
+          receipt.amountSat,
+          submission.buyerPublicKey,
+          receipt.createdAt,
+        );
 
       this.pendingPayments.set(receipt.receiptId, receipt);
 
@@ -246,7 +231,6 @@ class OverlayPaymentService extends EventEmitter {
 
       this.emit('payment-received', receipt);
       return receipt;
-
     } catch (error) {
       throw new Error(`Failed to process payment submission: ${error.message}`);
     }
@@ -272,19 +256,18 @@ class OverlayPaymentService extends EventEmitter {
         versionId,
         quantity,
         buyerPublicKey: publicKey,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
 
       // Publish payment request to overlay
       const topic = TopicGenerator.paymentTopic(request.receiptId);
-      await this.overlayManager.publishManifest({
+      await this.overlayManager.publishAsset({
         type: 'payment_request',
         request,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       this.emit('quote-requested', request);
-
     } catch (error) {
       throw new Error(`Failed to request payment quote: ${error.message}`);
     }
@@ -308,14 +291,14 @@ class OverlayPaymentService extends EventEmitter {
       // Create transaction using wallet
       const txResult = await wallet.createAction({
         description: `Purchase data version ${quote.versionId}`,
-        outputs: quote.outputs.map(output => ({
+        outputs: quote.outputs.map((output) => ({
           script: output.scriptHex,
           satoshis: output.satoshis,
           description: output.description,
           basket: 'purchases',
-          tags: ['overlay-payment', `version:${quote.versionId}`, `quote:${quoteId}`]
+          tags: ['overlay-payment', `version:${quote.versionId}`, `quote:${quoteId}`],
         })),
-        labels: ['overlay-payment', 'gitdata-purchase']
+        labels: ['overlay-payment', 'gitdata-purchase'],
       });
 
       if (!txResult.tx) {
@@ -326,15 +309,15 @@ class OverlayPaymentService extends EventEmitter {
       const submission = {
         quoteId,
         rawTxHex: txResult.tx,
-        buyerPublicKey: walletService.getPublicKey() || ''
+        buyerPublicKey: walletService.getPublicKey() || '',
       };
 
       // Publish payment submission
       const topic = TopicGenerator.paymentTopic(quote.receiptId);
-      await this.overlayManager.publishManifest({
+      await this.overlayManager.publishAsset({
         type: 'payment_submission',
         submission,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       // Create local receipt record
@@ -343,14 +326,13 @@ class OverlayPaymentService extends EventEmitter {
         txid: txResult.tx, // This would be the actual txid in production
         status: 'pending',
         amountSat: quote.amountSat,
-        createdAt: Date.now()
+        createdAt: Date.now(),
       };
 
       this.pendingPayments.set(receipt.receiptId, receipt);
       this.emit('payment-submitted', receipt);
 
       return receipt;
-
     } catch (error) {
       throw new Error(`Failed to submit payment: ${error.message}`);
     }
@@ -378,7 +360,10 @@ class OverlayPaymentService extends EventEmitter {
   /**
    * Handle payment request from buyer
    */
-  private async handlePaymentRequestMessage(request: PaymentRequest, sender: string): Promise<void> {
+  private async handlePaymentRequestMessage(
+    request: PaymentRequest,
+    sender: string,
+  ): Promise<void> {
     try {
       // Create and send quote
       const quote = await this.createPaymentQuote(request);
@@ -416,7 +401,10 @@ class OverlayPaymentService extends EventEmitter {
   /**
    * Handle payment receipt from seller
    */
-  private async handlePaymentReceiptMessage(receipt: PaymentReceipt, sender: string): Promise<void> {
+  private async handlePaymentReceiptMessage(
+    receipt: PaymentReceipt,
+    sender: string,
+  ): Promise<void> {
     try {
       // Update local receipt status
       this.pendingPayments.set(receipt.receiptId, receipt);
@@ -431,11 +419,11 @@ class OverlayPaymentService extends EventEmitter {
    */
   private async publishPaymentQuote(quote: PaymentQuote, buyerPublicKey: string): Promise<void> {
     const topic = TopicGenerator.paymentTopic(quote.receiptId);
-    await this.overlayManager.publishManifest({
+    await this.overlayManager.publishAsset({
       type: 'payment_quote',
       quote,
       buyerPublicKey,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
   }
 
@@ -444,10 +432,10 @@ class OverlayPaymentService extends EventEmitter {
    */
   private async publishPaymentReceipt(receipt: PaymentReceipt): Promise<void> {
     const topic = TopicGenerator.paymentTopic(receipt.receiptId);
-    await this.overlayManager.publishManifest({
+    await this.overlayManager.publishAsset({
       type: 'payment_receipt',
       receipt,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
   }
 
@@ -485,7 +473,10 @@ class OverlayPaymentService extends EventEmitter {
   /**
    * Validate and broadcast transaction
    */
-  private async validateAndBroadcastTransaction(rawTxHex: string, quote: PaymentQuote): Promise<string> {
+  private async validateAndBroadcastTransaction(
+    rawTxHex: string,
+    quote: PaymentQuote,
+  ): Promise<string> {
     // In production, this would:
     // 1. Parse the transaction
     // 2. Validate outputs match the quote
@@ -501,9 +492,13 @@ class OverlayPaymentService extends EventEmitter {
    */
   private getQuoteFromDatabase(quoteId: string): PaymentQuote | null {
     try {
-      const row = this.database.prepare(`
+      const row = this.database
+        .prepare(
+          `
         SELECT * FROM overlay_payment_quotes WHERE quote_id = ?
-      `).get(quoteId);
+      `,
+        )
+        .get(quoteId);
 
       if (!row) return null;
 
@@ -515,7 +510,7 @@ class OverlayPaymentService extends EventEmitter {
         outputs: JSON.parse(row.outputs_json),
         expiresAt: row.expires_at,
         templateHash: row.template_hash,
-        createdAt: row.created_at
+        createdAt: row.created_at,
       };
     } catch (error) {
       console.error('Failed to get quote from database:', error);
@@ -541,7 +536,9 @@ class OverlayPaymentService extends EventEmitter {
    * Generate template hash for quote consistency
    */
   private generateTemplateHash(outputs: any[]): string {
-    const content = JSON.stringify(outputs.map(o => ({ script: o.scriptHex, amount: o.satoshis })));
+    const content = JSON.stringify(
+      outputs.map((o) => ({ script: o.scriptHex, amount: o.satoshis })),
+    );
     return Buffer.from(content).toString('base64').substring(0, 16);
   }
 
@@ -561,31 +558,56 @@ class OverlayPaymentService extends EventEmitter {
   } {
     const now = Date.now();
 
-    const totalQuotes = this.database.prepare(`
+    const totalQuotes =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM overlay_payment_quotes
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const activeQuotes = this.database.prepare(`
+    const activeQuotes =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM overlay_payment_quotes WHERE expires_at > ?
-    `).get(now)?.count || 0;
+    `,
+        )
+        .get(now)?.count || 0;
 
     const expiredQuotes = totalQuotes - activeQuotes;
 
-    const totalReceipts = this.database.prepare(`
+    const totalReceipts =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM overlay_payment_receipts
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const pendingReceipts = this.database.prepare(`
+    const pendingReceipts =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM overlay_payment_receipts WHERE status = 'pending'
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const confirmedReceipts = this.database.prepare(`
+    const confirmedReceipts =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM overlay_payment_receipts WHERE status = 'confirmed'
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
     return {
       quotes: { total: totalQuotes, active: activeQuotes, expired: expiredQuotes },
-      receipts: { total: totalReceipts, pending: pendingReceipts, confirmed: confirmedReceipts }
+      receipts: { total: totalReceipts, pending: pendingReceipts, confirmed: confirmedReceipts },
     };
   }
 
@@ -593,11 +615,15 @@ class OverlayPaymentService extends EventEmitter {
    * Clean up expired quotes
    */
   cleanupExpiredQuotes(): number {
-    const result = this.database.prepare(`
+    const result = this.database
+      .prepare(
+        `
       UPDATE overlay_payment_quotes
       SET status = 'expired'
       WHERE expires_at < ? AND status = 'active'
-    `).run(Date.now());
+    `,
+      )
+      .run(Date.now());
 
     return result.changes;
   }

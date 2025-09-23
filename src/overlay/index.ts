@@ -19,57 +19,24 @@ export {
   D01A_TOPICS,
   TopicGenerator,
   TopicSubscriptionManager,
-  TOPIC_CLASSIFICATION
+  TOPIC_CLASSIFICATION,
 } from './overlay-config';
 
-export type {
-  OverlayConfig,
-  D01AData,
-  OverlayMessage
-} from './bsv-overlay-service';
+export type { OverlayConfig, D01AData, OverlayMessage } from './bsv-overlay-service';
 
-export type {
-  OverlayManagerConfig,
-  OverlayDataEvent
-} from './overlay-manager';
+export type { OverlayManagerConfig, OverlayDataEvent } from './overlay-manager';
 
-export type {
-  PaymentQuote,
-  PaymentRequest,
-  PaymentReceipt
-} from './overlay-payments';
+export type { PaymentQuote, PaymentRequest, PaymentReceipt } from './overlay-payments';
 
-export type {
-  BRC22Transaction,
-  BRC22Response,
-  TopicManager
-} from './brc22-submit';
+export type { BRC22Transaction, BRC22Response, TopicManager } from './brc22-submit';
 
-export type {
-  BRC24Query,
-  BRC24Response,
-  BRC36UTXO,
-  LookupProvider
-} from './brc24-lookup';
+export type { BRC24Query, BRC24Response, BRC36UTXO, LookupProvider } from './brc24-lookup';
 
-export type {
-  HistoricalUTXO,
-  HistoryQuery,
-  LineageGraph
-} from './brc64-history';
+export type { HistoricalUTXO, HistoryQuery, LineageGraph } from './brc64-history';
 
-export type {
-  SHIPAdvertisement,
-  SLAPAdvertisement,
-  ServiceNode
-} from './brc88-ship-slap';
+export type { SHIPAdvertisement, SLAPAdvertisement, ServiceNode } from './brc88-ship-slap';
 
-export type {
-  UHRPAdvertisement,
-  UHRPContent,
-  UHRPQuery,
-  UHRPHost
-} from './brc26-uhrp';
+export type { UHRPAdvertisement, UHRPContent, UHRPQuery, UHRPHost } from './brc26-uhrp';
 
 // Main overlay initialization function
 import { OverlayManager } from './overlay-manager';
@@ -82,11 +49,12 @@ import {
   PostgreSQLBRC22SubmitService,
   PostgreSQLBRC24LookupService,
   PostgreSQLBRC64HistoryService,
-  PostgreSQLBRC88SHIPSLAPService
+  PostgreSQLBRC88SHIPSLAPService,
 } from './brc-services-postgresql';
 import { BRC26UHRPService } from './brc26-uhrp';
 import { getOverlayConfig } from './overlay-config';
-import Database from 'better-sqlite3';
+
+import type Database from 'better-sqlite3';
 import { Pool } from 'pg';
 
 // Database adapter interface for PostgreSQL support
@@ -159,18 +127,18 @@ function createLegacyWrapper(dbAdapter: DatabaseAdapter): any {
   return {
     // Synchronous exec method - run async in background
     exec: (sql: string) => {
-      dbAdapter.execute(sql).catch(err =>
-        console.warn('[LEGACY-DB] Async exec error:', err.message)
-      );
+      dbAdapter
+        .execute(sql)
+        .catch((err) => console.warn('[LEGACY-DB] Async exec error:', err.message));
     },
 
     // Prepare method that returns an object with run/get/all methods
     prepare: (sql: string) => {
       return {
         run: (...params: any[]) => {
-          dbAdapter.execute(sql, params).catch(err =>
-            console.warn('[LEGACY-DB] Async run error:', err.message)
-          );
+          dbAdapter
+            .execute(sql, params)
+            .catch((err) => console.warn('[LEGACY-DB] Async run error:', err.message));
           return { lastInsertRowid: Date.now(), changes: 1 };
         },
 
@@ -183,11 +151,12 @@ function createLegacyWrapper(dbAdapter: DatabaseAdapter): any {
           }
 
           // Async operation - can't return real data synchronously
-          dbAdapter.queryOne(sql, params).then(result => {
-            if (result) queryCache.set(cacheKey, result);
-          }).catch(err =>
-            console.warn('[LEGACY-DB] Async get error:', err.message)
-          );
+          dbAdapter
+            .queryOne(sql, params)
+            .then((result) => {
+              if (result) queryCache.set(cacheKey, result);
+            })
+            .catch((err) => console.warn('[LEGACY-DB] Async get error:', err.message));
 
           return null; // Legacy services must handle null gracefully
         },
@@ -199,23 +168,24 @@ function createLegacyWrapper(dbAdapter: DatabaseAdapter): any {
             return queryCache.get(cacheKey);
           }
 
-          dbAdapter.query(sql, params).then(results => {
-            if (results) queryCache.set(cacheKey, results);
-          }).catch(err =>
-            console.warn('[LEGACY-DB] Async all error:', err.message)
-          );
+          dbAdapter
+            .query(sql, params)
+            .then((results) => {
+              if (results) queryCache.set(cacheKey, results);
+            })
+            .catch((err) => console.warn('[LEGACY-DB] Async all error:', err.message));
 
           return []; // Return empty array for legacy compatibility
-        }
+        },
       };
-    }
+    },
   };
 }
 
 // Import agent marketplace services
+import { AgentExecutionService } from '../agents/agent-execution-service';
 import { OverlayAgentRegistry } from '../agents/overlay-agent-registry';
 import { OverlayRuleEngine } from '../agents/overlay-rule-engine';
-import { AgentExecutionService } from '../agents/agent-execution-service';
 
 export interface GitdataOverlayServices {
   overlayManager: OverlayManager;
@@ -241,9 +211,8 @@ export async function initializeOverlayServices(
   options: {
     storageBasePath?: string;
     baseUrl?: string;
-  } = {}
+  } = {},
 ): Promise<GitdataOverlayServices> {
-
   // Create database adapter based on the type of database provided
   let dbAdapter: DatabaseAdapter;
   if (database instanceof Pool) {
@@ -286,35 +255,27 @@ export async function initializeOverlayServices(
       {
         enableAutoSync: true,
         syncInterval: 60000, // 1 minute
-        peerDiscoveryUrls: [
-          'https://overlay.powping.com',
-          'https://overlay.bitcoinfiles.org'
-        ],
+        peerDiscoveryUrls: ['https://overlay.powping.com', 'https://overlay.bitcoinfiles.org'],
         advertisementTTL: 24 * 60 * 60 * 1000, // 24 hours
-        maxPeers: 50
+        maxPeers: 50,
       },
-      myDomain
+      myDomain,
     );
     console.log('[OVERLAY] ✅ Initialized SQLite BRC services (22, 24, 64, 88) for development');
   }
 
   // Create BRC-26 UHRP service (Universal Hash Resolution Protocol for file storage)
-  const brc26Service = new BRC26UHRPService(
-    dbAdapter,
-    storageBasePath,
-    baseUrl
-  );
+  const brc26Service = new BRC26UHRPService(dbAdapter, storageBasePath, baseUrl);
 
   // Create overlay manager - use appropriate database interface
-  const legacyDatabase = database instanceof Pool ?
-    createLegacyWrapper(dbAdapter) : database;
+  const legacyDatabase = database instanceof Pool ? createLegacyWrapper(dbAdapter) : database;
 
   const overlayManager = new OverlayManager({
     environment,
     database: legacyDatabase,
     autoConnect: true,
     enablePaymentIntegration: true,
-    enableSearchIntegration: true
+    enableSearchIntegration: true,
   });
 
   // Create payment service
@@ -325,7 +286,7 @@ export async function initializeOverlayServices(
   const ruleEngine = new OverlayRuleEngine(dbAdapter, brc22Service!, agentRegistry);
   const executionService = new AgentExecutionService(dbAdapter, {
     webhookTimeoutMs: 15000,
-    requireIdentity: true
+    requireIdentity: true,
   });
 
   // Initialize overlay manager
@@ -339,7 +300,7 @@ export async function initializeOverlayServices(
     brc24Service,
     brc64Service,
     brc88Service,
-    brc26Service
+    brc26Service,
   );
 
   return {
@@ -353,7 +314,7 @@ export async function initializeOverlayServices(
     // D24 Agent Marketplace Services
     agentRegistry,
     ruleEngine,
-    executionService
+    executionService,
   };
 }
 
@@ -367,9 +328,8 @@ function setupCrossServiceEvents(
   brc24Service: BRC24LookupService | null,
   brc64Service: BRC64HistoryService | null,
   brc88Service: BRC88SHIPSLAPService | null,
-  brc26Service: BRC26UHRPService
+  brc26Service: BRC26UHRPService,
 ): void {
-
   // === Overlay Manager Events ===
 
   // Forward payment events from overlay manager to payment service
@@ -384,9 +344,9 @@ function setupCrossServiceEvents(
     }
   });
 
-  // Forward manifest publications for payment tracking
-  overlayManager.on('manifest-published', (event) => {
-    if (event.manifest.policy?.paymentRequired) {
+  // Forward asset publications for payment tracking
+  overlayManager.on('asset-published', (event) => {
+    if (event.asset.policy?.paymentRequired) {
       paymentService.emit('paid-content-published', event);
     }
   });
@@ -408,16 +368,16 @@ function setupCrossServiceEvents(
   if (brc22Service) {
     // Forward BRC-22 UTXO admissions to overlay for publishing
     brc22Service.on('manifest-utxo-admitted', async (event) => {
-    // Publish manifest data to overlay network
-    try {
-      const manifest = await extractManifestFromUTXO(event);
-      if (manifest) {
-        await overlayManager.publishManifest(manifest);
+      // Publish asset data to overlay network
+      try {
+        const asset = await extractAssetFromUTXO(event);
+        if (asset) {
+          await overlayManager.publishAsset(asset);
+        }
+      } catch (error) {
+        console.error('Failed to publish asset from BRC-22 admission:', error);
       }
-    } catch (error) {
-      console.error('Failed to publish manifest from BRC-22 admission:', error);
-    }
-  });
+    });
 
     // Forward transaction processing to history service
     brc22Service.on('transaction-processed', (event) => {
@@ -478,32 +438,32 @@ function setupCrossServiceEvents(
   // Forward file storage events to overlay for publication
   brc26Service.on('file-stored', async (content) => {
     try {
-      // Create manifest for the stored file
-      const manifest = {
+      // Create asset metadata for the stored file
+      const asset = {
         datasetId: `uhrp-file-${content.hash}`,
         description: `UHRP stored file: ${content.filename}`,
         provenance: {
           createdAt: new Date(content.uploadedAt).toISOString(),
-          issuer: 'uhrp-service'
+          issuer: 'uhrp-service',
         },
         policy: {
           license: 'proprietary',
-          classification: content.isPublic ? 'public' : 'private'
+          classification: content.isPublic ? 'public' : 'private',
         },
         content: {
           contentHash: content.hash,
           mediaType: content.contentType,
           sizeBytes: content.size,
-          url: `uhrp://${content.hash}`
+          url: `uhrp://${content.hash}`,
         },
         parents: [],
-        tags: ['uhrp-file', ...(content.metadata?.tags || [])]
+        tags: ['uhrp-file', ...(content.metadata?.tags || [])],
       };
 
-      await overlayManager.publishManifest(manifest);
-      console.log(`[OVERLAY] Published UHRP file manifest: ${content.hash}`);
+      await overlayManager.publishAsset(asset);
+      console.log(`[OVERLAY] Published UHRP file asset: ${content.hash}`);
     } catch (error) {
-      console.error('[OVERLAY] Failed to publish UHRP file manifest:', error);
+      console.error('[OVERLAY] Failed to publish UHRP file asset:', error);
     }
   });
 
@@ -518,7 +478,12 @@ function setupCrossServiceEvents(
 
   // When new data is discovered via overlay, process through BRC-22
   overlayManager.on('data-received', async (event) => {
-    if (brc22Service && (event.topic.includes('manifest') || event.topic.includes('d01a'))) {
+    if (
+      brc22Service &&
+      (event.topic.includes('asset') ||
+        event.topic.includes('manifest') ||
+        event.topic.includes('d01a'))
+    ) {
       try {
         // Convert overlay data to BRC-22 transaction format
         const brc22Transaction = convertOverlayDataToBRC22(event);
@@ -538,7 +503,7 @@ function setupCrossServiceEvents(
         // Also search overlay network for additional results
         const overlayResults = await overlayManager.searchData({
           topic: event.provider,
-          limit: 10
+          limit: 10,
         });
         // Merge results if needed
       } catch (error) {
@@ -558,7 +523,7 @@ function setupCrossServiceEvents(
         processQuery: async (query: any) => {
           // In production, make HTTP request to remote service
           return [];
-        }
+        },
       };
       // brc24Service.addLookupProvider(provider); // Uncomment when remote providers are implemented
     });
@@ -568,31 +533,39 @@ function setupCrossServiceEvents(
 }
 
 /**
- * Helper function to extract manifest from UTXO (placeholder)
+ * Helper function to extract asset from UTXO (placeholder)
  */
-async function extractManifestFromUTXO(event: any): Promise<any | null> {
-  // In production, parse the UTXO output script to extract D01A manifest
-  // For now, return a mock manifest
+async function extractAssetFromUTXO(event: any): Promise<any | null> {
+  // In production, parse the UTXO output script to extract D01A asset
+  // For now, return a mock asset
   return {
     datasetId: 'extracted-from-utxo',
-    description: 'Manifest extracted from BRC-22 UTXO',
+    description: 'Asset extracted from BRC-22 UTXO',
     provenance: {
       createdAt: new Date().toISOString(),
-      issuer: event.outputScript?.substring(0, 16) || 'unknown'
+      issuer: event.outputScript?.substring(0, 16) || 'unknown',
     },
     policy: {
       license: 'cc-by-4.0',
-      classification: 'public'
+      classification: 'public',
     },
     content: {
       contentHash: event.txid,
       mediaType: 'application/json',
       sizeBytes: event.satoshis,
-      url: `utxo://${event.txid}:${event.vout}`
+      url: `utxo://${event.txid}:${event.vout}`,
     },
     parents: [],
-    tags: ['brc22-extracted']
+    tags: ['brc22-extracted'],
   };
+}
+
+/**
+ * @deprecated Use extractAssetFromUTXO instead
+ * Backward compatibility function for extractManifestFromUTXO
+ */
+async function extractManifestFromUTXO(event: any): Promise<any | null> {
+  return extractAssetFromUTXO(event);
 }
 
 /**
@@ -606,7 +579,7 @@ function convertOverlayDataToBRC22(event: any): any | null {
       rawTx: '0100000001' + '00'.repeat(32), // Mock transaction
       inputs: {},
       topics: [event.topic],
-      mapiResponses: []
+      mapiResponses: [],
     };
   }
   return null;

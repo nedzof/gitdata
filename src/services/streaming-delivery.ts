@@ -3,8 +3,9 @@
  * Handles webhook-based content delivery with quota enforcement
  */
 
-import { Pool } from 'pg';
 import crypto from 'crypto';
+
+import { Pool } from 'pg';
 // Using built-in fetch (Node.js 18+)
 
 const pool = new Pool({
@@ -39,7 +40,10 @@ export interface DeliveryResult {
 /**
  * Validate quota before streaming delivery
  */
-async function validateStreamingQuota(receiptId: string, estimatedBytes: number): Promise<{
+async function validateStreamingQuota(
+  receiptId: string,
+  estimatedBytes: number,
+): Promise<{
   allowed: boolean;
   errorMessage?: string;
 }> {
@@ -80,19 +84,18 @@ async function validateStreamingQuota(receiptId: string, estimatedBytes: number)
     if (parseInt(usage.bytes_used) + estimatedBytes > bytesAllowed) {
       return {
         allowed: false,
-        errorMessage: `Hourly quota exceeded: ${usage.bytes_used + estimatedBytes} > ${bytesAllowed} bytes`
+        errorMessage: `Hourly quota exceeded: ${usage.bytes_used + estimatedBytes} > ${bytesAllowed} bytes`,
       };
     }
 
     if (parseInt(usage.requests_used) + 1 > requestsAllowed) {
       return {
         allowed: false,
-        errorMessage: `Hourly request quota exceeded: ${usage.requests_used + 1} > ${requestsAllowed}`
+        errorMessage: `Hourly request quota exceeded: ${usage.requests_used + 1} > ${requestsAllowed}`,
       };
     }
 
     return { allowed: true };
-
   } catch (error) {
     console.error('Streaming quota validation error:', error);
     return { allowed: false, errorMessage: 'Quota validation failed' };
@@ -105,9 +108,12 @@ async function validateStreamingQuota(receiptId: string, estimatedBytes: number)
 async function updateStreamingQuotaUsage(receiptId: string, bytesDelivered: number): Promise<void> {
   const now = new Date();
   const windows = [
-    { type: 'hour', start: new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()) },
+    {
+      type: 'hour',
+      start: new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()),
+    },
     { type: 'day', start: new Date(now.getFullYear(), now.getMonth(), now.getDate()) },
-    { type: 'month', start: new Date(now.getFullYear(), now.getMonth(), 1) }
+    { type: 'month', start: new Date(now.getFullYear(), now.getMonth(), 1) },
   ];
 
   for (const window of windows) {
@@ -139,14 +145,24 @@ async function updateStreamingQuotaUsage(receiptId: string, bytesDelivered: numb
         updated_at = NOW()
     `;
 
-    await pool.query(upsertQuery, [receiptId, policyId, window.type, window.start, windowEnd, bytesDelivered]);
+    await pool.query(upsertQuery, [
+      receiptId,
+      policyId,
+      window.type,
+      window.start,
+      windowEnd,
+      bytesDelivered,
+    ]);
   }
 }
 
 /**
  * Record streaming usage in the database
  */
-async function recordStreamingUsage(subscription: StreamingSubscription, result: DeliveryResult): Promise<void> {
+async function recordStreamingUsage(
+  subscription: StreamingSubscription,
+  result: DeliveryResult,
+): Promise<void> {
   const sessionId = crypto.randomUUID();
 
   const streamingQuery = `
@@ -166,7 +182,7 @@ async function recordStreamingUsage(subscription: StreamingSubscription, result:
     result.hostUsed || 'local',
     result.deliveryTime,
     result.success ? 100.0 : 0.0,
-    subscription.agentId
+    subscription.agentId,
   ]);
 }
 
@@ -175,7 +191,7 @@ async function recordStreamingUsage(subscription: StreamingSubscription, result:
  */
 export async function deliverContentToWebhook(
   subscription: StreamingSubscription,
-  contentData: Buffer | string
+  contentData: Buffer | string,
 ): Promise<DeliveryResult> {
   const startTime = Date.now();
 
@@ -191,7 +207,7 @@ export async function deliverContentToWebhook(
         success: false,
         bytesDelivered: 0,
         deliveryTime: Date.now() - startTime,
-        error: quotaCheck.errorMessage
+        error: quotaCheck.errorMessage,
       };
     }
 
@@ -203,7 +219,7 @@ export async function deliverContentToWebhook(
       timestamp: new Date().toISOString(),
       data: contentBuffer.toString('base64'), // Base64 encode for JSON transport
       agentId: subscription.agentId,
-      deliveryMethod: 'webhook'
+      deliveryMethod: 'webhook',
     };
 
     // Deliver to webhook
@@ -213,10 +229,10 @@ export async function deliverContentToWebhook(
         'Content-Type': 'application/json',
         'X-Receipt-ID': subscription.receiptId,
         'X-Content-Hash': subscription.contentHash,
-        'X-Content-Size': contentSize.toString()
+        'X-Content-Size': contentSize.toString(),
       },
       body: JSON.stringify(payload),
-      timeout: 30000 // 30 second timeout
+      timeout: 30000, // 30 second timeout
     });
 
     const deliveryTime = Date.now() - startTime;
@@ -233,14 +249,13 @@ export async function deliverContentToWebhook(
       success: true,
       bytesDelivered: contentSize,
       deliveryTime,
-      hostUsed: 'webhook-delivery'
+      hostUsed: 'webhook-delivery',
     };
 
     await recordStreamingUsage(subscription, result);
 
     console.log(`✅ Content delivered to webhook: ${contentSize} bytes in ${deliveryTime}ms`);
     return result;
-
   } catch (error) {
     const deliveryTime = Date.now() - startTime;
     console.error('Webhook delivery error:', error);
@@ -249,7 +264,7 @@ export async function deliverContentToWebhook(
       success: false,
       bytesDelivered: 0,
       deliveryTime,
-      error: error.message
+      error: error.message,
     };
 
     await recordStreamingUsage(subscription, result);
@@ -264,7 +279,7 @@ export async function createStreamingSubscription(
   receiptId: string,
   webhookUrl: string,
   contentHash: string,
-  agentId?: string
+  agentId?: string,
 ): Promise<string> {
   try {
     // Create agent streaming session
@@ -276,16 +291,12 @@ export async function createStreamingSubscription(
       RETURNING id
     `;
 
-    const result = await pool.query(sessionQuery, [
-      agentId,
-      receiptId,
-    ]);
+    const result = await pool.query(sessionQuery, [agentId, receiptId]);
 
     const sessionId = result.rows[0].id;
     console.log(`📡 Streaming subscription created: ${sessionId} for receipt ${receiptId}`);
 
     return sessionId;
-
   } catch (error) {
     console.error('Error creating streaming subscription:', error);
     throw error;
@@ -299,7 +310,7 @@ export async function handleMarketPurchaseWithStreaming(
   receiptId: string,
   versionId: string,
   webhookUrl?: string,
-  agentId?: string
+  agentId?: string,
 ): Promise<void> {
   try {
     // Get content hash from version
@@ -330,8 +341,8 @@ export async function handleMarketPurchaseWithStreaming(
           chunkSize: 1024 * 1024, // 1MB chunks
           compressionEnabled: true,
           maxRetries: 3,
-          retryDelayMs: 1000
-        }
+          retryDelayMs: 1000,
+        },
       };
 
       // Create subscription
@@ -346,7 +357,6 @@ export async function handleMarketPurchaseWithStreaming(
         }
       }
     }
-
   } catch (error) {
     console.error('Error handling market purchase with streaming:', error);
     throw error;
@@ -356,5 +366,5 @@ export async function handleMarketPurchaseWithStreaming(
 export default {
   deliverContentToWebhook,
   createStreamingSubscription,
-  handleMarketPurchaseWithStreaming
+  handleMarketPurchaseWithStreaming,
 };

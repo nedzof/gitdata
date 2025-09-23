@@ -2,10 +2,13 @@
 // Implements SHIP (Services Host Interconnect Protocol) and SLAP (Services Lookup Availability Protocol)
 
 import { EventEmitter } from 'events';
-import { getPostgreSQLClient, PostgreSQLClient } from '../db/postgresql';
-import { BRC22SubmitService } from './brc22-submit';
-import { BRC24LookupService } from './brc24-lookup';
+
 import { walletService } from '../../ui/src/lib/wallet';
+import type { PostgreSQLClient } from '../db/postgresql';
+import { getPostgreSQLClient } from '../db/postgresql';
+
+import type { BRC22SubmitService } from './brc22-submit';
+import type { BRC24LookupService } from './brc24-lookup';
 
 export interface SHIPAdvertisement {
   advertiserIdentity: string;
@@ -60,7 +63,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
     brc22Service: BRC22SubmitService,
     brc24Service: BRC24LookupService,
     config: SynchronizationConfig,
-    myDomain: string
+    myDomain: string,
   ) {
     super();
     this.database = database;
@@ -76,91 +79,13 @@ class BRC88SHIPSLAPService extends EventEmitter {
   }
 
   /**
-   * Set up database tables for SHIP/SLAP operations
+   * Database tables are now created in the main schema at /src/db/postgresql-schema-complete.sql
+   * This method is kept for compatibility but no longer creates tables
    */
   private setupDatabase(): void {
-    // SHIP advertisements table
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS brc88_ship_ads (
-        ad_id TEXT PRIMARY KEY,
-        advertiser_identity TEXT NOT NULL,
-        domain_name TEXT NOT NULL,
-        topic_name TEXT NOT NULL,
-        signature TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        is_revocation BOOLEAN DEFAULT FALSE,
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-        UNIQUE(advertiser_identity, domain_name, topic_name)
-      )
-    `);
-
-    // SLAP advertisements table
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS brc88_slap_ads (
-        ad_id TEXT PRIMARY KEY,
-        advertiser_identity TEXT NOT NULL,
-        domain_name TEXT NOT NULL,
-        service_id TEXT NOT NULL,
-        signature TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        is_revocation BOOLEAN DEFAULT FALSE,
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-        UNIQUE(advertiser_identity, domain_name, service_id)
-      )
-    `);
-
-    // Peer discovery and connection tracking
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS brc88_peers (
-        peer_identity TEXT PRIMARY KEY,
-        domain_name TEXT NOT NULL,
-        topics_json TEXT,
-        services_json TEXT,
-        last_seen INTEGER NOT NULL,
-        connection_status TEXT DEFAULT 'discovered',
-        is_active BOOLEAN DEFAULT TRUE,
-        sync_attempts INTEGER DEFAULT 0,
-        last_sync_success INTEGER,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
-      )
-    `);
-
-    // Synchronization history
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS brc88_sync_history (
-        sync_id TEXT PRIMARY KEY,
-        peer_identity TEXT,
-        sync_type TEXT NOT NULL, -- 'ship_discovery', 'slap_discovery', 'advertisement', 'revocation'
-        direction TEXT NOT NULL, -- 'incoming', 'outgoing'
-        status TEXT NOT NULL, -- 'success', 'failed', 'partial'
-        message_count INTEGER DEFAULT 0,
-        error_message TEXT,
-        timestamp INTEGER NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
-      )
-    `);
-
-    // Indexes
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS idx_brc88_ship_advertiser ON brc88_ship_ads(advertiser_identity);
-      CREATE INDEX IF NOT EXISTS idx_brc88_ship_domain ON brc88_ship_ads(domain_name);
-      CREATE INDEX IF NOT EXISTS idx_brc88_ship_topic ON brc88_ship_ads(topic_name);
-      CREATE INDEX IF NOT EXISTS idx_brc88_ship_active ON brc88_ship_ads(is_active);
-
-      CREATE INDEX IF NOT EXISTS idx_brc88_slap_advertiser ON brc88_slap_ads(advertiser_identity);
-      CREATE INDEX IF NOT EXISTS idx_brc88_slap_domain ON brc88_slap_ads(domain_name);
-      CREATE INDEX IF NOT EXISTS idx_brc88_slap_service ON brc88_slap_ads(service_id);
-      CREATE INDEX IF NOT EXISTS idx_brc88_slap_active ON brc88_slap_ads(is_active);
-
-      CREATE INDEX IF NOT EXISTS idx_brc88_peers_domain ON brc88_peers(domain_name);
-      CREATE INDEX IF NOT EXISTS idx_brc88_peers_active ON brc88_peers(is_active);
-      CREATE INDEX IF NOT EXISTS idx_brc88_peers_last_seen ON brc88_peers(last_seen);
-
-      CREATE INDEX IF NOT EXISTS idx_brc88_sync_peer ON brc88_sync_history(peer_identity);
-      CREATE INDEX IF NOT EXISTS idx_brc88_sync_timestamp ON brc88_sync_history(timestamp);
-    `);
+    // Tables are now created centrally in the main database schema
+    // BRC-88 tables: brc88_ship_ads, brc88_slap_ads, brc88_peers, brc88_sync_history
+    console.log('BRC-88 database tables managed by central schema');
   }
 
   /**
@@ -175,7 +100,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       },
       onOutputAdmitted: (txid, vout, outputScript, satoshis) => {
         this.processSHIPAdvertisement(txid, vout, outputScript);
-      }
+      },
     });
 
     // SLAP topic manager
@@ -186,7 +111,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       },
       onOutputAdmitted: (txid, vout, outputScript, satoshis) => {
         this.processSLAPAdvertisement(txid, vout, outputScript);
-      }
+      },
     });
   }
 
@@ -239,9 +164,8 @@ class BRC88SHIPSLAPService extends EventEmitter {
 
       this.emit('sync-completed', {
         peers: this.knownPeers.size,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
-
     } catch (error) {
       console.error('[BRC-88] Synchronization failed:', error);
       this.recordSyncAttempt(null, 'full_sync', 'outgoing', 'failed', 0, error.message);
@@ -277,15 +201,15 @@ class BRC88SHIPSLAPService extends EventEmitter {
       {
         identity: '02aabbcc' + 'deadbeef'.repeat(7),
         domain: 'peer1.example.com',
-        topics: ['gitdata.d01a.manifest', 'gitdata.dataset.public'],
-        services: ['topic_lookup', 'dataset_search']
+        topics: ['gitdata.d01a.asset', 'gitdata.dataset.public'],
+        services: ['topic_lookup', 'dataset_search'],
       },
       {
         identity: '03112233' + 'cafebabe'.repeat(7),
         domain: 'peer2.example.com',
         topics: ['gitdata.agent.registry', 'gitdata.payment.quotes'],
-        services: ['agent_services', 'payment_tracker']
-      }
+        services: ['agent_services', 'payment_tracker'],
+      },
     ];
 
     for (const peer of mockPeers) {
@@ -307,28 +231,32 @@ class BRC88SHIPSLAPService extends EventEmitter {
       domainName: peerInfo.domain,
       services: {
         topics: peerInfo.topics,
-        lookupProviders: peerInfo.services
+        lookupProviders: peerInfo.services,
       },
       lastSeen: Date.now(),
       isActive: true,
-      connectionStatus: 'discovered'
+      connectionStatus: 'discovered',
     };
 
     this.knownPeers.set(peerInfo.identity, serviceNode);
 
     // Store in database
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       INSERT OR REPLACE INTO brc88_peers
       (peer_identity, domain_name, topics_json, services_json, last_seen, is_active)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      peerInfo.identity,
-      peerInfo.domain,
-      JSON.stringify(peerInfo.topics),
-      JSON.stringify(peerInfo.services),
-      Date.now(),
-      true
-    );
+    `,
+      )
+      .run(
+        peerInfo.identity,
+        peerInfo.domain,
+        JSON.stringify(peerInfo.topics),
+        JSON.stringify(peerInfo.services),
+        Date.now(),
+        true,
+      );
 
     this.emit('peer-discovered', serviceNode);
   }
@@ -338,7 +266,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
    */
   private async syncWithPeers(): Promise<void> {
     const activePeers = Array.from(this.knownPeers.values())
-      .filter(peer => peer.isActive)
+      .filter((peer) => peer.isActive)
       .slice(0, this.config.maxPeers);
 
     for (const peer of activePeers) {
@@ -370,7 +298,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       'peer_sync',
       'outgoing',
       'success',
-      peer.services.topics.length + peer.services.lookupProviders.length
+      peer.services.topics.length + peer.services.lookupProviders.length,
     );
 
     this.emit('peer-synced', peer);
@@ -380,27 +308,43 @@ class BRC88SHIPSLAPService extends EventEmitter {
    * Handle peer sync failure
    */
   private async handlePeerSyncFailure(peer: ServiceNode): Promise<void> {
-    const currentAttempts = this.database.prepare(`
+    const currentAttempts =
+      this.database
+        .prepare(
+          `
       SELECT sync_attempts FROM brc88_peers WHERE peer_identity = ?
-    `).get(peer.identity)?.sync_attempts || 0;
+    `,
+        )
+        .get(peer.identity)?.sync_attempts || 0;
 
     const newAttempts = currentAttempts + 1;
 
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       UPDATE brc88_peers
       SET sync_attempts = ?, connection_status = ?, is_active = ?
       WHERE peer_identity = ?
-    `).run(
-      newAttempts,
-      'disconnected',
-      newAttempts < 5, // Deactivate after 5 failed attempts
-      peer.identity
-    );
+    `,
+      )
+      .run(
+        newAttempts,
+        'disconnected',
+        newAttempts < 5, // Deactivate after 5 failed attempts
+        peer.identity,
+      );
 
     peer.connectionStatus = 'disconnected';
     peer.isActive = newAttempts < 5;
 
-    this.recordSyncAttempt(peer.identity, 'peer_sync', 'outgoing', 'failed', 0, 'Connection failed');
+    this.recordSyncAttempt(
+      peer.identity,
+      'peer_sync',
+      'outgoing',
+      'failed',
+      0,
+      'Connection failed',
+    );
   }
 
   /**
@@ -417,7 +361,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
         domainName: this.myDomain,
         topicName,
         signature: '',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
 
       // Sign the advertisement
@@ -432,7 +376,6 @@ class BRC88SHIPSLAPService extends EventEmitter {
 
       this.emit('ship-advertisement-created', { topicName, txid: txResult.txid });
       return txResult.txid;
-
     } catch (error) {
       throw new Error(`Failed to create SHIP advertisement: ${error.message}`);
     }
@@ -452,7 +395,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
         domainName: this.myDomain,
         serviceId,
         signature: '',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
 
       // Sign the advertisement
@@ -467,7 +410,6 @@ class BRC88SHIPSLAPService extends EventEmitter {
 
       this.emit('slap-advertisement-created', { serviceId, txid: txResult.txid });
       return txResult.txid;
-
     } catch (error) {
       throw new Error(`Failed to create SLAP advertisement: ${error.message}`);
     }
@@ -486,10 +428,14 @@ class BRC88SHIPSLAPService extends EventEmitter {
 
       // Create SHIP advertisements for each topic
       for (const topic of activeTopics) {
-        const existingAd = this.database.prepare(`
+        const existingAd = this.database
+          .prepare(
+            `
           SELECT * FROM brc88_ship_ads
           WHERE advertiser_identity = ? AND topic_name = ? AND is_active = TRUE
-        `).get(this.myIdentity, topic);
+        `,
+          )
+          .get(this.myIdentity, topic);
 
         if (!existingAd) {
           await this.createSHIPAdvertisement(topic);
@@ -501,16 +447,19 @@ class BRC88SHIPSLAPService extends EventEmitter {
 
       // Create SLAP advertisements for each provider
       for (const provider of providers) {
-        const existingAd = this.database.prepare(`
+        const existingAd = this.database
+          .prepare(
+            `
           SELECT * FROM brc88_slap_ads
           WHERE advertiser_identity = ? AND service_id = ? AND is_active = TRUE
-        `).get(this.myIdentity, provider.providerId);
+        `,
+          )
+          .get(this.myIdentity, provider.providerId);
 
         if (!existingAd) {
           await this.createSLAPAdvertisement(provider.providerId);
         }
       }
-
     } catch (error) {
       console.error('[BRC-88] Failed to update own advertisements:', error);
     }
@@ -551,7 +500,11 @@ class BRC88SHIPSLAPService extends EventEmitter {
   /**
    * Process SHIP advertisement from blockchain
    */
-  private async processSHIPAdvertisement(txid: string, vout: number, outputScript: string): Promise<void> {
+  private async processSHIPAdvertisement(
+    txid: string,
+    vout: number,
+    outputScript: string,
+  ): Promise<void> {
     try {
       // In production, parse the output script to extract SHIP data
       const advertisement = this.parseSHIPFromScript(outputScript);
@@ -567,7 +520,11 @@ class BRC88SHIPSLAPService extends EventEmitter {
   /**
    * Process SLAP advertisement from blockchain
    */
-  private async processSLAPAdvertisement(txid: string, vout: number, outputScript: string): Promise<void> {
+  private async processSLAPAdvertisement(
+    txid: string,
+    vout: number,
+    outputScript: string,
+  ): Promise<void> {
     try {
       // In production, parse the output script to extract SLAP data
       const advertisement = this.parseSLAPFromScript(outputScript);
@@ -591,52 +548,107 @@ class BRC88SHIPSLAPService extends EventEmitter {
   } {
     const myIdentity = this.myIdentity || '';
 
-    const shipTotal = this.database.prepare(`
+    const shipTotal =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc88_ship_ads
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const shipActive = this.database.prepare(`
+    const shipActive =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc88_ship_ads WHERE is_active = TRUE
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const shipOwn = this.database.prepare(`
+    const shipOwn =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc88_ship_ads
       WHERE advertiser_identity = ? AND is_active = TRUE
-    `).get(myIdentity)?.count || 0;
+    `,
+        )
+        .get(myIdentity)?.count || 0;
 
-    const slapTotal = this.database.prepare(`
+    const slapTotal =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc88_slap_ads
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const slapActive = this.database.prepare(`
+    const slapActive =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc88_slap_ads WHERE is_active = TRUE
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const slapOwn = this.database.prepare(`
+    const slapOwn =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc88_slap_ads
       WHERE advertiser_identity = ? AND is_active = TRUE
-    `).get(myIdentity)?.count || 0;
+    `,
+        )
+        .get(myIdentity)?.count || 0;
 
-    const peersTotal = this.database.prepare(`
+    const peersTotal =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc88_peers
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const peersActive = this.database.prepare(`
+    const peersActive =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc88_peers WHERE is_active = TRUE
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const peersConnected = this.database.prepare(`
+    const peersConnected =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc88_peers
       WHERE connection_status = 'connected'
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const syncAttempts = this.database.prepare(`
+    const syncAttempts =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc88_sync_history
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const syncSuccesses = this.database.prepare(`
+    const syncSuccesses =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc88_sync_history WHERE status = 'success'
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
     const syncFailures = syncAttempts - syncSuccesses;
 
@@ -644,7 +656,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       ship: { total: shipTotal, active: shipActive, own: shipOwn },
       slap: { total: slapTotal, active: slapActive, own: slapOwn },
       peers: { total: peersTotal, active: peersActive, connected: peersConnected },
-      sync: { attempts: syncAttempts, successes: syncSuccesses, failures: syncFailures }
+      sync: { attempts: syncAttempts, successes: syncSuccesses, failures: syncFailures },
     };
   }
 
@@ -658,7 +670,10 @@ class BRC88SHIPSLAPService extends EventEmitter {
     return `SLAP|${ad.advertiserIdentity}|${ad.domainName}|${ad.serviceId}|${ad.timestamp}`;
   }
 
-  private async createAdvertisementTransaction(type: 'SHIP' | 'SLAP', advertisement: any): Promise<{ txid: string }> {
+  private async createAdvertisementTransaction(
+    type: 'SHIP' | 'SLAP',
+    advertisement: any,
+  ): Promise<{ txid: string }> {
     // In production, create actual transaction with proper output script
     // For now, return mock transaction ID
     return { txid: require('crypto').randomBytes(32).toString('hex') };
@@ -667,39 +682,47 @@ class BRC88SHIPSLAPService extends EventEmitter {
   private async storeSHIPAdvertisement(ad: SHIPAdvertisement): Promise<void> {
     const adId = `ship_${ad.advertiserIdentity}_${ad.topicName}_${ad.timestamp}`;
 
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       INSERT OR REPLACE INTO brc88_ship_ads
       (ad_id, advertiser_identity, domain_name, topic_name, signature, timestamp, is_revocation, is_active)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      adId,
-      ad.advertiserIdentity,
-      ad.domainName,
-      ad.topicName,
-      ad.signature,
-      ad.timestamp,
-      ad.isRevocation || false,
-      !ad.isRevocation
-    );
+    `,
+      )
+      .run(
+        adId,
+        ad.advertiserIdentity,
+        ad.domainName,
+        ad.topicName,
+        ad.signature,
+        ad.timestamp,
+        ad.isRevocation || false,
+        !ad.isRevocation,
+      );
   }
 
   private async storeSLAPAdvertisement(ad: SLAPAdvertisement): Promise<void> {
     const adId = `slap_${ad.advertiserIdentity}_${ad.serviceId}_${ad.timestamp}`;
 
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       INSERT OR REPLACE INTO brc88_slap_ads
       (ad_id, advertiser_identity, domain_name, service_id, signature, timestamp, is_revocation, is_active)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      adId,
-      ad.advertiserIdentity,
-      ad.domainName,
-      ad.serviceId,
-      ad.signature,
-      ad.timestamp,
-      ad.isRevocation || false,
-      !ad.isRevocation
-    );
+    `,
+      )
+      .run(
+        adId,
+        ad.advertiserIdentity,
+        ad.domainName,
+        ad.serviceId,
+        ad.signature,
+        ad.timestamp,
+        ad.isRevocation || false,
+        !ad.isRevocation,
+      );
   }
 
   private parseSHIPFromScript(outputScript: string): SHIPAdvertisement | null {
@@ -710,7 +733,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
         domainName: 'parsed_domain.com',
         topicName: 'parsed_topic',
         signature: 'parsed_signature',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
     }
     return null;
@@ -724,7 +747,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
         domainName: 'parsed_domain.com',
         serviceId: 'parsed_service',
         signature: 'parsed_signature',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
     }
     return null;
@@ -734,7 +757,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
     // Simplified parsing - use proper Bitcoin transaction parser in production
     return [
       { script: 'SHIP_mock_script', satoshis: 1000 },
-      { script: 'SLAP_mock_script', satoshis: 1000 }
+      { script: 'SLAP_mock_script', satoshis: 1000 },
     ];
   }
 
@@ -744,49 +767,65 @@ class BRC88SHIPSLAPService extends EventEmitter {
     direction: string,
     status: string,
     messageCount: number = 0,
-    errorMessage?: string
+    errorMessage?: string,
   ): void {
     const syncId = `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       INSERT INTO brc88_sync_history
       (sync_id, peer_identity, sync_type, direction, status, message_count, error_message, timestamp)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      syncId,
-      peerIdentity,
-      syncType,
-      direction,
-      status,
-      messageCount,
-      errorMessage || null,
-      Date.now()
-    );
+    `,
+      )
+      .run(
+        syncId,
+        peerIdentity,
+        syncType,
+        direction,
+        status,
+        messageCount,
+        errorMessage || null,
+        Date.now(),
+      );
   }
 
   private async cleanupStaleAdvertisements(): Promise<void> {
     const staleThreshold = Date.now() - this.config.advertisementTTL;
 
     // Mark stale SHIP advertisements as inactive
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       UPDATE brc88_ship_ads
       SET is_active = FALSE
       WHERE timestamp < ? AND is_active = TRUE
-    `).run(staleThreshold);
+    `,
+      )
+      .run(staleThreshold);
 
     // Mark stale SLAP advertisements as inactive
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       UPDATE brc88_slap_ads
       SET is_active = FALSE
       WHERE timestamp < ? AND is_active = TRUE
-    `).run(staleThreshold);
+    `,
+      )
+      .run(staleThreshold);
 
     // Mark stale peers as inactive
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       UPDATE brc88_peers
       SET is_active = FALSE
       WHERE last_seen < ? AND is_active = TRUE
-    `).run(staleThreshold);
+    `,
+      )
+      .run(staleThreshold);
   }
 
   /**

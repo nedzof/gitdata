@@ -1,10 +1,17 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
+
+import {
+  generateContract,
+  EXAMPLE_CONTRACT_TEMPLATE,
+  EXAMPLE_TEMPLATE_SCHEMA,
+} from '../agents/templates';
 import { createTemplate, getTemplate, listTemplates, updateTemplate, deleteTemplate } from '../db';
-import { generateContract, EXAMPLE_CONTRACT_TEMPLATE, EXAMPLE_TEMPLATE_SCHEMA } from '../agents/templates';
 import { requireIdentity } from '../middleware/identity';
 
-function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
+function json(res: Response, code: number, body: any) {
+  return res.status(code).json(body);
+}
 
 export function templatesRouter(): Router {
   const router = makeRouter();
@@ -22,7 +29,7 @@ export function templatesRouter(): Router {
         description,
         template_content: content,
         template_type: type,
-        variables_json: variables ? JSON.stringify(variables) : null
+        variables_json: variables ? JSON.stringify(variables) : null,
       });
 
       return json(res, 200, { status: 'ok', templateId: id });
@@ -36,16 +43,16 @@ export function templatesRouter(): Router {
     try {
       const ownerId = req.query.owner ? String(req.query.owner) : undefined;
       const templates = await listTemplates(100, 0);
-      const items = templates.map(t => ({
+      const items = templates.map((t) => ({
         templateId: t.template_id,
         name: t.name,
         description: t.description,
         type: t.template_type,
         variables: t.variables_json ? JSON.parse(t.variables_json) : null,
         createdAt: t.created_at,
-      updatedAt: t.updated_at
-    }));
-    // TODO: Filter by ownerId if needed
+        updatedAt: t.updated_at,
+      }));
+      // TODO: Filter by ownerId if needed
       return json(res, 200, { items });
     } catch (e: any) {
       return json(res, 500, { error: 'list-templates-failed', message: String(e?.message || e) });
@@ -58,7 +65,8 @@ export function templatesRouter(): Router {
       const templateId = String(req.params.id);
 
       // Validate UUID format
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(templateId)) {
         return json(res, 404, { error: 'not-found' });
       }
@@ -74,7 +82,7 @@ export function templatesRouter(): Router {
         type: t.template_type,
         variables: t.variables_json ? JSON.parse(t.variables_json) : null,
         createdAt: t.created_at,
-        updatedAt: t.updated_at
+        updatedAt: t.updated_at,
       });
     } catch (e: any) {
       return json(res, 500, { error: 'get-template-failed', message: String(e?.message || e) });
@@ -133,7 +141,7 @@ export function templatesRouter(): Router {
       return json(res, 200, {
         status: 'ok',
         content: result.content,
-        metadata: result.metadata
+        metadata: result.metadata,
       });
     } catch (e: any) {
       return json(res, 500, { error: 'generate-failed', message: String(e?.message || e) });
@@ -145,7 +153,10 @@ export function templatesRouter(): Router {
     try {
       const existingTemplates = await listTemplates(1, 0);
       if (existingTemplates.length > 0) {
-        return json(res, 400, { error: 'templates-exist', hint: 'Bootstrap only works on empty systems' });
+        return json(res, 400, {
+          error: 'templates-exist',
+          hint: 'Bootstrap only works on empty systems',
+        });
       }
 
       const id = await createTemplate({
@@ -153,7 +164,7 @@ export function templatesRouter(): Router {
         description: 'Standard template for data processing agreements',
         template_content: EXAMPLE_CONTRACT_TEMPLATE,
         template_type: 'markdown',
-        variables_json: JSON.stringify(EXAMPLE_TEMPLATE_SCHEMA)
+        variables_json: JSON.stringify(EXAMPLE_TEMPLATE_SCHEMA),
       });
 
       return json(res, 200, { status: 'ok', templateId: id, message: 'Example template created' });

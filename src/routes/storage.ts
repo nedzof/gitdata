@@ -16,23 +16,27 @@
     POST /v1/storage/tier - Manual tiering operation
 */
 
-import type { Request, Response, Router } from 'express';
+import type { Request, Response, Router, NextFunction } from 'express';
 import { Router as makeRouter } from 'express';
+
+import { getPostgreSQLClient } from '../db/postgresql';
 import { getStorageDriver } from '../storage';
 import { StorageLifecycleManager, createStorageEventsMigration } from '../storage/lifecycle';
 import { StorageMigrator } from '../storage/migration';
-import { getPostgreSQLClient } from '../db/postgresql';
 
 interface HealthCheckResult {
   healthy: boolean;
   timestamp: number;
   storage: {
     backend: string;
-    tiers: Record<string, {
-      healthy: boolean;
-      latencyMs?: number;
-      error?: string;
-    }>;
+    tiers: Record<
+      string,
+      {
+        healthy: boolean;
+        latencyMs?: number;
+        error?: string;
+      }
+    >;
   };
   cdn: {
     enabled: boolean;
@@ -49,11 +53,14 @@ interface StorageStats {
   usage: {
     totalObjects: number;
     totalSizeBytes: number;
-    tierBreakdown: Record<string, {
-      objectCount: number;
-      sizeBytes: number;
-      costEstimate: number;
-    }>;
+    tierBreakdown: Record<
+      string,
+      {
+        objectCount: number;
+        sizeBytes: number;
+        costEstimate: number;
+      }
+    >;
   };
   performance: {
     avgLatencyMs: number;
@@ -71,7 +78,7 @@ function json(res: Response, code: number, body: any) {
   return res.status(code).json(body);
 }
 
-function requireAuth(req: Request, res: Response, next: Function) {
+function requireAuth(req: Request, res: Response, next: NextFunction) {
   // Simple API key auth for admin endpoints
   const apiKey = req.headers['x-api-key'] || req.query.apiKey;
   const validKey = process.env.STORAGE_ADMIN_API_KEY;
@@ -100,14 +107,14 @@ export function storageRouter(): Router {
         timestamp: Date.now(),
         storage: {
           backend: process.env.STORAGE_BACKEND || 'fs',
-          tiers: {}
+          tiers: {},
         },
         cdn: {
-          enabled: process.env.CDN_MODE !== 'off'
+          enabled: process.env.CDN_MODE !== 'off',
         },
         lifecycle: {
-          enabled: process.env.LIFECYCLE_ENABLED === 'true'
-        }
+          enabled: process.env.LIFECYCLE_ENABLED === 'true',
+        },
       };
 
       // Test each storage tier
@@ -118,7 +125,7 @@ export function storageRouter(): Router {
           result.storage.tiers[tier] = {
             healthy: tierHealth.healthy,
             latencyMs: tierHealth.latencyMs,
-            error: tierHealth.error
+            error: tierHealth.error,
           };
 
           if (!tierHealth.healthy) {
@@ -127,7 +134,7 @@ export function storageRouter(): Router {
         } catch (error) {
           result.storage.tiers[tier] = {
             healthy: false,
-            error: String(error)
+            error: String(error),
           };
           result.healthy = false;
         }
@@ -146,12 +153,11 @@ export function storageRouter(): Router {
 
       const statusCode = result.healthy ? 200 : 503;
       return json(res, statusCode, result);
-
     } catch (error) {
       return json(res, 500, {
         healthy: false,
         error: 'health-check-failed',
-        message: String(error)
+        message: String(error),
       });
     }
   });
@@ -173,10 +179,10 @@ export function storageRouter(): Router {
         tierBreakdown: {
           hot: { objectCount: 100, totalSize: 1024000 },
           warm: { objectCount: 50, totalSize: 512000 },
-          cold: { objectCount: 25, totalSize: 256000 }
+          cold: { objectCount: 25, totalSize: 256000 },
         },
         recentMoves: 5,
-        estimatedMonthlySavings: 25.50
+        estimatedMonthlySavings: 25.5,
       };
 
       // Calculate total usage and costs
@@ -195,7 +201,7 @@ export function storageRouter(): Router {
         tierBreakdown[tier] = {
           objectCount: data.objectCount,
           sizeBytes: data.totalSize,
-          costEstimate
+          costEstimate,
         };
       }
 
@@ -203,26 +209,27 @@ export function storageRouter(): Router {
         usage: {
           totalObjects,
           totalSizeBytes: totalSize,
-          tierBreakdown
+          tierBreakdown,
         },
         performance: {
           avgLatencyMs: 0, // Latency tracking not implemented yet
           requestsPerSecond: (perfData?.recent_requests || 0) / 3600,
-          errorRate: perfData?.recent_errors ? perfData.recent_errors / (perfData.recent_requests || 1) : 0
+          errorRate: perfData?.recent_errors
+            ? perfData.recent_errors / (perfData.recent_requests || 1)
+            : 0,
         },
         lifecycle: {
           recentMoves: lifecycleStats.recentMoves,
           estimatedMonthlySavings: lifecycleStats.estimatedMonthlySavings,
-          pendingOperations: 0 // Could be calculated from pending migrations
-        }
+          pendingOperations: 0, // Could be calculated from pending migrations
+        },
       };
 
       return json(res, 200, stats);
-
     } catch (error) {
       return json(res, 500, {
         error: 'stats-failed',
-        message: String(error)
+        message: String(error),
       });
     }
   });
@@ -231,7 +238,7 @@ export function storageRouter(): Router {
   router.get('/v1/storage/performance', requireAuth, async (req: Request, res: Response) => {
     try {
       const hours = parseInt(req.query.hours as string) || 24;
-      const cutoff = Date.now() - (hours * 60 * 60 * 1000);
+      const cutoff = Date.now() - hours * 60 * 60 * 1000;
 
       let metrics: any[] = [];
 
@@ -240,7 +247,8 @@ export function storageRouter(): Router {
         const pgClient = getPostgreSQLClient();
 
         // Try to query storage_events table (may not exist)
-        const result = await pgClient.query(`
+        const result = await pgClient.query(
+          `
           SELECT
             event_type,
             from_tier,
@@ -255,44 +263,65 @@ export function storageRouter(): Router {
           WHERE created_at > $1
           GROUP BY event_type, from_tier, to_tier, status
           ORDER BY created_at DESC
-        `, [cutoff]);
+        `,
+          [cutoff],
+        );
 
         metrics = result.rows as any[];
       } catch (error) {
         // For production PostgreSQL, provide mock performance data
         console.warn('[storage] Performance metrics not yet implemented for PostgreSQL');
         metrics = [
-          { event_type: 'access', from_tier: 'hot', to_tier: null, status: 'success', count: 100, avg_latency_ms: 50, total_savings: 0 },
-          { event_type: 'tier', from_tier: 'hot', to_tier: 'warm', status: 'success', count: 5, avg_latency_ms: 200, total_savings: 10.25 }
+          {
+            event_type: 'access',
+            from_tier: 'hot',
+            to_tier: null,
+            status: 'success',
+            count: 100,
+            avg_latency_ms: 50,
+            total_savings: 0,
+          },
+          {
+            event_type: 'tier',
+            from_tier: 'hot',
+            to_tier: 'warm',
+            status: 'success',
+            count: 5,
+            avg_latency_ms: 200,
+            total_savings: 10.25,
+          },
         ];
       }
 
       // Aggregate performance data
       const performance = {
         timeRange: `${hours} hours`,
-        operations: metrics.map(m => ({
+        operations: metrics.map((m) => ({
           type: m.event_type,
           fromTier: m.from_tier,
           toTier: m.to_tier,
           status: m.status,
           count: m.count,
           avgLatencyMs: m.avg_latency_ms,
-          totalSavings: m.total_savings
+          totalSavings: m.total_savings,
         })),
         summary: {
           totalOperations: metrics.reduce((sum, m) => sum + m.count, 0),
-          successRate: metrics.filter(m => m.status === 'success').reduce((sum, m) => sum + m.count, 0) /
-                      Math.max(1, metrics.reduce((sum, m) => sum + m.count, 0)),
-          totalSavings: metrics.reduce((sum, m) => sum + (m.total_savings || 0), 0)
-        }
+          successRate:
+            metrics.filter((m) => m.status === 'success').reduce((sum, m) => sum + m.count, 0) /
+            Math.max(
+              1,
+              metrics.reduce((sum, m) => sum + m.count, 0),
+            ),
+          totalSavings: metrics.reduce((sum, m) => sum + (m.total_savings || 0), 0),
+        },
       };
 
       return json(res, 200, performance);
-
     } catch (error) {
       return json(res, 500, {
         error: 'performance-failed',
-        message: String(error)
+        message: String(error),
       });
     }
   });
@@ -305,7 +334,7 @@ export function storageRouter(): Router {
       if (!sourceBackend || !targetBackend) {
         return json(res, 400, {
           error: 'bad-request',
-          hint: 'sourceBackend and targetBackend required'
+          hint: 'sourceBackend and targetBackend required',
         });
       }
 
@@ -315,7 +344,7 @@ export function storageRouter(): Router {
       const target = createStorageDriver({ backend: targetBackend });
 
       const migrator = new StorageMigrator(source, target, {
-        deleteSourceAfterCopy: !dryRun
+        deleteSourceAfterCopy: !dryRun,
       });
 
       if (dryRun) {
@@ -325,26 +354,28 @@ export function storageRouter(): Router {
           dryRun: true,
           totalObjects: allObjects.length,
           totalSizeBytes: allObjects.reduce((sum, obj) => sum + obj.size, 0),
-          objects: allObjects.slice(0, 10) // First 10 for preview
+          objects: allObjects.slice(0, 10), // First 10 for preview
         });
       } else {
         // Start actual migration (async)
-        migrator.migrateAllContent().then(progress => {
-          console.log('Migration completed:', progress);
-        }).catch(error => {
-          console.error('Migration failed:', error);
-        });
+        migrator
+          .migrateAllContent()
+          .then((progress) => {
+            console.log('Migration completed:', progress);
+          })
+          .catch((error) => {
+            console.error('Migration failed:', error);
+          });
 
         return json(res, 202, {
           message: 'Migration started',
-          progress: migrator.getProgress()
+          progress: migrator.getProgress(),
         });
       }
-
     } catch (error) {
       return json(res, 500, {
         error: 'migration-failed',
-        message: String(error)
+        message: String(error),
       });
     }
   });
@@ -357,7 +388,7 @@ export function storageRouter(): Router {
       if (!contentHash || !fromTier || !toTier) {
         return json(res, 400, {
           error: 'bad-request',
-          hint: 'contentHash, fromTier, and toTier required'
+          hint: 'contentHash, fromTier, and toTier required',
         });
       }
 
@@ -368,7 +399,7 @@ export function storageRouter(): Router {
       if (!objectExists && !force) {
         return json(res, 404, {
           error: 'not-found',
-          hint: `Object not found in ${fromTier} tier`
+          hint: `Object not found in ${fromTier} tier`,
         });
       }
 
@@ -396,20 +427,23 @@ export function storageRouter(): Router {
           )
         `);
 
-        await pgClient.query(`
+        await pgClient.query(
+          `
           INSERT INTO storage_events (
             event_type, content_hash, from_tier, to_tier,
             reason, status, created_at
           ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [
-          'manual-tiering',
-          contentHash,
-          fromTier,
-          toTier,
-          'manual-operation',
-          'success',
-          Date.now()
-        ]);
+        `,
+          [
+            'manual-tiering',
+            contentHash,
+            fromTier,
+            toTier,
+            'manual-operation',
+            'success',
+            Date.now(),
+          ],
+        );
         console.log('[storage] Manual tiering event logged to PostgreSQL');
       } catch (error) {
         console.warn('[storage] Failed to log manual tiering event:', error);
@@ -420,13 +454,12 @@ export function storageRouter(): Router {
         operation: 'tier-moved',
         contentHash,
         fromTier,
-        toTier
+        toTier,
       });
-
     } catch (error) {
       return json(res, 500, {
         error: 'tiering-failed',
-        message: String(error)
+        message: String(error),
       });
     }
   });
@@ -446,24 +479,23 @@ export function storageRouter(): Router {
             tierBreakdown: {
               hot: { objectCount: 10, totalSize: 1024000 },
               warm: { objectCount: 5, totalSize: 512000 },
-              cold: { objectCount: 2, totalSize: 256000 }
+              cold: { objectCount: 2, totalSize: 256000 },
             },
             totalOperations: 17,
-            estimatedSavings: 50.25
-          }
+            estimatedSavings: 50.25,
+          },
         });
       }
 
       // Other operations not yet implemented
       return json(res, 501, {
         error: 'not-implemented',
-        message: `Lifecycle operation '${operation}' not yet implemented for PostgreSQL`
+        message: `Lifecycle operation '${operation}' not yet implemented for PostgreSQL`,
       });
-
     } catch (error) {
       return json(res, 500, {
         error: 'lifecycle-failed',
-        message: String(error)
+        message: String(error),
       });
     }
   });

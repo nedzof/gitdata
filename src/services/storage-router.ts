@@ -4,9 +4,11 @@
  * Optimizes content delivery through intelligent location selection and caching
  */
 
-import { Pool } from 'pg';
-import { StorageLocation, UHRPResolveOptions } from './uhrp-storage.js';
 import { randomBytes } from 'crypto';
+
+import type { Pool } from 'pg';
+
+import type { StorageLocation, UHRPResolveOptions } from './uhrp-storage.js';
 
 export interface ClientContext {
   clientId?: string;
@@ -102,14 +104,16 @@ export class StorageRouter {
     contentHash: string,
     availableLocations: StorageLocation[],
     clientContext: ClientContext,
-    options: UHRPResolveOptions = {}
+    options: UHRPResolveOptions = {},
   ): Promise<RoutingDecision> {
-    console.log(`🧭 Routing decision for ${contentHash.slice(0, 10)}... (${availableLocations.length} locations)`);
+    console.log(
+      `🧭 Routing decision for ${contentHash.slice(0, 10)}... (${availableLocations.length} locations)`,
+    );
 
     try {
       // Score all available locations
       const scoredLocations = await Promise.all(
-        availableLocations.map(location => this.scoreLocation(location, clientContext, options))
+        availableLocations.map((location) => this.scoreLocation(location, clientContext, options)),
       );
 
       // Sort by score (highest first)
@@ -120,16 +124,10 @@ export class StorageRouter {
       const routingScore = scoredLocations[0].score;
 
       // Prepare alternatives (next best options)
-      const alternativeLocations = scoredLocations
-        .slice(1, 3)
-        .map(scored => scored.location);
+      const alternativeLocations = scoredLocations.slice(1, 3).map((scored) => scored.location);
 
       // Generate routing reasons
-      const routingReason = this.generateRoutingReasons(
-        scoredLocations[0],
-        clientContext,
-        options
-      );
+      const routingReason = this.generateRoutingReasons(scoredLocations[0], clientContext, options);
 
       // Estimate performance
       const estimatedLatency = this.estimateLatency(selectedLocation, clientContext);
@@ -139,7 +137,7 @@ export class StorageRouter {
       const cacheRecommendation = await this.generateCacheRecommendation(
         contentHash,
         selectedLocation,
-        clientContext
+        clientContext,
       );
 
       const decision: RoutingDecision = {
@@ -149,7 +147,7 @@ export class StorageRouter {
         estimatedLatency,
         estimatedCost,
         cacheRecommendation,
-        routingScore
+        routingScore,
       };
 
       // Store routing decision for learning
@@ -157,7 +155,6 @@ export class StorageRouter {
 
       console.log(`✅ Selected ${selectedLocation.type} (score: ${routingScore.toFixed(2)})`);
       return decision;
-
     } catch (error) {
       console.error(`❌ Routing failed for ${contentHash}:`, error);
 
@@ -168,7 +165,7 @@ export class StorageRouter {
         routingReason: ['fallback-selection'],
         estimatedLatency: availableLocations[0].latency,
         estimatedCost: availableLocations[0].cost,
-        routingScore: 0
+        routingScore: 0,
       };
     }
   }
@@ -176,7 +173,7 @@ export class StorageRouter {
   private async scoreLocation(
     location: StorageLocation,
     clientContext: ClientContext,
-    options: UHRPResolveOptions
+    options: UHRPResolveOptions,
   ): Promise<{ location: StorageLocation; score: number; factors: Record<string, number> }> {
     const factors: Record<string, number> = {};
     let totalScore = 0;
@@ -212,7 +209,7 @@ export class StorageRouter {
   private calculateLatencyScore(
     location: StorageLocation,
     clientContext: ClientContext,
-    options: UHRPResolveOptions
+    options: UHRPResolveOptions,
   ): number {
     const maxAcceptableLatency = options.maxLatency || clientContext.latencyToleranceMs || 1000;
 
@@ -221,12 +218,12 @@ export class StorageRouter {
     }
 
     // Score inversely proportional to latency
-    return Math.max(0, (maxAcceptableLatency - location.latency) / maxAcceptableLatency * 100);
+    return Math.max(0, ((maxAcceptableLatency - location.latency) / maxAcceptableLatency) * 100);
   }
 
   private calculateGeographicScore(
     location: StorageLocation,
-    clientContext: ClientContext
+    clientContext: ClientContext,
   ): number {
     const clientGeo = clientContext.geographicLocation;
     const preferences = clientContext.geographicPreference || [];
@@ -235,8 +232,8 @@ export class StorageRouter {
 
     // Boost for geographic preferences
     if (preferences.length > 0) {
-      const hasPreferredRegion = location.geographicRegion.some(region =>
-        preferences.includes(region)
+      const hasPreferredRegion = location.geographicRegion.some((region) =>
+        preferences.includes(region),
       );
       if (hasPreferredRegion) {
         score += 30;
@@ -251,14 +248,11 @@ export class StorageRouter {
     return Math.min(score, 100);
   }
 
-  private calculateCostScore(
-    location: StorageLocation,
-    clientContext: ClientContext
-  ): number {
+  private calculateCostScore(location: StorageLocation, clientContext: ClientContext): number {
     const costSensitivity = clientContext.costSensitivity || 'medium';
 
     // Base score inversely related to cost
-    let score = Math.max(0, (100 - location.cost) / 100 * 100);
+    let score = Math.max(0, ((100 - location.cost) / 100) * 100);
 
     // Adjust based on cost sensitivity
     switch (costSensitivity) {
@@ -277,14 +271,14 @@ export class StorageRouter {
   private generateRoutingReasons(
     scored: { location: StorageLocation; score: number; factors: Record<string, number> },
     clientContext: ClientContext,
-    options: UHRPResolveOptions
+    options: UHRPResolveOptions,
   ): string[] {
     const reasons: string[] = [];
     const { location, factors } = scored;
 
     // Primary reason (highest scoring factor)
     const topFactor = Object.entries(factors).reduce((a, b) =>
-      factors[a[0]] > factors[b[0]] ? a : b
+      factors[a[0]] > factors[b[0]] ? a : b,
     );
 
     switch (topFactor[0]) {
@@ -353,7 +347,7 @@ export class StorageRouter {
   private async generateCacheRecommendation(
     contentHash: string,
     selectedLocation: StorageLocation,
-    clientContext: ClientContext
+    clientContext: ClientContext,
   ): Promise<CacheRecommendation> {
     // Get access pattern for this content
     const accessPattern = await this.getAccessPattern(contentHash);
@@ -403,12 +397,13 @@ export class StorageRouter {
       cacheLevel,
       ttlSeconds,
       priority,
-      reason
+      reason,
     };
   }
 
   private async getAccessPattern(contentHash: string): Promise<AccessPattern | null> {
-    const result = await this.pool.query(`
+    const result = await this.pool.query(
+      `
       SELECT
         COUNT(*) as access_count,
         MAX(accessed_at) as last_access,
@@ -417,15 +412,16 @@ export class StorageRouter {
       FROM storage_access_logs
       WHERE content_hash = $1
         AND accessed_at > NOW() - INTERVAL '7 days'
-    `, [contentHash]);
+    `,
+      [contentHash],
+    );
 
     if (result.rows.length === 0 || result.rows[0].access_count === 0) {
       return null;
     }
 
     const row = result.rows[0];
-    const accessFrequency = row.time_span_hours > 0 ?
-      row.access_count / row.time_span_hours : 0;
+    const accessFrequency = row.time_span_hours > 0 ? row.access_count / row.time_span_hours : 0;
 
     return {
       contentHash,
@@ -435,14 +431,14 @@ export class StorageRouter {
       averageResponseTime: parseFloat(row.avg_response_time) || 0,
       geographicDistribution: new Map(), // Would be populated from detailed logs
       timeOfDayPattern: new Array(24).fill(0), // Would be calculated from logs
-      sizeTrend: 'stable'
+      sizeTrend: 'stable',
     };
   }
 
   private async recordRoutingDecision(
     contentHash: string,
     decision: RoutingDecision,
-    clientContext: ClientContext
+    clientContext: ClientContext,
   ): Promise<void> {
     // Store routing decision for machine learning improvements
     const history = this.routingHistory.get(contentHash) || [];
@@ -459,7 +455,7 @@ export class StorageRouter {
     await this.updatePerformanceMetrics(
       decision.selectedLocation,
       decision.estimatedLatency,
-      clientContext
+      clientContext,
     );
   }
 
@@ -484,7 +480,7 @@ export class StorageRouter {
         bandwidth: 0,
         availability: 1,
         cost: 0,
-        samples: 0
+        samples: 0,
       };
 
       switch (row.metric_type) {
@@ -511,24 +507,27 @@ export class StorageRouter {
   private async updatePerformanceMetrics(
     location: StorageLocation,
     actualLatency: number,
-    clientContext: ClientContext
+    clientContext: ClientContext,
   ): Promise<void> {
     const region = clientContext.geographicLocation || 'unknown';
 
-    await this.pool.query(`
+    await this.pool.query(
+      `
       INSERT INTO storage_performance_metrics (
         content_hash, storage_location, metric_type, metric_value,
         measurement_unit, geographic_region, client_context
       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-    `, [
-      'routing-decision',
-      location.type,
-      'latency',
-      actualLatency,
-      'ms',
-      region,
-      JSON.stringify(clientContext)
-    ]);
+    `,
+      [
+        'routing-decision',
+        location.type,
+        'latency',
+        actualLatency,
+        'ms',
+        region,
+        JSON.stringify(clientContext),
+      ],
+    );
   }
 
   private startPerformanceMonitoring(): void {
@@ -557,19 +556,19 @@ export class StorageRouter {
     `);
 
     const totalRequests = result.rows.reduce((sum, row) => sum + parseInt(row.requests), 0);
-    const locationStats = result.rows.map(row => ({
+    const locationStats = result.rows.map((row) => ({
       locationType: row.access_method,
       requests: parseInt(row.requests),
-      percentage: totalRequests > 0 ? (parseInt(row.requests) / totalRequests * 100) : 0,
+      percentage: totalRequests > 0 ? (parseInt(row.requests) / totalRequests) * 100 : 0,
       avgLatency: parseFloat(row.avg_latency) || 0,
-      successRate: parseInt(row.successful_requests) / parseInt(row.requests)
+      successRate: parseInt(row.successful_requests) / parseInt(row.requests),
     }));
 
     return {
       totalRequests,
       locationStats,
       routingDecisions: this.routingHistory.size,
-      performanceMetrics: this.performanceMetrics.size
+      performanceMetrics: this.performanceMetrics.size,
     };
   }
 }
@@ -601,7 +600,7 @@ export class AdaptiveStorageCache {
 
   async getCachedContent(
     contentHash: string,
-    accessPattern?: AccessPattern
+    accessPattern?: AccessPattern,
   ): Promise<CachedContent | null> {
     // Check memory cache first
     const memoryCached = this.memoryCache.get(contentHash);
@@ -630,15 +629,13 @@ export class AdaptiveStorageCache {
     return null;
   }
 
-  async cacheContent(
-    contentHash: string,
-    content: Buffer,
-    metadata: CacheMetadata
-  ): Promise<void> {
+  async cacheContent(contentHash: string, content: Buffer, metadata: CacheMetadata): Promise<void> {
     const sizeBytes = content.length;
     const sizeMB = sizeBytes / (1024 * 1024);
 
-    console.log(`💾 Caching content: ${contentHash.slice(0, 10)}... (${sizeMB.toFixed(2)}MB, ${metadata.cacheLevel})`);
+    console.log(
+      `💾 Caching content: ${contentHash.slice(0, 10)}... (${sizeMB.toFixed(2)}MB, ${metadata.cacheLevel})`,
+    );
 
     const cachedContent: CachedContent = {
       contentHash,
@@ -647,11 +644,11 @@ export class AdaptiveStorageCache {
         ...metadata,
         sizeBytes,
         cachedAt: new Date(),
-        expiresAt: new Date(Date.now() + metadata.ttlSeconds * 1000)
+        expiresAt: new Date(Date.now() + metadata.ttlSeconds * 1000),
       },
       lastAccessed: new Date(),
       accessCount: 1,
-      hitRate: 0
+      hitRate: 0,
     };
 
     switch (metadata.cacheLevel) {
@@ -736,43 +733,55 @@ export class AdaptiveStorageCache {
   }
 
   private async updateCacheHit(contentHash: string, cacheLevel: string): Promise<void> {
-    this.cacheStats.hitRate = (this.cacheStats.hitRate * 0.9) + (1 * 0.1); // Exponential moving average
+    this.cacheStats.hitRate = this.cacheStats.hitRate * 0.9 + 1 * 0.1; // Exponential moving average
 
-    await this.pool.query(`
+    await this.pool.query(
+      `
       INSERT INTO storage_cache_stats (
         content_hash, cache_level, cache_status, last_access_at
       ) VALUES ($1, $2, $3, NOW())
-    `, [contentHash, cacheLevel, 'hit']);
+    `,
+      [contentHash, cacheLevel, 'hit'],
+    );
   }
 
   private async updateCacheMiss(contentHash: string): Promise<void> {
-    this.cacheStats.missRate = (this.cacheStats.missRate * 0.9) + (1 * 0.1);
+    this.cacheStats.missRate = this.cacheStats.missRate * 0.9 + 1 * 0.1;
 
-    await this.pool.query(`
+    await this.pool.query(
+      `
       INSERT INTO storage_cache_stats (
         content_hash, cache_level, cache_status
       ) VALUES ($1, $2, $3)
-    `, [contentHash, 'memory', 'miss']);
+    `,
+      [contentHash, 'memory', 'miss'],
+    );
   }
 
   private async recordCacheEntry(
     contentHash: string,
     cacheLevel: string,
-    sizeBytes: number
+    sizeBytes: number,
   ): Promise<void> {
-    await this.pool.query(`
+    await this.pool.query(
+      `
       INSERT INTO storage_cache_stats (
         content_hash, cache_level, cache_status, cache_size_bytes, priority_score
       ) VALUES ($1, $2, $3, $4, $5)
-    `, [contentHash, cacheLevel, 'cached', sizeBytes, 1.0]);
+    `,
+      [contentHash, cacheLevel, 'cached', sizeBytes, 1.0],
+    );
   }
 
   private async recordCacheEviction(contentHash: string, cacheLevel: string): Promise<void> {
-    await this.pool.query(`
+    await this.pool.query(
+      `
       UPDATE storage_cache_stats
       SET cache_status = 'evicted', recorded_at = NOW()
       WHERE content_hash = $1 AND cache_level = $2
-    `, [contentHash, cacheLevel]);
+    `,
+      [contentHash, cacheLevel],
+    );
   }
 
   private async loadCacheStatistics(): Promise<void> {
@@ -845,7 +854,7 @@ export class AdaptiveStorageCache {
       missRate: 0,
       evictionRate: 0,
       averageLatency: 0,
-      topContent: []
+      topContent: [],
     };
   }
 
@@ -853,7 +862,7 @@ export class AdaptiveStorageCache {
     return {
       ...this.cacheStats,
       totalEntries: this.memoryCache.size,
-      totalSizeBytes: this.currentMemorySizeMB * 1024 * 1024
+      totalSizeBytes: this.currentMemorySizeMB * 1024 * 1024,
     };
   }
 }

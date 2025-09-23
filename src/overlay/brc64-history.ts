@@ -2,9 +2,11 @@
 // Implements transaction history tracking with input preservation and lineage traversal
 
 import { EventEmitter } from 'events';
-import Database from 'better-sqlite3';
-import { BRC22SubmitService } from './brc22-submit';
-import { BRC24LookupService, BRC36UTXO } from './brc24-lookup';
+
+import type Database from 'better-sqlite3';
+
+import type { BRC22SubmitService } from './brc22-submit';
+import type { BRC24LookupService, BRC36UTXO } from './brc24-lookup';
 
 export interface HistoricalUTXO extends BRC36UTXO {
   spentAt?: number;
@@ -13,7 +15,7 @@ export interface HistoricalUTXO extends BRC36UTXO {
   historicalInputs?: HistoricalInput[];
   lineageDepth?: number;
   parentUTXOs?: string[]; // Array of "txid:vout" references
-  childUTXOs?: string[];  // Array of "txid:vout" references
+  childUTXOs?: string[]; // Array of "txid:vout" references
 }
 
 export interface HistoricalInput {
@@ -53,7 +55,7 @@ export interface LineageGraph {
   }>;
   edges: Array<{
     from: string; // utxoId
-    to: string;   // utxoId
+    to: string; // utxoId
     relationship: 'input' | 'output' | 'topic_transfer';
     timestamp: number;
     txid: string;
@@ -68,7 +70,7 @@ class BRC64HistoryService extends EventEmitter {
   constructor(
     database: Database.Database,
     brc22Service: BRC22SubmitService,
-    brc24Service: BRC24LookupService
+    brc24Service: BRC24LookupService,
   ) {
     super();
     this.database = database;
@@ -79,70 +81,13 @@ class BRC64HistoryService extends EventEmitter {
   }
 
   /**
-   * Set up database tables for BRC-64 history tracking
+   * Database tables are now created in the main schema at /src/db/postgresql-schema-complete.sql
+   * This method is kept for compatibility but no longer creates tables
    */
   private setupDatabase(): void {
-    // Historical inputs table
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS brc64_historical_inputs (
-        input_id TEXT PRIMARY KEY, -- "spending_txid:input_index"
-        spending_txid TEXT NOT NULL,
-        input_index INTEGER NOT NULL,
-        source_txid TEXT NOT NULL,
-        source_vout INTEGER NOT NULL,
-        topic TEXT NOT NULL,
-        output_script TEXT NOT NULL,
-        satoshis INTEGER NOT NULL,
-        raw_tx TEXT NOT NULL,
-        spent_at INTEGER NOT NULL,
-        original_admitted_at INTEGER NOT NULL,
-        metadata_json TEXT,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-        UNIQUE(spending_txid, input_index)
-      )
-    `);
-
-    // UTXO lineage relationships
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS brc64_lineage_edges (
-        edge_id TEXT PRIMARY KEY,
-        parent_utxo TEXT NOT NULL, -- "txid:vout"
-        child_utxo TEXT NOT NULL,  -- "txid:vout"
-        relationship_type TEXT NOT NULL, -- 'input', 'output', 'topic_transfer'
-        topic TEXT NOT NULL,
-        connecting_txid TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        metadata_json TEXT,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-        UNIQUE(parent_utxo, child_utxo, relationship_type)
-      )
-    `);
-
-    // Historical queries cache
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS brc64_history_cache (
-        cache_key TEXT PRIMARY KEY,
-        query_hash TEXT NOT NULL,
-        result_json TEXT NOT NULL,
-        expiry INTEGER NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-      )
-    `);
-
-    // Indexes for performance
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS idx_brc64_inputs_spending_txid ON brc64_historical_inputs(spending_txid);
-      CREATE INDEX IF NOT EXISTS idx_brc64_inputs_source ON brc64_historical_inputs(source_txid, source_vout);
-      CREATE INDEX IF NOT EXISTS idx_brc64_inputs_topic ON brc64_historical_inputs(topic);
-      CREATE INDEX IF NOT EXISTS idx_brc64_inputs_spent_at ON brc64_historical_inputs(spent_at);
-
-      CREATE INDEX IF NOT EXISTS idx_brc64_edges_parent ON brc64_lineage_edges(parent_utxo);
-      CREATE INDEX IF NOT EXISTS idx_brc64_edges_child ON brc64_lineage_edges(child_utxo);
-      CREATE INDEX IF NOT EXISTS idx_brc64_edges_topic ON brc64_lineage_edges(topic);
-      CREATE INDEX IF NOT EXISTS idx_brc64_edges_timestamp ON brc64_lineage_edges(timestamp);
-
-      CREATE INDEX IF NOT EXISTS idx_brc64_cache_expiry ON brc64_history_cache(expiry);
-    `);
+    // Tables are now created centrally in the main database schema
+    // BRC-64 tables: brc64_historical_inputs, brc64_lineage_edges, brc64_history_cache
+    console.log('BRC-64 database tables managed by central schema');
   }
 
   /**
@@ -155,8 +100,13 @@ class BRC64HistoryService extends EventEmitter {
     });
 
     // Listen for UTXO admissions to build lineage
+    this.brc22Service.on('asset-utxo-admitted', async (event) => {
+      await this.buildLineageRelationships(event.txid, event.vout, 'gitdata.d01a.asset');
+    });
+
+    // Backward compatibility event handler
     this.brc22Service.on('manifest-utxo-admitted', async (event) => {
-      await this.buildLineageRelationships(event.txid, event.vout, 'gitdata.d01a.manifest');
+      await this.buildLineageRelationships(event.txid, event.vout, 'gitdata.d01a.asset');
     });
 
     this.brc22Service.on('payment-utxo-admitted', async (event) => {
@@ -178,7 +128,7 @@ class BRC64HistoryService extends EventEmitter {
   private async captureTransactionHistory(
     transaction: any,
     txid: string,
-    admittedTopics: Record<string, number[]>
+    admittedTopics: Record<string, number[]>,
   ): Promise<void> {
     try {
       // Parse transaction inputs
@@ -190,25 +140,18 @@ class BRC64HistoryService extends EventEmitter {
         // Check if this input was a tracked UTXO in any topic
         for (const [topic, outputIndexes] of Object.entries(admittedTopics)) {
           const trackedUTXOs = this.brc22Service.getTopicUTXOs(topic, true); // Include spent
-          const sourceUTXO = trackedUTXOs.find(u =>
-            u.txid === input.txid && u.vout === input.vout && u.spentByTxid === txid
+          const sourceUTXO = trackedUTXOs.find(
+            (u) => u.txid === input.txid && u.vout === input.vout && u.spentByTxid === txid,
           );
 
           if (sourceUTXO) {
             // Store historical input
-            await this.storeHistoricalInput(
-              txid,
-              inputIndex,
-              sourceUTXO,
-              topic,
-              transaction
-            );
+            await this.storeHistoricalInput(txid, inputIndex, sourceUTXO, topic, transaction);
           }
         }
       }
 
       this.emit('history-captured', { txid, inputCount: inputs.length });
-
     } catch (error) {
       console.error('Failed to capture transaction history:', error);
     }
@@ -222,29 +165,33 @@ class BRC64HistoryService extends EventEmitter {
     inputIndex: number,
     sourceUTXO: any,
     topic: string,
-    transaction: any
+    transaction: any,
   ): Promise<void> {
     const inputId = `${spendingTxid}:${inputIndex}`;
 
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       INSERT OR REPLACE INTO brc64_historical_inputs
       (input_id, spending_txid, input_index, source_txid, source_vout, topic,
        output_script, satoshis, raw_tx, spent_at, original_admitted_at, metadata_json)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      inputId,
-      spendingTxid,
-      inputIndex,
-      sourceUTXO.txid,
-      sourceUTXO.vout,
-      topic,
-      sourceUTXO.outputScript,
-      sourceUTXO.satoshis,
-      transaction.rawTx,
-      Date.now(),
-      sourceUTXO.admittedAt,
-      JSON.stringify({ topics: transaction.topics })
-    );
+    `,
+      )
+      .run(
+        inputId,
+        spendingTxid,
+        inputIndex,
+        sourceUTXO.txid,
+        sourceUTXO.vout,
+        topic,
+        sourceUTXO.outputScript,
+        sourceUTXO.satoshis,
+        transaction.rawTx,
+        Date.now(),
+        sourceUTXO.admittedAt,
+        JSON.stringify({ topics: transaction.topics }),
+      );
   }
 
   /**
@@ -253,35 +200,38 @@ class BRC64HistoryService extends EventEmitter {
   private async buildLineageRelationships(
     txid: string,
     vout: number,
-    topic: string
+    topic: string,
   ): Promise<void> {
     try {
       const utxoId = `${txid}:${vout}`;
 
       // Find inputs that led to this UTXO
-      const parentInputs = this.database.prepare(`
+      const parentInputs = this.database
+        .prepare(
+          `
         SELECT * FROM brc64_historical_inputs
         WHERE spending_txid = ?
-      `).all(txid);
+      `,
+        )
+        .all(txid);
 
       for (const parentInput of parentInputs) {
         const parentUtxoId = `${parentInput.source_txid}:${parentInput.source_vout}`;
 
-        await this.createLineageEdge(
-          parentUtxoId,
-          utxoId,
-          'input',
-          topic,
-          txid,
-          { inputIndex: parentInput.input_index }
-        );
+        await this.createLineageEdge(parentUtxoId, utxoId, 'input', topic, txid, {
+          inputIndex: parentInput.input_index,
+        });
       }
 
       // Find future outputs that spend this UTXO
-      const futureSpends = this.database.prepare(`
+      const futureSpends = this.database
+        .prepare(
+          `
         SELECT * FROM brc64_historical_inputs
         WHERE source_txid = ? AND source_vout = ?
-      `).all(txid, vout);
+      `,
+        )
+        .all(txid, vout);
 
       for (const futureSpend of futureSpends) {
         const childUtxoId = `${futureSpend.spending_txid}:0`; // Simplified - assume first output
@@ -292,12 +242,11 @@ class BRC64HistoryService extends EventEmitter {
           'output',
           topic,
           futureSpend.spending_txid,
-          { spentAt: futureSpend.spent_at }
+          { spentAt: futureSpend.spent_at },
         );
       }
 
       this.emit('lineage-built', { utxoId, topic });
-
     } catch (error) {
       console.error('Failed to build lineage relationships:', error);
     }
@@ -312,24 +261,28 @@ class BRC64HistoryService extends EventEmitter {
     relationshipType: 'input' | 'output' | 'topic_transfer',
     topic: string,
     connectingTxid: string,
-    metadata?: any
+    metadata?: any,
   ): Promise<void> {
     const edgeId = `${parentUtxo}_${childUtxo}_${relationshipType}`;
 
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       INSERT OR REPLACE INTO brc64_lineage_edges
       (edge_id, parent_utxo, child_utxo, relationship_type, topic, connecting_txid, timestamp, metadata_json)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      edgeId,
-      parentUtxo,
-      childUtxo,
-      relationshipType,
-      topic,
-      connectingTxid,
-      Date.now(),
-      JSON.stringify(metadata || {})
-    );
+    `,
+      )
+      .run(
+        edgeId,
+        parentUtxo,
+        childUtxo,
+        relationshipType,
+        topic,
+        connectingTxid,
+        Date.now(),
+        JSON.stringify(metadata || {}),
+      );
   }
 
   /**
@@ -357,14 +310,13 @@ class BRC64HistoryService extends EventEmitter {
         maxDepth,
         visited,
         results,
-        query
+        query,
       );
 
       // Cache the results
       this.cacheResult(cacheKey, results);
 
       return results;
-
     } catch (error) {
       console.error('Failed to query history:', error);
       return [];
@@ -382,7 +334,7 @@ class BRC64HistoryService extends EventEmitter {
     maxDepth: number,
     visited: Set<string>,
     results: HistoricalUTXO[],
-    query: HistoryQuery
+    query: HistoryQuery,
   ): Promise<void> {
     if (currentDepth >= maxDepth || visited.has(utxoId)) {
       return;
@@ -428,7 +380,7 @@ class BRC64HistoryService extends EventEmitter {
           maxDepth,
           visited,
           results,
-          query
+          query,
         );
       }
     }
@@ -444,7 +396,7 @@ class BRC64HistoryService extends EventEmitter {
           maxDepth,
           visited,
           results,
-          query
+          query,
         );
       }
     }
@@ -453,15 +405,19 @@ class BRC64HistoryService extends EventEmitter {
   /**
    * Get UTXO details
    */
-  private async getUTXODetails(txid: string, vout: number, topic: string): Promise<HistoricalUTXO | null> {
+  private async getUTXODetails(
+    txid: string,
+    vout: number,
+    topic: string,
+  ): Promise<HistoricalUTXO | null> {
     // First check active UTXOs
     const activeUTXOs = this.brc22Service.getTopicUTXOs(topic, false);
-    let utxo = activeUTXOs.find(u => u.txid === txid && u.vout === vout);
+    let utxo = activeUTXOs.find((u) => u.txid === txid && u.vout === vout);
 
     if (!utxo) {
       // Check spent UTXOs
       const spentUTXOs = this.brc22Service.getTopicUTXOs(topic, true);
-      utxo = spentUTXOs.find(u => u.txid === txid && u.vout === vout);
+      utxo = spentUTXOs.find((u) => u.txid === txid && u.vout === vout);
     }
 
     if (!utxo) {
@@ -469,9 +425,13 @@ class BRC64HistoryService extends EventEmitter {
     }
 
     // Get transaction details
-    const txRecord = this.database.prepare(`
+    const txRecord = this.database
+      .prepare(
+        `
       SELECT * FROM brc22_transactions WHERE txid = ?
-    `).get(txid);
+    `,
+      )
+      .get(txid);
 
     return {
       txid: utxo.txid,
@@ -485,7 +445,7 @@ class BRC64HistoryService extends EventEmitter {
       mapiResponses: txRecord?.mapi_responses_json || undefined,
       spentAt: utxo.spentAt,
       spentByTxid: utxo.spentByTxid,
-      timestamp: utxo.admittedAt
+      timestamp: utxo.admittedAt,
     };
   }
 
@@ -493,13 +453,17 @@ class BRC64HistoryService extends EventEmitter {
    * Get historical inputs for a transaction
    */
   private async getHistoricalInputs(txid: string): Promise<HistoricalInput[]> {
-    const inputs = this.database.prepare(`
+    const inputs = this.database
+      .prepare(
+        `
       SELECT * FROM brc64_historical_inputs
       WHERE spending_txid = ?
       ORDER BY input_index
-    `).all(txid);
+    `,
+      )
+      .all(txid);
 
-    return inputs.map(input => ({
+    return inputs.map((input) => ({
       txid: input.source_txid,
       vout: input.source_vout,
       outputScript: input.output_script,
@@ -508,7 +472,7 @@ class BRC64HistoryService extends EventEmitter {
       rawTx: input.raw_tx,
       spentAt: input.spent_at,
       spentByTxid: input.spending_txid,
-      originalAdmittedAt: input.original_admitted_at
+      originalAdmittedAt: input.original_admitted_at,
     }));
   }
 
@@ -516,24 +480,32 @@ class BRC64HistoryService extends EventEmitter {
    * Get parent UTXOs
    */
   private async getParentUTXOs(utxoId: string): Promise<string[]> {
-    const edges = this.database.prepare(`
+    const edges = this.database
+      .prepare(
+        `
       SELECT parent_utxo FROM brc64_lineage_edges
       WHERE child_utxo = ?
-    `).all(utxoId);
+    `,
+      )
+      .all(utxoId);
 
-    return edges.map(edge => edge.parent_utxo);
+    return edges.map((edge) => edge.parent_utxo);
   }
 
   /**
    * Get child UTXOs
    */
   private async getChildUTXOs(utxoId: string): Promise<string[]> {
-    const edges = this.database.prepare(`
+    const edges = this.database
+      .prepare(
+        `
       SELECT child_utxo FROM brc64_lineage_edges
       WHERE parent_utxo = ?
-    `).all(utxoId);
+    `,
+      )
+      .all(utxoId);
 
-    return edges.map(edge => edge.child_utxo);
+    return edges.map((edge) => edge.child_utxo);
   }
 
   /**
@@ -542,38 +514,42 @@ class BRC64HistoryService extends EventEmitter {
   async generateLineageGraph(
     startUtxoId: string,
     topic: string,
-    maxDepth: number = 5
+    maxDepth: number = 5,
   ): Promise<LineageGraph> {
     const history = await this.queryHistory({
       utxoId: startUtxoId,
       topic,
       depth: maxDepth,
-      direction: 'both'
+      direction: 'both',
     });
 
-    const nodes = history.map(utxo => ({
+    const nodes = history.map((utxo) => ({
       utxoId: `${utxo.txid}:${utxo.vout}`,
       txid: utxo.txid,
       vout: utxo.vout,
       topic: utxo.topic,
       satoshis: utxo.satoshis,
       timestamp: utxo.timestamp || 0,
-      status: utxo.spentAt ? 'spent' as const : 'active' as const,
+      status: utxo.spentAt ? ('spent' as const) : ('active' as const),
       metadata: {
         lineageDepth: utxo.lineageDepth,
-        historicalInputsCount: utxo.historicalInputs?.length || 0
-      }
+        historicalInputsCount: utxo.historicalInputs?.length || 0,
+      },
     }));
 
     const edges: LineageGraph['edges'] = [];
-    const edgeRecords = this.database.prepare(`
+    const edgeRecords = this.database
+      .prepare(
+        `
       SELECT * FROM brc64_lineage_edges
       WHERE parent_utxo IN (${history.map(() => '?').join(',')})
          OR child_utxo IN (${history.map(() => '?').join(',')})
-    `).all(
-      ...history.map(u => `${u.txid}:${u.vout}`),
-      ...history.map(u => `${u.txid}:${u.vout}`)
-    );
+    `,
+      )
+      .all(
+        ...history.map((u) => `${u.txid}:${u.vout}`),
+        ...history.map((u) => `${u.txid}:${u.vout}`),
+      );
 
     for (const edge of edgeRecords) {
       edges.push({
@@ -581,7 +557,7 @@ class BRC64HistoryService extends EventEmitter {
         to: edge.child_utxo,
         relationship: edge.relationship_type,
         timestamp: edge.timestamp,
-        txid: edge.connecting_txid
+        txid: edge.connecting_txid,
       });
     }
 
@@ -597,17 +573,32 @@ class BRC64HistoryService extends EventEmitter {
     trackedTransactions: number;
     cacheHitRate: number;
   } {
-    const historicalInputs = this.database.prepare(`
+    const historicalInputs =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc64_historical_inputs
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const lineageEdges = this.database.prepare(`
+    const lineageEdges =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc64_lineage_edges
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const trackedTransactions = this.database.prepare(`
+    const trackedTransactions =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(DISTINCT spending_txid) as count FROM brc64_historical_inputs
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
     // Cache hit rate calculation would require tracking cache hits/misses
     const cacheHitRate = 0.75; // Placeholder
@@ -616,7 +607,7 @@ class BRC64HistoryService extends EventEmitter {
       historicalInputs,
       lineageEdges,
       trackedTransactions,
-      cacheHitRate
+      cacheHitRate,
     };
   }
 
@@ -626,7 +617,7 @@ class BRC64HistoryService extends EventEmitter {
     // Simplified input parsing - in production use proper Bitcoin transaction parser
     return [
       { txid: 'abc123', vout: 0 },
-      { txid: 'def456', vout: 1 }
+      { txid: 'def456', vout: 1 },
     ];
   }
 
@@ -639,36 +630,43 @@ class BRC64HistoryService extends EventEmitter {
   }
 
   private getCachedResult(cacheKey: string): HistoricalUTXO[] | null {
-    const cached = this.database.prepare(`
+    const cached = this.database
+      .prepare(
+        `
       SELECT result_json FROM brc64_history_cache
       WHERE cache_key = ? AND expiry > ?
-    `).get(cacheKey, Date.now());
+    `,
+      )
+      .get(cacheKey, Date.now());
 
     return cached ? JSON.parse(cached.result_json) : null;
   }
 
   private cacheResult(cacheKey: string, results: HistoricalUTXO[]): void {
-    const expiry = Date.now() + (30 * 60 * 1000); // 30 minutes
+    const expiry = Date.now() + 30 * 60 * 1000; // 30 minutes
 
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       INSERT OR REPLACE INTO brc64_history_cache
       (cache_key, query_hash, result_json, expiry)
       VALUES (?, ?, ?, ?)
-    `).run(
-      cacheKey,
-      cacheKey,
-      JSON.stringify(results),
-      expiry
-    );
+    `,
+      )
+      .run(cacheKey, cacheKey, JSON.stringify(results), expiry);
   }
 
   /**
    * Clean up expired cache entries
    */
   cleanupCache(): number {
-    const result = this.database.prepare(`
+    const result = this.database
+      .prepare(
+        `
       DELETE FROM brc64_history_cache WHERE expiry < ?
-    `).run(Date.now());
+    `,
+      )
+      .run(Date.now());
 
     return result.changes;
   }

@@ -5,10 +5,11 @@
  */
 
 import { createHash, randomBytes } from 'crypto';
-import { WalletClient } from '@bsv/sdk';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { Pool } from 'pg';
+
+import type { WalletClient } from '@bsv/sdk';
+import type { Pool } from 'pg';
 
 // Type definitions for UHRP Storage
 export interface ContentMetadata {
@@ -109,11 +110,7 @@ export class UHRPStorageService {
   private overlayTopics: string[];
   private config: UHRPStorageConfig;
 
-  constructor(
-    pool: Pool,
-    walletClient: WalletClient,
-    config: UHRPStorageConfig
-  ) {
+  constructor(pool: Pool, walletClient: WalletClient, config: UHRPStorageConfig) {
     this.pool = pool;
     this.walletClient = walletClient;
     this.config = config;
@@ -139,7 +136,7 @@ export class UHRPStorageService {
   async storeContent(
     content: Buffer,
     metadata: ContentMetadata,
-    versionId: string
+    versionId: string,
   ): Promise<UHRPStorageResult> {
     const startTime = Date.now();
 
@@ -178,12 +175,11 @@ export class UHRPStorageService {
         localPath,
         overlayAdvertisements,
         storageLocations,
-        verificationAgents
+        verificationAgents,
       };
 
       console.log(`✅ Storage completed in ${Date.now() - startTime}ms`);
       return result;
-
     } catch (error) {
       console.error(`❌ Storage failed for ${contentHash}:`, error);
       throw new Error(`Storage failed: ${error.message}`);
@@ -195,7 +191,7 @@ export class UHRPStorageService {
    */
   async resolveContent(
     contentHash: string,
-    options: UHRPResolveOptions = {}
+    options: UHRPResolveOptions = {},
   ): Promise<UHRPResolution> {
     const startTime = Date.now();
     console.log(`🔍 Resolving content: ${contentHash.slice(0, 10)}...`);
@@ -209,10 +205,7 @@ export class UHRPStorageService {
       }
 
       // 2. Select optimal location based on options
-      const preferredLocation = await this.selectOptimalLocation(
-        availableLocations,
-        options
-      );
+      const preferredLocation = await this.selectOptimalLocation(availableLocations, options);
 
       // 3. Verify content integrity if requested
       let integrityVerified = false;
@@ -235,12 +228,11 @@ export class UHRPStorageService {
         preferredLocation,
         integrityVerified,
         resolutionTime: Date.now() - startTime,
-        overlayRoute
+        overlayRoute,
       };
 
       console.log(`✅ Resolved in ${resolution.resolutionTime}ms via ${preferredLocation.type}`);
       return resolution;
-
     } catch (error) {
       console.error(`❌ Resolution failed for ${contentHash}:`, error);
       throw new Error(`Resolution failed: ${error.message}`);
@@ -252,7 +244,7 @@ export class UHRPStorageService {
    */
   async advertiseContent(
     contentHash: string,
-    storageCapability: StorageCapability
+    storageCapability: StorageCapability,
   ): Promise<UHRPAdvertisement> {
     console.log(`📢 Advertising content: ${contentHash.slice(0, 10)}...`);
 
@@ -268,7 +260,7 @@ export class UHRPStorageService {
         endpoints: this.getStorageEndpoints(),
         geographicRegions: this.config.geographicRegions || ['US'],
         publishedAt: new Date().toISOString(),
-        ttlHours: this.config.advertisementTTLHours || 24
+        ttlHours: this.config.advertisementTTLHours || 24,
       };
 
       // Sign advertisement with wallet
@@ -276,28 +268,31 @@ export class UHRPStorageService {
         data: Buffer.from(JSON.stringify(advertisementData)).toString('base64'),
         protocolID: [2, 'gitdata-storage-advertisement'],
         keyID: 'identity',
-        privilegedReason: 'Advertise storage capability for content'
+        privilegedReason: 'Advertise storage capability for content',
       });
 
       // Store advertisement in database
-      await this.pool.query(`
+      await this.pool.query(
+        `
         INSERT INTO uhrp_advertisements (
           content_hash, advertisement_id, storage_provider, storage_capability,
           advertisement_data, resolution_endpoints, geographic_regions,
           bandwidth_mbps, cost_per_gb_satoshis, ttl_hours
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      `, [
-        contentHash,
-        advertisementId,
-        storageProvider,
-        JSON.stringify(storageCapability),
-        JSON.stringify({ ...advertisementData, signature: signature.signature }),
-        this.getStorageEndpoints(),
-        this.config.geographicRegions || ['US'],
-        storageCapability.bandwidthMbps,
-        storageCapability.costPerGBSatoshis,
-        this.config.advertisementTTLHours || 24
-      ]);
+      `,
+        [
+          contentHash,
+          advertisementId,
+          storageProvider,
+          JSON.stringify(storageCapability),
+          JSON.stringify({ ...advertisementData, signature: signature.signature }),
+          this.getStorageEndpoints(),
+          this.config.geographicRegions || ['US'],
+          storageCapability.bandwidthMbps,
+          storageCapability.costPerGBSatoshis,
+          this.config.advertisementTTLHours || 24,
+        ],
+      );
 
       // Publish to overlay network
       await this.publishAdvertisementToOverlay(advertisementData, signature);
@@ -310,12 +305,11 @@ export class UHRPStorageService {
         endpoints: this.getStorageEndpoints(),
         geographicRegions: this.config.geographicRegions || ['US'],
         ttlHours: this.config.advertisementTTLHours || 24,
-        publishedAt: new Date()
+        publishedAt: new Date(),
       };
 
       console.log(`✅ Advertisement published: ${advertisementId}`);
       return advertisement;
-
     } catch (error) {
       console.error(`❌ Advertisement failed for ${contentHash}:`, error);
       throw new Error(`Advertisement failed: ${error.message}`);
@@ -330,35 +324,38 @@ export class UHRPStorageService {
 
     try {
       const locations = await this.getAvailableLocations(contentHash);
-      const verificationPromises = locations.map(location =>
-        this.verifyLocationIntegrity(contentHash, location)
+      const verificationPromises = locations.map((location) =>
+        this.verifyLocationIntegrity(contentHash, location),
       );
 
       const results = await Promise.allSettled(verificationPromises);
       const verificationResults: LocationVerification[] = results
-        .filter(result => result.status === 'fulfilled')
-        .map(result => (result as PromiseFulfilledResult<LocationVerification>).value);
+        .filter((result) => result.status === 'fulfilled')
+        .map((result) => (result as PromiseFulfilledResult<LocationVerification>).value);
 
       // Calculate consensus
-      const successfulVerifications = verificationResults.filter(v => v.hashMatch);
+      const successfulVerifications = verificationResults.filter((v) => v.hashMatch);
       const agreementRatio = successfulVerifications.length / verificationResults.length;
       const consensusAchieved = agreementRatio >= this.config.consensusThreshold;
 
       // Store verification results
       for (const result of verificationResults) {
-        await this.pool.query(`
+        await this.pool.query(
+          `
           INSERT INTO storage_verifications (
             content_hash, verification_type, storage_location, verification_result,
             response_time_ms, error_details
           ) VALUES ($1, $2, $3, $4, $5, $6)
-        `, [
-          contentHash,
-          'integrity',
-          result.location.type,
-          result.hashMatch,
-          result.responseTime,
-          result.error ? JSON.stringify({ error: result.error }) : null
-        ]);
+        `,
+          [
+            contentHash,
+            'integrity',
+            result.location.type,
+            result.hashMatch,
+            result.responseTime,
+            result.error ? JSON.stringify({ error: result.error }) : null,
+          ],
+        );
       }
 
       const verification: IntegrityVerification = {
@@ -366,12 +363,11 @@ export class UHRPStorageService {
         verificationResults,
         consensusAchieved,
         agreementRatio,
-        verifiedAt: new Date()
+        verifiedAt: new Date(),
       };
 
       console.log(`✅ Integrity verification: ${agreementRatio * 100}% agreement`);
       return verification;
-
     } catch (error) {
       console.error(`❌ Integrity verification failed for ${contentHash}:`, error);
       throw new Error(`Integrity verification failed: ${error.message}`);
@@ -392,9 +388,10 @@ export class UHRPStorageService {
     versionId: string,
     localPath: string,
     fileSize: number,
-    metadata: ContentMetadata
+    metadata: ContentMetadata,
   ): Promise<void> {
-    await this.pool.query(`
+    await this.pool.query(
+      `
       INSERT INTO overlay_storage_index (
         content_hash, version_id, local_path, file_size, mime_type,
         storage_tier, access_statistics
@@ -402,18 +399,20 @@ export class UHRPStorageService {
       ON CONFLICT (content_hash) DO UPDATE SET
         local_path = EXCLUDED.local_path,
         updated_at = NOW()
-    `, [
-      contentHash,
-      versionId,
-      localPath,
-      fileSize,
-      metadata.mimeType,
-      'hot', // Default to hot tier for new content
-      JSON.stringify({
-        accessFrequency: metadata.accessFrequency || 0,
-        updateFrequency: metadata.updateFrequency || 0
-      })
-    ]);
+    `,
+      [
+        contentHash,
+        versionId,
+        localPath,
+        fileSize,
+        metadata.mimeType,
+        'hot', // Default to hot tier for new content
+        JSON.stringify({
+          accessFrequency: metadata.accessFrequency || 0,
+          updateFrequency: metadata.updateFrequency || 0,
+        }),
+      ],
+    );
   }
 
   private generateUHRPUrl(contentHash: string): string {
@@ -422,7 +421,7 @@ export class UHRPStorageService {
 
   private async publishToOverlay(
     contentHash: string,
-    metadata: ContentMetadata
+    metadata: ContentMetadata,
   ): Promise<string[]> {
     // Simulate overlay network publishing
     // In real implementation, this would use BSV overlay network protocols
@@ -437,11 +436,14 @@ export class UHRPStorageService {
     }
 
     // Update database with advertisements
-    await this.pool.query(`
+    await this.pool.query(
+      `
       UPDATE overlay_storage_index
       SET overlay_advertisements = $1
       WHERE content_hash = $2
-    `, [advertisements, contentHash]);
+    `,
+      [advertisements, contentHash],
+    );
 
     return advertisements;
   }
@@ -454,22 +456,28 @@ export class UHRPStorageService {
       const jobId = `repl_job_${randomBytes(8).toString('hex')}`;
       jobIds.push(jobId);
 
-      await this.pool.query(`
+      await this.pool.query(
+        `
         INSERT INTO storage_replications (
           content_hash, source_location, target_location, replication_job_id, status
         ) VALUES ($1, $2, $3, $4, $5)
-      `, [contentHash, 'local', target, jobId, 'pending']);
+      `,
+        [contentHash, 'local', target, jobId, 'pending'],
+      );
     }
 
     return jobIds;
   }
 
   private async getStorageLocations(contentHash: string): Promise<StorageLocation[]> {
-    const result = await this.pool.query(`
+    const result = await this.pool.query(
+      `
       SELECT local_path, overlay_uhrp_url, s3_key, cdn_url
       FROM overlay_storage_index
       WHERE content_hash = $1
-    `, [contentHash]);
+    `,
+      [contentHash],
+    );
 
     if (result.rows.length === 0) {
       return [];
@@ -487,7 +495,7 @@ export class UHRPStorageService {
         bandwidth: 1000,
         cost: 0,
         geographicRegion: ['local'],
-        verifiedAt: new Date().toISOString()
+        verifiedAt: new Date().toISOString(),
       });
     }
 
@@ -500,7 +508,7 @@ export class UHRPStorageService {
         bandwidth: 100,
         cost: 10,
         geographicRegion: this.config.geographicRegions || ['US'],
-        verifiedAt: new Date().toISOString()
+        verifiedAt: new Date().toISOString(),
       });
     }
 
@@ -513,33 +521,30 @@ export class UHRPStorageService {
 
   private async selectOptimalLocation(
     locations: StorageLocation[],
-    options: UHRPResolveOptions
+    options: UHRPResolveOptions,
   ): Promise<StorageLocation> {
     if (options.preferredMethod && options.preferredMethod !== 'auto') {
-      const preferred = locations.find(loc => loc.type === options.preferredMethod);
+      const preferred = locations.find((loc) => loc.type === options.preferredMethod);
       if (preferred) return preferred;
     }
 
     // Score locations based on multiple factors
-    const scoredLocations = locations.map(location => ({
+    const scoredLocations = locations.map((location) => ({
       location,
-      score: this.calculateLocationScore(location, options)
+      score: this.calculateLocationScore(location, options),
     }));
 
     scoredLocations.sort((a, b) => b.score - a.score);
     return scoredLocations[0].location;
   }
 
-  private calculateLocationScore(
-    location: StorageLocation,
-    options: UHRPResolveOptions
-  ): number {
+  private calculateLocationScore(location: StorageLocation, options: UHRPResolveOptions): number {
     let score = 0;
 
     // Latency score (lower is better)
     const maxLatency = options.maxLatency || 1000;
     if (location.latency <= maxLatency) {
-      score += (maxLatency - location.latency) / maxLatency * 30;
+      score += ((maxLatency - location.latency) / maxLatency) * 30;
     }
 
     // Availability score
@@ -547,8 +552,8 @@ export class UHRPStorageService {
 
     // Geographic preference
     if (options.geographicPreference) {
-      const hasPreferredRegion = location.geographicRegion.some(region =>
-        options.geographicPreference!.includes(region)
+      const hasPreferredRegion = location.geographicRegion.some((region) =>
+        options.geographicPreference!.includes(region),
       );
       if (hasPreferredRegion) {
         score += 20;
@@ -556,7 +561,7 @@ export class UHRPStorageService {
     }
 
     // Cost efficiency (lower cost is better)
-    score += (100 - location.cost) / 100 * 15;
+    score += ((100 - location.cost) / 100) * 15;
 
     // Bandwidth capacity
     score += Math.min(location.bandwidth / 100, 1) * 10;
@@ -566,7 +571,7 @@ export class UHRPStorageService {
 
   private async verifyLocationIntegrity(
     contentHash: string,
-    location: StorageLocation
+    location: StorageLocation,
   ): Promise<LocationVerification> {
     const startTime = Date.now();
 
@@ -580,7 +585,7 @@ export class UHRPStorageService {
         hashMatch: true, // Simulated success
         responseTime,
         contentSize: 1024, // Simulated size
-        error: null
+        error: null,
       };
     } catch (error) {
       return {
@@ -588,7 +593,7 @@ export class UHRPStorageService {
         hashMatch: false,
         responseTime: Date.now() - startTime,
         contentSize: 0,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -597,18 +602,21 @@ export class UHRPStorageService {
     // Simulate agent assignment
     const agents = [`agent_verify_${randomBytes(4).toString('hex')}`];
 
-    await this.pool.query(`
+    await this.pool.query(
+      `
       UPDATE overlay_storage_index
       SET verification_agents = $1
       WHERE content_hash = $2
-    `, [agents, contentHash]);
+    `,
+      [agents, contentHash],
+    );
 
     return agents;
   }
 
   private async getOverlayRoute(
     contentHash: string,
-    location: StorageLocation
+    location: StorageLocation,
   ): Promise<OverlayRoute[]> {
     // Simulate overlay routing
     if (location.type === 'uhrp' || location.type === 'overlay') {
@@ -617,8 +625,8 @@ export class UHRPStorageService {
           nodeId: `node_${randomBytes(4).toString('hex')}`,
           location: 'US-East',
           latency: 50,
-          hops: 1
-        }
+          hops: 1,
+        },
       ];
     }
     return [];
@@ -627,18 +635,16 @@ export class UHRPStorageService {
   private async logAccess(
     contentHash: string,
     location: StorageLocation,
-    startTime: number
+    startTime: number,
   ): Promise<void> {
-    await this.pool.query(`
+    await this.pool.query(
+      `
       INSERT INTO storage_access_logs (
         content_hash, access_method, response_time_ms, success
       ) VALUES ($1, $2, $3, $4)
-    `, [
-      contentHash,
-      location.type,
-      Date.now() - startTime,
-      true
-    ]);
+    `,
+      [contentHash, location.type, Date.now() - startTime, true],
+    );
   }
 
   private calculateContentHash(content: Buffer): string {
@@ -660,15 +666,12 @@ export class UHRPStorageService {
   }
 
   private getStorageEndpoints(): string[] {
-    return [
-      `${this.config.baseUrl}/overlay/data`,
-      `${this.config.baseUrl}/storage/uhrp`
-    ];
+    return [`${this.config.baseUrl}/overlay/data`, `${this.config.baseUrl}/storage/uhrp`];
   }
 
   private async publishAdvertisementToOverlay(
     advertisementData: any,
-    signature: any
+    signature: any,
   ): Promise<void> {
     // Simulate publishing to overlay network
     console.log('📡 Publishing advertisement to overlay network');

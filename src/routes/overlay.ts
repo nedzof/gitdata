@@ -1,10 +1,12 @@
 // BSV Overlay API Routes
 // Provides HTTP endpoints for overlay network interaction
 
-import { Router, Request, Response } from 'express';
-import { OverlayManager } from '../overlay/overlay-manager';
-import { OverlayPaymentService } from '../overlay/overlay-payments';
+import type { Request, Response, NextFunction } from 'express';
+import { Router } from 'express';
+
 import { D01A_TOPICS, TopicGenerator } from '../overlay/overlay-config';
+import type { OverlayManager } from '../overlay/overlay-manager';
+import type { OverlayPaymentService } from '../overlay/overlay-payments';
 
 export interface OverlayRouter {
   router: Router;
@@ -23,11 +25,12 @@ export function overlayRouter(): OverlayRouter {
   }
 
   // Middleware to check if overlay is available
-  function requireOverlay(req: Request, res: Response, next: Function): void {
+  function requireOverlay(req: Request, res: Response, next: NextFunction): void {
     if (!overlayManager || !overlayManager.isConnected()) {
       return res.status(503).json({
         error: 'overlay-unavailable',
-        message: 'BSV overlay network is not available. Set OVERLAY_ENABLED=true and ensure wallet is connected.'
+        message:
+          'BSV overlay network is not available. Set OVERLAY_ENABLED=true and ensure wallet is connected.',
       });
     }
     next();
@@ -39,7 +42,7 @@ export function overlayRouter(): OverlayRouter {
       return res.json({
         enabled: false,
         connected: false,
-        message: 'BSV overlay integration is disabled'
+        message: 'BSV overlay integration is disabled',
       });
     }
 
@@ -49,7 +52,7 @@ export function overlayRouter(): OverlayRouter {
       enabled: true,
       connected: overlayManager.isConnected(),
       stats,
-      environment: process.env.OVERLAY_ENV || 'development'
+      environment: process.env.OVERLAY_ENV || 'development',
     });
   });
 
@@ -61,7 +64,7 @@ export function overlayRouter(): OverlayRouter {
       if (!topic || typeof topic !== 'string') {
         return res.status(400).json({
           error: 'invalid-topic',
-          message: 'Topic must be a non-empty string'
+          message: 'Topic must be a non-empty string',
         });
       }
 
@@ -70,13 +73,12 @@ export function overlayRouter(): OverlayRouter {
       res.json({
         success: true,
         topic,
-        message: `Subscribed to topic: ${topic}`
+        message: `Subscribed to topic: ${topic}`,
       });
-
     } catch (error) {
       res.status(500).json({
         error: 'subscription-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -89,7 +91,7 @@ export function overlayRouter(): OverlayRouter {
       if (!topic || typeof topic !== 'string') {
         return res.status(400).json({
           error: 'invalid-topic',
-          message: 'Topic must be a non-empty string'
+          message: 'Topic must be a non-empty string',
         });
       }
 
@@ -98,13 +100,12 @@ export function overlayRouter(): OverlayRouter {
       res.json({
         success: true,
         topic,
-        message: `Unsubscribed from topic: ${topic}`
+        message: `Unsubscribed from topic: ${topic}`,
       });
-
     } catch (error) {
       res.status(500).json({
         error: 'unsubscription-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -117,7 +118,7 @@ export function overlayRouter(): OverlayRouter {
       if (!manifest || !manifest.datasetId) {
         return res.status(400).json({
           error: 'invalid-manifest',
-          message: 'Valid D01A manifest with datasetId is required'
+          message: 'Valid D01A manifest with datasetId is required',
         });
       }
 
@@ -128,15 +129,14 @@ export function overlayRouter(): OverlayRouter {
         messageId,
         manifest: {
           datasetId: manifest.datasetId,
-          description: manifest.description
+          description: manifest.description,
         },
-        message: 'Manifest published to overlay network'
+        message: 'Manifest published to overlay network',
       });
-
     } catch (error) {
       res.status(500).json({
         error: 'publish-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -149,7 +149,7 @@ export function overlayRouter(): OverlayRouter {
       if (!query || typeof query !== 'object') {
         return res.status(400).json({
           error: 'invalid-query',
-          message: 'Search query object is required'
+          message: 'Search query object is required',
         });
       }
 
@@ -160,13 +160,13 @@ export function overlayRouter(): OverlayRouter {
       res.json({
         success: true,
         query,
-        message: 'Search request sent to overlay network. Results will be available via events or cached responses.'
+        message:
+          'Search request sent to overlay network. Results will be available via events or cached responses.',
       });
-
     } catch (error) {
       res.status(500).json({
         error: 'search-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -176,7 +176,7 @@ export function overlayRouter(): OverlayRouter {
     const standardTopics = Object.entries(D01A_TOPICS).map(([key, value]) => ({
       name: key,
       topic: value,
-      description: getTopicDescription(key)
+      description: getTopicDescription(key),
     }));
 
     res.json({
@@ -186,8 +186,8 @@ export function overlayRouter(): OverlayRouter {
         dataset: 'Use TopicGenerator.datasetTopic(datasetId, classification)',
         model: 'Use TopicGenerator.modelTopic(modelId, purpose)',
         agent: 'Use TopicGenerator.agentTopic(agentId, purpose)',
-        payment: 'Use TopicGenerator.paymentTopic(receiptId)'
-      }
+        payment: 'Use TopicGenerator.paymentTopic(receiptId)',
+      },
     });
   });
 
@@ -199,7 +199,7 @@ export function overlayRouter(): OverlayRouter {
       if (!paymentService) {
         return res.status(503).json({
           error: 'payment-service-unavailable',
-          message: 'Payment service is not available'
+          message: 'Payment service is not available',
         });
       }
 
@@ -208,7 +208,7 @@ export function overlayRouter(): OverlayRouter {
       if (!versionId) {
         return res.status(400).json({
           error: 'invalid-request',
-          message: 'versionId is required'
+          message: 'versionId is required',
         });
       }
 
@@ -216,13 +216,12 @@ export function overlayRouter(): OverlayRouter {
 
       res.json({
         success: true,
-        message: 'Payment quote requested. Monitor overlay events for response.'
+        message: 'Payment quote requested. Monitor overlay events for response.',
       });
-
     } catch (error) {
       res.status(500).json({
         error: 'quote-request-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -233,7 +232,7 @@ export function overlayRouter(): OverlayRouter {
       if (!paymentService) {
         return res.status(503).json({
           error: 'payment-service-unavailable',
-          message: 'Payment service is not available'
+          message: 'Payment service is not available',
         });
       }
 
@@ -242,7 +241,7 @@ export function overlayRouter(): OverlayRouter {
       if (!quoteId) {
         return res.status(400).json({
           error: 'invalid-request',
-          message: 'quoteId is required'
+          message: 'quoteId is required',
         });
       }
 
@@ -251,13 +250,12 @@ export function overlayRouter(): OverlayRouter {
       res.json({
         success: true,
         receipt,
-        message: 'Payment submitted successfully'
+        message: 'Payment submitted successfully',
       });
-
     } catch (error) {
       res.status(500).json({
         error: 'payment-submit-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -268,7 +266,7 @@ export function overlayRouter(): OverlayRouter {
       if (!paymentService) {
         return res.status(503).json({
           error: 'payment-service-unavailable',
-          message: 'Payment service is not available'
+          message: 'Payment service is not available',
         });
       }
 
@@ -276,13 +274,12 @@ export function overlayRouter(): OverlayRouter {
 
       res.json({
         success: true,
-        stats
+        stats,
       });
-
     } catch (error) {
       res.status(500).json({
         error: 'stats-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -294,13 +291,12 @@ export function overlayRouter(): OverlayRouter {
 
       res.json({
         success: true,
-        peers
+        peers,
       });
-
     } catch (error) {
       res.status(500).json({
         error: 'peers-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -313,13 +309,13 @@ export function overlayRouter(): OverlayRouter {
       status: isHealthy ? 'healthy' : 'unhealthy',
       enabled: !!overlayManager,
       connected: isHealthy,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
   });
 
   return {
     router,
-    setOverlayServices
+    setOverlayServices,
   };
 }
 
@@ -328,35 +324,35 @@ export function overlayRouter(): OverlayRouter {
  */
 function getTopicDescription(topicKey: string): string {
   const descriptions: Record<string, string> = {
-    'DATA_MANIFEST': 'D01A manifest publishing and discovery',
-    'DATA_CONTENT': 'Data content distribution (restricted)',
-    'DATA_METADATA': 'Data metadata and descriptions',
-    'DATASET_PUBLIC': 'Public dataset announcements',
-    'DATASET_COMMERCIAL': 'Commercial dataset offerings',
-    'DATASET_RESEARCH': 'Research dataset sharing',
-    'DATASET_INTERNAL': 'Internal dataset management',
-    'MODEL_WEIGHTS': 'AI model weight distribution',
-    'MODEL_INFERENCE': 'AI model inference services',
-    'MODEL_TRAINING': 'AI model training coordination',
-    'AGENT_REGISTRY': 'Agent capability announcements',
-    'AGENT_CAPABILITIES': 'Agent capability descriptions',
-    'AGENT_JOBS': 'Agent job coordination',
-    'AGENT_RESULTS': 'Agent execution results',
-    'PAYMENT_QUOTES': 'Payment quote requests and responses',
-    'PAYMENT_RECEIPTS': 'Payment receipt confirmations',
-    'PAYMENT_DISPUTES': 'Payment dispute resolution',
-    'LINEAGE_GRAPH': 'Data lineage graph updates',
-    'LINEAGE_EVENTS': 'Lineage tracking events',
-    'PROVENANCE_CHAIN': 'Data provenance chain',
-    'SEARCH_QUERIES': 'Data discovery search queries',
-    'SEARCH_RESULTS': 'Search result responses',
-    'SEARCH_INDEX': 'Search index management',
-    'ALERT_POLICY': 'Policy violation alerts',
-    'ALERT_QUALITY': 'Data quality alerts',
-    'ALERT_SECURITY': 'Security incident alerts',
-    'POLICY_UPDATES': 'Policy governance updates',
-    'GOVERNANCE_VOTES': 'Governance voting activities',
-    'COMPLIANCE_REPORTS': 'Compliance status reports'
+    DATA_MANIFEST: 'D01A manifest publishing and discovery',
+    DATA_CONTENT: 'Data content distribution (restricted)',
+    DATA_METADATA: 'Data metadata and descriptions',
+    DATASET_PUBLIC: 'Public dataset announcements',
+    DATASET_COMMERCIAL: 'Commercial dataset offerings',
+    DATASET_RESEARCH: 'Research dataset sharing',
+    DATASET_INTERNAL: 'Internal dataset management',
+    MODEL_WEIGHTS: 'AI model weight distribution',
+    MODEL_INFERENCE: 'AI model inference services',
+    MODEL_TRAINING: 'AI model training coordination',
+    AGENT_REGISTRY: 'Agent capability announcements',
+    AGENT_CAPABILITIES: 'Agent capability descriptions',
+    AGENT_JOBS: 'Agent job coordination',
+    AGENT_RESULTS: 'Agent execution results',
+    PAYMENT_QUOTES: 'Payment quote requests and responses',
+    PAYMENT_RECEIPTS: 'Payment receipt confirmations',
+    PAYMENT_DISPUTES: 'Payment dispute resolution',
+    LINEAGE_GRAPH: 'Data lineage graph updates',
+    LINEAGE_EVENTS: 'Lineage tracking events',
+    PROVENANCE_CHAIN: 'Data provenance chain',
+    SEARCH_QUERIES: 'Data discovery search queries',
+    SEARCH_RESULTS: 'Search result responses',
+    SEARCH_INDEX: 'Search index management',
+    ALERT_POLICY: 'Policy violation alerts',
+    ALERT_QUALITY: 'Data quality alerts',
+    ALERT_SECURITY: 'Security incident alerts',
+    POLICY_UPDATES: 'Policy governance updates',
+    GOVERNANCE_VOTES: 'Governance voting activities',
+    COMPLIANCE_REPORTS: 'Compliance status reports',
   };
 
   return descriptions[topicKey] || 'Custom overlay topic';

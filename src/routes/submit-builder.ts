@@ -1,17 +1,11 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import { validateDlm1Manifest, initValidators } from '../validators';
-import { requireIdentity } from '../middleware/identity';
+
+import { composeTag, buildOpReturnScript, opReturnOutputSize } from '../builders/opreturn';
 import * as db from '../db';
-import {
-  buildDlm1AnchorFromManifest,
-  deriveManifestIds,
-} from '../dlm1/codec';
-import {
-  composeTag,
-  buildOpReturnScript,
-  opReturnOutputSize,
-} from '../builders/opreturn';
+import { buildDlm1AnchorFromManifest, deriveManifestIds } from '../dlm1/codec';
+import { requireIdentity } from '../middleware/identity';
+import { validateDlm1Manifest, initValidators } from '../validators';
 
 type SubmitResponse = {
   status: 'ok';
@@ -71,7 +65,13 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
       // 1) Validate manifest against schema
       const vres = validateDlm1Manifest(manifest);
       if (!vres.ok) {
-        return jsonError(res, 422, 'schema-validation-failed', 'Manifest does not conform to schema', vres.errors);
+        return jsonError(
+          res,
+          422,
+          'schema-validation-failed',
+          'Manifest does not conform to schema',
+          vres.errors,
+        );
       }
 
       // 2) Derive versionId with canonicalization (signatures + versionId excluded)
@@ -97,7 +97,7 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
               producerId = await db.upsertProducer({
                 identity_key: manifest.provenance.issuer,
                 name: `Producer ${manifest.provenance.issuer.slice(0, 8)}...`,
-                website: null
+                website: null,
               });
             } catch (error) {
               console.warn('Failed to create/lookup producer:', error);
@@ -114,7 +114,7 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
             classification: manifest.policy?.classification || null,
             created_at: manifest.provenance?.createdAt || new Date().toISOString(),
             manifest_json: JSON.stringify(manifest),
-            producer_id: producerId
+            producer_id: producerId,
           });
 
           // Store parent relationships if provided
@@ -134,23 +134,23 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
                 facets: {
                   sourceCode: {
                     language: 'typescript',
-                    sourceCodeLocation: 'submit-builder.ts'
-                  }
-                }
+                    sourceCodeLocation: 'submit-builder.ts',
+                  },
+                },
               },
               run: {
                 runId: `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                 facets: {
                   parent: {
                     run: {
-                      runId: `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+                      runId: `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                     },
                     job: {
                       namespace: 'overlay',
-                      name: 'asset-publish'
-                    }
-                  }
-                }
+                      name: 'asset-publish',
+                    },
+                  },
+                },
               },
               inputs: (manifest.parents || []).map((parentId: string) => ({
                 namespace: 'overlay',
@@ -158,34 +158,36 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
                 facets: {
                   dataSource: {
                     name: parentId,
-                    uri: `asset://${parentId}`
-                  }
-                }
-              })),
-              outputs: [{
-                namespace: 'overlay',
-                name: versionId,
-                facets: {
-                  dataSource: {
-                    name: manifest.datasetId || versionId,
-                    uri: `asset://${versionId}`
+                    uri: `asset://${parentId}`,
                   },
-                  schema: {
-                    fields: [
-                      {
-                        name: 'contentHash',
-                        type: 'string',
-                        description: 'SHA256 hash of asset content'
-                      },
-                      {
-                        name: 'datasetId',
-                        type: 'string',
-                        description: 'Dataset identifier'
-                      }
-                    ]
-                  }
-                }
-              }]
+                },
+              })),
+              outputs: [
+                {
+                  namespace: 'overlay',
+                  name: versionId,
+                  facets: {
+                    dataSource: {
+                      name: manifest.datasetId || versionId,
+                      uri: `asset://${versionId}`,
+                    },
+                    schema: {
+                      fields: [
+                        {
+                          name: 'contentHash',
+                          type: 'string',
+                          description: 'SHA256 hash of asset content',
+                        },
+                        {
+                          name: 'datasetId',
+                          type: 'string',
+                          description: 'Dataset identifier',
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
             };
 
             await db.ingestOpenLineageEvent(olEvent);

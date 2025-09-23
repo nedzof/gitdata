@@ -10,11 +10,11 @@ const bundleSchema = {
     versionIds: {
       type: 'array',
       items: { type: 'string' },
-      minItems: 1
-    }
+      minItems: 1,
+    },
   },
   required: ['versionIds'],
-  additionalProperties: false
+  additionalProperties: false,
 };
 
 const spvEnvelopeSchema = {
@@ -28,16 +28,16 @@ const spvEnvelopeSchema = {
         merkleRoot: { type: 'string' },
         nodes: {
           type: 'array',
-          items: { type: 'string' }
+          items: { type: 'string' },
         },
-        index: { type: 'number', minimum: 0 }
+        index: { type: 'number', minimum: 0 },
       },
       required: ['blockHash', 'merkleRoot', 'nodes', 'index'],
-      additionalProperties: false
-    }
+      additionalProperties: false,
+    },
   },
   required: ['rawTx', 'proof'],
-  additionalProperties: false
+  additionalProperties: false,
 };
 
 export const validateBundle = ajv.compile(bundleSchema);

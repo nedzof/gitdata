@@ -2,13 +2,16 @@
  * Producer authentication and authorization middleware
  */
 
-import { Request, Response, NextFunction } from 'express';
-import { BSV } from '@bsv/sdk';
-import { getHybridDatabase } from '../db/hybrid';
 import crypto from 'crypto';
+
+import { BSV } from '@bsv/sdk';
+import type { Request, Response, NextFunction } from 'express';
+
+import { getHybridDatabase } from '../db/hybrid';
 
 // Extend Express Request interface
 declare global {
+  /* eslint-disable @typescript-eslint/no-namespace */
   namespace Express {
     interface Request {
       producer?: {
@@ -30,7 +33,7 @@ export async function authenticateProducer(req: Request, res: Response, next: Ne
     if (!authHeader) {
       return res.status(401).json({
         success: false,
-        error: 'Authorization header required'
+        error: 'Authorization header required',
       });
     }
 
@@ -43,7 +46,7 @@ export async function authenticateProducer(req: Request, res: Response, next: Ne
       if (!producer) {
         return res.status(401).json({
           success: false,
-          error: 'Invalid API key'
+          error: 'Invalid API key',
         });
       }
 
@@ -57,7 +60,7 @@ export async function authenticateProducer(req: Request, res: Response, next: Ne
       if (!producer) {
         return res.status(401).json({
           success: false,
-          error: 'Invalid signature'
+          error: 'Invalid signature',
         });
       }
 
@@ -66,14 +69,14 @@ export async function authenticateProducer(req: Request, res: Response, next: Ne
     } else {
       return res.status(401).json({
         success: false,
-        error: 'Invalid authorization format'
+        error: 'Invalid authorization format',
       });
     }
   } catch (error) {
     console.error('Producer authentication error:', error);
     res.status(500).json({
       success: false,
-      error: 'Authentication failed'
+      error: 'Authentication failed',
     });
   }
 }
@@ -89,20 +92,23 @@ export async function validateStreamPermissions(req: Request, res: Response, nex
     if (!producer) {
       return res.status(401).json({
         success: false,
-        error: 'Producer authentication required'
+        error: 'Producer authentication required',
       });
     }
 
     const db = getHybridDatabase();
-    const result = await db.pg.query(`
+    const result = await db.pg.query(
+      `
       SELECT producer_public_key FROM manifests
       WHERE version_id = $1 AND is_streaming = true
-    `, [streamId]);
+    `,
+      [streamId],
+    );
 
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'Stream not found'
+        error: 'Stream not found',
       });
     }
 
@@ -110,7 +116,7 @@ export async function validateStreamPermissions(req: Request, res: Response, nex
     if (streamProducerKey !== producer.publicKey) {
       return res.status(403).json({
         success: false,
-        error: 'Access denied: not stream owner'
+        error: 'Access denied: not stream owner',
       });
     }
 
@@ -119,7 +125,7 @@ export async function validateStreamPermissions(req: Request, res: Response, nex
     console.error('Stream permission validation error:', error);
     res.status(500).json({
       success: false,
-      error: 'Permission validation failed'
+      error: 'Permission validation failed',
     });
   }
 }
@@ -143,7 +149,7 @@ async function authenticateWithApiKey(apiKey: string) {
         // Check if producer exists in database
         const result = await db.pg.query(
           'SELECT id FROM producers WHERE public_key = $1 AND status = $2',
-          [credentials.publicKey, 'active']
+          [credentials.publicKey, 'active'],
         );
 
         if (result.rows.length > 0) {
@@ -188,7 +194,8 @@ async function authenticateWithSignature(req: Request, signature: string) {
       const now = Date.now();
       const requestTime = parseInt(timestamp);
 
-      if (Math.abs(now - requestTime) > 300000) { // 5 minutes
+      if (Math.abs(now - requestTime) > 300000) {
+        // 5 minutes
         console.error('Request timestamp too old');
         return null;
       }
@@ -197,14 +204,14 @@ async function authenticateWithSignature(req: Request, signature: string) {
       const db = getHybridDatabase();
       const result = await db.pg.query(
         'SELECT producer_id FROM producers WHERE public_key = $1 AND status = $2',
-        [publicKeyHex, 'active']
+        [publicKeyHex, 'active'],
       );
 
       if (result.rows.length > 0) {
         return {
           privateKey: '', // Not needed for signature auth
           publicKey: publicKeyHex,
-          producerId: result.rows[0].producer_id
+          producerId: result.rows[0].producer_id,
         };
       }
     }
@@ -231,7 +238,7 @@ export function createSignature(
   timestamp: number,
   method: string,
   path: string,
-  body: any
+  body: any,
 ): string {
   const message = `${timestamp}${method}${path}${JSON.stringify(body || {})}`;
   const messageHash = crypto.createHash('sha256').update(message).digest();

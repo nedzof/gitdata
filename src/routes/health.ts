@@ -1,5 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
+
 import { getHybridDatabase } from '../db';
 
 export function healthRouter(): Router {
@@ -10,7 +11,7 @@ export function healthRouter(): Router {
       status: 'ok',
       timestamp: new Date().toISOString(),
       database: 'postgresql',
-      cache: 'redis'
+      cache: 'redis',
     };
 
     try {
@@ -46,15 +47,15 @@ export function healthRouter(): Router {
         features: {
           hybrid_db: true,
           cache_aside: true,
-          redis_bundles: process.env.USE_REDIS_BUNDLES === 'true'
-        }
+          redis_bundles: process.env.USE_REDIS_BUNDLES === 'true',
+        },
       };
 
       const status = health.pg && health.redis ? 200 : 503;
       return res.status(status).json(details);
     } catch (error) {
       return res.status(503).json({
-        error: String(error)
+        error: String(error),
       });
     }
   });

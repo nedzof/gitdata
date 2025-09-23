@@ -13,9 +13,10 @@
  * - Generic BRC-100 wallets
  */
 
-import { EventEmitter } from 'events';
-import { generateBRC31Headers, verifyBRC31Signature } from '../brc31/signer';
 import crypto from 'crypto';
+import { EventEmitter } from 'events';
+
+import { generateBRC31Headers, verifyBRC31Signature } from '../brc31/signer';
 
 export interface BRC100WalletInfo {
   name: string;
@@ -77,7 +78,7 @@ export class BRC100WalletConnector extends EventEmitter {
       sessionTTL: 24 * 60 * 60 * 1000, // 24 hours
       autoReconnect: true,
       enabledWallets: ['handcash', 'centbee', 'relayx', 'simply', 'yours', 'metanet'],
-      ...config
+      ...config,
     };
   }
 
@@ -127,9 +128,7 @@ export class BRC100WalletConnector extends EventEmitter {
       }
     }
 
-    return availableWallets.filter(wallet =>
-      this.config.enabledWallets?.includes(wallet)
-    );
+    return availableWallets.filter((wallet) => this.config.enabledWallets?.includes(wallet));
   }
 
   /**
@@ -157,7 +156,6 @@ export class BRC100WalletConnector extends EventEmitter {
       this.emit('connected', walletInfo);
 
       return walletInfo;
-
     } catch (error) {
       this.emit('error', error);
       throw error;
@@ -222,14 +220,14 @@ export class BRC100WalletConnector extends EventEmitter {
     // Sign with the connected wallet
     const signResponse = await this.signMessage({
       message,
-      purpose: 'api_authentication'
+      purpose: 'api_authentication',
     });
 
     return {
       'X-Identity-Key': this.connectedWallet.identityKey,
       'X-Nonce': nonce,
       'X-Signature': signResponse.signature,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     };
   }
 
@@ -254,12 +252,12 @@ export class BRC100WalletConnector extends EventEmitter {
     const response = await fetch(`${this.config.apiUrl}/identity/wallet/connect`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         walletType,
-        capabilities: ['sign', 'pay', 'identity']
-      })
+        capabilities: ['sign', 'pay', 'identity'],
+      }),
     });
 
     if (!response.ok) {
@@ -291,21 +289,21 @@ export class BRC100WalletConnector extends EventEmitter {
     // Sign verification message
     const signResponse = await this.signMessage({
       message: message + nonce,
-      purpose: 'connection_verification'
+      purpose: 'connection_verification',
     });
 
     // Verify with backend
     const response = await fetch(`${this.config.apiUrl}/identity/wallet/verify`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         sessionId: this.sessionId,
         identityKey: walletInfo.identityKey,
         signature: signResponse.signature,
-        nonce
-      })
+        nonce,
+      }),
     });
 
     if (!response.ok) {
@@ -322,11 +320,11 @@ export class BRC100WalletConnector extends EventEmitter {
     await fetch(`${this.config.apiUrl}/identity/wallet/disconnect`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        sessionId: this.sessionId
-      })
+        sessionId: this.sessionId,
+      }),
     });
   }
 
@@ -380,7 +378,7 @@ class HandCashInterface extends WalletInterface {
       capabilities: ['sign', 'pay', 'identity'],
       identityKey: result.publicKey,
       publicKey: result.publicKey,
-      address: result.address
+      address: result.address,
     };
   }
 
@@ -388,30 +386,30 @@ class HandCashInterface extends WalletInterface {
     const handcash = (window as any).handcash;
     const result = await handcash.sign({
       message: request.message,
-      encoding: 'utf8'
+      encoding: 'utf8',
     });
 
     return {
       signature: result.signature,
       publicKey: result.publicKey,
-      algorithm: 'ECDSA'
+      algorithm: 'ECDSA',
     };
   }
 
   async pay(request: BRC100PaymentRequest): Promise<BRC100PaymentResponse> {
     const handcash = (window as any).handcash;
     const result = await handcash.pay({
-      payments: request.outputs.map(output => ({
+      payments: request.outputs.map((output) => ({
         to: output.to,
         amount: output.amount,
-        currency: 'BSV'
-      }))
+        currency: 'BSV',
+      })),
     });
 
     return {
       txid: result.txid,
       rawtx: result.rawtx,
-      outputs: result.outputs || []
+      outputs: result.outputs || [],
     };
   }
 }
@@ -434,7 +432,7 @@ class CentbeeInterface extends WalletInterface {
       capabilities: ['sign', 'pay', 'identity'],
       identityKey: result.publicKey,
       publicKey: result.publicKey,
-      address: result.address
+      address: result.address,
     };
   }
 
@@ -445,7 +443,7 @@ class CentbeeInterface extends WalletInterface {
     return {
       signature: result.signature,
       publicKey: result.publicKey,
-      algorithm: 'ECDSA'
+      algorithm: 'ECDSA',
     };
   }
 
@@ -456,7 +454,7 @@ class CentbeeInterface extends WalletInterface {
     return {
       txid: result.txid,
       rawtx: result.rawtx,
-      outputs: result.outputs || []
+      outputs: result.outputs || [],
     };
   }
 }
@@ -479,7 +477,7 @@ class RelayXInterface extends WalletInterface {
       capabilities: ['sign', 'pay', 'identity'],
       identityKey: result.publicKey,
       publicKey: result.publicKey,
-      address: result.paymail
+      address: result.paymail,
     };
   }
 
@@ -490,7 +488,7 @@ class RelayXInterface extends WalletInterface {
     return {
       signature: result.signature,
       publicKey: result.publicKey,
-      algorithm: 'ECDSA'
+      algorithm: 'ECDSA',
     };
   }
 
@@ -501,7 +499,7 @@ class RelayXInterface extends WalletInterface {
     return {
       txid: result.txid,
       rawtx: result.rawTx,
-      outputs: result.vout || []
+      outputs: result.vout || [],
     };
   }
 }
@@ -524,7 +522,7 @@ class SimplyInterface extends WalletInterface {
       capabilities: ['sign', 'pay', 'identity'],
       identityKey: result.publicKey,
       publicKey: result.publicKey,
-      address: result.address
+      address: result.address,
     };
   }
 
@@ -535,7 +533,7 @@ class SimplyInterface extends WalletInterface {
     return {
       signature: result.signature,
       publicKey: result.publicKey,
-      algorithm: 'ECDSA'
+      algorithm: 'ECDSA',
     };
   }
 
@@ -546,7 +544,7 @@ class SimplyInterface extends WalletInterface {
     return {
       txid: result.txid,
       rawtx: result.rawtx,
-      outputs: result.outputs || []
+      outputs: result.outputs || [],
     };
   }
 }
@@ -569,7 +567,7 @@ class YoursInterface extends WalletInterface {
       capabilities: ['sign', 'pay', 'identity'],
       identityKey: result.publicKey,
       publicKey: result.publicKey,
-      address: result.address
+      address: result.address,
     };
   }
 
@@ -580,7 +578,7 @@ class YoursInterface extends WalletInterface {
     return {
       signature: result.signature,
       publicKey: result.publicKey,
-      algorithm: 'ECDSA'
+      algorithm: 'ECDSA',
     };
   }
 
@@ -591,7 +589,7 @@ class YoursInterface extends WalletInterface {
     return {
       txid: result.txid,
       rawtx: result.rawtx,
-      outputs: result.outputs || []
+      outputs: result.outputs || [],
     };
   }
 }
@@ -620,7 +618,7 @@ class MetaNetInterface extends WalletInterface {
       capabilities: ['sign', 'pay', 'identity'],
       identityKey: result.publicKey,
       publicKey: result.publicKey,
-      address: result.address
+      address: result.address,
     };
   }
 
@@ -630,13 +628,13 @@ class MetaNetInterface extends WalletInterface {
 
     const result = await metanet.sign({
       message: request.message,
-      encoding: 'utf8'
+      encoding: 'utf8',
     });
 
     return {
       signature: result.signature,
       publicKey: result.publicKey,
-      algorithm: 'ECDSA'
+      algorithm: 'ECDSA',
     };
   }
 
@@ -645,18 +643,18 @@ class MetaNetInterface extends WalletInterface {
     const metanet = w.metanet || w.metaNet || w.MetaNet;
 
     const result = await metanet.pay({
-      outputs: request.outputs.map(output => ({
+      outputs: request.outputs.map((output) => ({
         to: output.to,
         amount: output.amount,
-        script: output.script
+        script: output.script,
       })),
-      data: request.data
+      data: request.data,
     });
 
     return {
       txid: result.txid,
       rawtx: result.rawtx,
-      outputs: result.outputs || []
+      outputs: result.outputs || [],
     };
   }
 }
@@ -679,7 +677,7 @@ class GenericBRC100Interface extends WalletInterface {
       capabilities: result.capabilities || ['sign', 'pay'],
       identityKey: result.publicKey,
       publicKey: result.publicKey,
-      address: result.address
+      address: result.address,
     };
   }
 
@@ -690,7 +688,7 @@ class GenericBRC100Interface extends WalletInterface {
     return {
       signature: result.signature,
       publicKey: result.publicKey,
-      algorithm: result.algorithm || 'ECDSA'
+      algorithm: result.algorithm || 'ECDSA',
     };
   }
 
@@ -701,7 +699,7 @@ class GenericBRC100Interface extends WalletInterface {
     return {
       txid: result.txid,
       rawtx: result.rawtx,
-      outputs: result.outputs || []
+      outputs: result.outputs || [],
     };
   }
 }

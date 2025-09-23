@@ -4,6 +4,7 @@
  */
 
 import crypto from 'crypto';
+
 import { secp256k1 } from '@noble/curves/secp256k1';
 
 /**
@@ -12,7 +13,10 @@ import { secp256k1 } from '@noble/curves/secp256k1';
  * @param body Request body (JSON string or Buffer)
  * @returns Headers object with X-Identity-Key, X-Nonce, X-Signature
  */
-export function generateBRC31Headers(privateKeyHex: string, body: string | Buffer): {
+export function generateBRC31Headers(
+  privateKeyHex: string,
+  body: string | Buffer,
+): {
   'X-Identity-Key': string;
   'X-Nonce': string;
   'X-Signature': string;
@@ -48,7 +52,7 @@ export function generateBRC31Headers(privateKeyHex: string, body: string | Buffe
  */
 export function verifyBRC31Signature(
   headers: { 'X-Identity-Key'?: string; 'X-Nonce'?: string; 'X-Signature'?: string },
-  body: string | Buffer
+  body: string | Buffer,
 ): boolean {
   const { 'X-Identity-Key': publicKey, 'X-Nonce': nonce, 'X-Signature': signature } = headers;
 

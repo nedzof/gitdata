@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 
@@ -7,7 +8,10 @@ let ajv: Ajv | null = null;
 let validateAdvFn: Ajv.ValidateFunction | null = null;
 
 export function initAdvisoryValidator(schemaPath?: string) {
-  if (!ajv) { ajv = new Ajv({ allErrors: true, strict: false }); addFormats(ajv); }
+  if (!ajv) {
+    ajv = new Ajv({ allErrors: true, strict: false });
+    addFormats(ajv);
+  }
   if (!validateAdvFn) {
     const p = schemaPath || path.resolve(process.cwd(), 'schemas/advisory.schema.json');
     const schema = JSON.parse(fs.readFileSync(p, 'utf8'));

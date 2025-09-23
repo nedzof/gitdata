@@ -3,6 +3,7 @@
  * Keep this as the single import for protocol shapes so Cursor doesn't hallucinate.
  */
 
+/* eslint-disable @typescript-eslint/no-namespace */
 export namespace BRC22 {
   /** Submit envelope (subset used by our overlay) */
   export type SubmitEnvelope = {
@@ -56,9 +57,7 @@ export namespace BRC36 {
       merkleRoot: string;
       path: MerkleNode[];
     };
-    block:
-      | { blockHeader: string }
-      | { blockHash: string; blockHeight: number };
+    block: { blockHeader: string } | { blockHash: string; blockHeight: number };
     headerChain?: string[]; // 80-byte header hex array (optional)
     confirmations?: number;
     ts?: number;
@@ -73,9 +72,7 @@ export namespace BRC36 {
     if (!Array.isArray(v.proof.path)) return false;
     const hasHeader = v.block && typeof v.block.blockHeader === 'string';
     const hasHashHeight =
-      v.block &&
-      typeof v.block.blockHash === 'string' &&
-      Number.isInteger(v.block.blockHeight);
+      v.block && typeof v.block.blockHash === 'string' && Number.isInteger(v.block.blockHeight);
     return !!(hasHeader || hasHashHeight);
   }
 }
@@ -99,9 +96,7 @@ export namespace BRC64 {
 export namespace BRC100 {
   /** Minimal wallet client surface for build-and-sign and generic fetch-with-identity */
   export interface WalletClient {
-    buildAndSign(
-      outputs: { scriptHex: string; satoshis: number }[],
-    ): Promise<string>;
+    buildAndSign(outputs: { scriptHex: string; satoshis: number }[]): Promise<string>;
     signMessage?(messageHex: string): Promise<string>; // identity signing (optional)
     getIdentityKeyHex?(): Promise<string>;
   }
@@ -117,9 +112,7 @@ export namespace BRC100 {
     let signature = '';
     if (wallet.signMessage && identityKey) {
       // sign(body + nonce) as hex; message encoding policy is your choice (document it!)
-      signature = await wallet.signMessage(
-        Buffer.from(bodyOrEmpty + nonce).toString('hex'),
-      );
+      signature = await wallet.signMessage(Buffer.from(bodyOrEmpty + nonce).toString('hex'));
     }
     return {
       'content-type': 'application/json',

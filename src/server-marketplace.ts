@@ -2,20 +2,24 @@
  * Marketplace-focused server with essential API routes
  */
 import express from 'express';
-import { healthRouter } from './routes/health';
-import { readyRouter } from './routes/ready';
+
 import { catalogRouter } from './routes/catalog';
 import { dataRouter } from './routes/data';
-import { priceRouter } from './routes/price';
+import { healthRouter } from './routes/health';
 import { payRouter } from './routes/pay';
+import { priceRouter } from './routes/price';
 import { producersRouter } from './routes/producers';
+import { readyRouter } from './routes/ready';
 
 const app = express();
 const PORT = process.env.PORT || 8788;
 
 // Basic CORS configuration
 app.use((req, res, next) => {
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5173'];
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+    'http://localhost:3000',
+    'http://localhost:5173',
+  ];
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -60,23 +64,23 @@ app.get('/v1/manifests', async (req, res) => {
     const catalogResponse = await new Promise((resolve, reject) => {
       const mockRes = {
         status: (code: number) => ({
-          json: (data: any) => resolve({ status: code, data })
+          json: (data: any) => resolve({ status: code, data }),
         }),
-        json: (data: any) => resolve({ status: 200, data })
+        json: (data: any) => resolve({ status: 200, data }),
       };
 
       // This is a simplified approach - in practice, we'd need to properly integrate with the catalog router
       res.json({
         success: true,
         data: [],
-        message: "Use /v1/search endpoint for manifest queries"
+        message: 'Use /v1/search endpoint for manifest queries',
       });
     });
   } catch (error) {
     console.error('Manifests endpoint error:', error);
     res.status(500).json({
       success: false,
-      error: 'Internal server error'
+      error: 'Internal server error',
     });
   }
 });
@@ -89,14 +93,14 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     return res.status(413).json({
       success: false,
       error: 'Request entity too large',
-      message: 'The request payload exceeds the maximum allowed size'
+      message: 'The request payload exceeds the maximum allowed size',
     });
   }
 
   res.status(500).json({
     success: false,
     error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'An unexpected error occurred'
+    message: process.env.NODE_ENV === 'development' ? err.message : 'An unexpected error occurred',
   });
 });
 
@@ -107,7 +111,7 @@ app.get('*', (req: express.Request, res: express.Response) => {
     return res.status(404).json({
       success: false,
       error: 'Not found',
-      message: `Route ${req.method} ${req.originalUrl} not found`
+      message: `Route ${req.method} ${req.originalUrl} not found`,
     });
   }
 

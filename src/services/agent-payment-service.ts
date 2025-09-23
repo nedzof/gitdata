@@ -3,9 +3,10 @@
  * Handles autonomous agent payments with authorization and spending limits
  */
 
-import { Pool } from 'pg';
-import { EventEmitter } from 'events';
 import crypto from 'crypto';
+import { EventEmitter } from 'events';
+
+import type { Pool } from 'pg';
 
 export interface AgentPaymentAuthorization {
   authorizationId: string;
@@ -81,7 +82,7 @@ export class AgentPaymentService extends EventEmitter {
       // Verify agent exists
       const agentResult = await this.database.query(
         'SELECT agent_id, name FROM agents WHERE agent_id = $1',
-        [params.agentId]
+        [params.agentId],
       );
 
       if (agentResult.rows.length === 0) {
@@ -91,7 +92,7 @@ export class AgentPaymentService extends EventEmitter {
       // Verify authorizer identity
       const authorizerResult = await this.database.query(
         'SELECT id FROM payment_identities WHERE identity_key = $1',
-        [params.authorizedBy]
+        [params.authorizedBy],
       );
 
       if (authorizerResult.rows.length === 0) {
@@ -103,7 +104,8 @@ export class AgentPaymentService extends EventEmitter {
       const expiresAt = params.expiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 year default
 
       // Insert authorization
-      await this.database.query(`
+      await this.database.query(
+        `
         INSERT INTO agent_payment_authorizations (
           id, agent_id, authorized_by, max_payment_satoshis,
           daily_limit_satoshis, monthly_limit_satoshis,
@@ -121,15 +123,17 @@ export class AgentPaymentService extends EventEmitter {
           expires_at = EXCLUDED.expires_at,
           is_active = true,
           updated_at = NOW()
-      `, [
-        authorizationId,
-        params.agentId,
-        authorizerId,
-        params.maxPaymentSatoshis,
-        params.dailyLimitSatoshis,
-        params.monthlyLimitSatoshis,
-        expiresAt
-      ]);
+      `,
+        [
+          authorizationId,
+          params.agentId,
+          authorizerId,
+          params.maxPaymentSatoshis,
+          params.dailyLimitSatoshis,
+          params.monthlyLimitSatoshis,
+          expiresAt,
+        ],
+      );
 
       const authorization: AgentPaymentAuthorization = {
         authorizationId,
@@ -138,16 +142,16 @@ export class AgentPaymentService extends EventEmitter {
         limits: {
           maxPaymentSatoshis: params.maxPaymentSatoshis,
           dailyLimitSatoshis: params.dailyLimitSatoshis,
-          monthlyLimitSatoshis: params.monthlyLimitSatoshis
+          monthlyLimitSatoshis: params.monthlyLimitSatoshis,
         },
         currentUsage: {
           dailySpentSatoshis: 0,
           monthlySpentSatoshis: 0,
-          lastResetDate: new Date().toISOString().split('T')[0]
+          lastResetDate: new Date().toISOString().split('T')[0],
         },
         status: 'active',
         expiresAt,
-        createdAt: new Date()
+        createdAt: new Date(),
       };
 
       console.log(`✅ Agent payment authorization created: ${authorizationId}`);
@@ -165,7 +169,7 @@ export class AgentPaymentService extends EventEmitter {
    */
   async checkPaymentAuthorization(
     agentId: string,
-    paymentAmountSatoshis: number
+    paymentAmountSatoshis: number,
   ): Promise<{
     authorized: boolean;
     reason?: string;
@@ -173,17 +177,20 @@ export class AgentPaymentService extends EventEmitter {
   }> {
     try {
       // Get current authorization
-      const authResult = await this.database.query(`
+      const authResult = await this.database.query(
+        `
         SELECT apa.*, pi.identity_key as authorizer_identity
         FROM agent_payment_authorizations apa
         JOIN payment_identities pi ON apa.authorized_by = pi.id
         WHERE apa.agent_id = $1 AND apa.is_active = true
-      `, [agentId]);
+      `,
+        [agentId],
+      );
 
       if (authResult.rows.length === 0) {
         return {
           authorized: false,
-          reason: 'No active authorization found for agent'
+          reason: 'No active authorization found for agent',
         };
       }
 
@@ -193,7 +200,7 @@ export class AgentPaymentService extends EventEmitter {
       if (new Date(auth.expires_at) < new Date()) {
         return {
           authorized: false,
-          reason: 'Authorization expired'
+          reason: 'Authorization expired',
         };
       }
 
@@ -207,21 +214,21 @@ export class AgentPaymentService extends EventEmitter {
       if (paymentAmountSatoshis > auth.max_payment_satoshis) {
         return {
           authorized: false,
-          reason: `Payment amount ${paymentAmountSatoshis} exceeds maximum per-payment limit ${auth.max_payment_satoshis}`
+          reason: `Payment amount ${paymentAmountSatoshis} exceeds maximum per-payment limit ${auth.max_payment_satoshis}`,
         };
       }
 
       if (currentSpending.dailySpent + paymentAmountSatoshis > auth.daily_limit_satoshis) {
         return {
           authorized: false,
-          reason: `Payment would exceed daily limit. Current: ${currentSpending.dailySpent}, Limit: ${auth.daily_limit_satoshis}`
+          reason: `Payment would exceed daily limit. Current: ${currentSpending.dailySpent}, Limit: ${auth.daily_limit_satoshis}`,
         };
       }
 
       if (currentSpending.monthlySpent + paymentAmountSatoshis > auth.monthly_limit_satoshis) {
         return {
           authorized: false,
-          reason: `Payment would exceed monthly limit. Current: ${currentSpending.monthlySpent}, Limit: ${auth.monthly_limit_satoshis}`
+          reason: `Payment would exceed monthly limit. Current: ${currentSpending.monthlySpent}, Limit: ${auth.monthly_limit_satoshis}`,
         };
       }
 
@@ -232,27 +239,27 @@ export class AgentPaymentService extends EventEmitter {
         limits: {
           maxPaymentSatoshis: auth.max_payment_satoshis,
           dailyLimitSatoshis: auth.daily_limit_satoshis,
-          monthlyLimitSatoshis: auth.monthly_limit_satoshis
+          monthlyLimitSatoshis: auth.monthly_limit_satoshis,
         },
         currentUsage: {
           dailySpentSatoshis: currentSpending.dailySpent,
           monthlySpentSatoshis: currentSpending.monthlySpent,
-          lastResetDate: auth.last_reset_date
+          lastResetDate: auth.last_reset_date,
         },
         status: 'active',
         expiresAt: new Date(auth.expires_at),
-        createdAt: new Date(auth.created_at)
+        createdAt: new Date(auth.created_at),
       };
 
       return {
         authorized: true,
-        authorization
+        authorization,
       };
     } catch (error) {
       console.error('Authorization check failed:', error);
       return {
         authorized: false,
-        reason: 'Authorization check error: ' + error.message
+        reason: 'Authorization check error: ' + error.message,
       };
     }
   }
@@ -264,31 +271,36 @@ export class AgentPaymentService extends EventEmitter {
     agentId: string,
     receiptId: string,
     amountSatoshis: number,
-    successful: boolean
+    successful: boolean,
   ): Promise<void> {
     try {
       if (successful) {
         // Update spending amounts
-        await this.database.query(`
+        await this.database.query(
+          `
           UPDATE agent_payment_authorizations
           SET daily_spent_satoshis = daily_spent_satoshis + $2,
               monthly_spent_satoshis = monthly_spent_satoshis + $2,
               updated_at = NOW()
           WHERE agent_id = $1
-        `, [agentId, amountSatoshis]);
+        `,
+          [agentId, amountSatoshis],
+        );
       }
 
       // Record in spending analytics
       await this.recordSpendingAnalytics(agentId, amountSatoshis, successful);
 
-      console.log(`📊 Recorded agent payment: ${agentId} - ${amountSatoshis} satoshis (${successful ? 'success' : 'failed'})`);
+      console.log(
+        `📊 Recorded agent payment: ${agentId} - ${amountSatoshis} satoshis (${successful ? 'success' : 'failed'})`,
+      );
 
       this.emit('agent-payment-recorded', {
         agentId,
         receiptId,
         amountSatoshis,
         successful,
-        timestamp: new Date()
+        timestamp: new Date(),
       });
     } catch (error) {
       console.error('Failed to record agent payment:', error);
@@ -301,17 +313,20 @@ export class AgentPaymentService extends EventEmitter {
    */
   async getAgentSpendingAnalytics(
     agentId: string,
-    timeframe: 'day' | 'week' | 'month' = 'month'
+    timeframe: 'day' | 'week' | 'month' = 'month',
   ): Promise<AgentSpendingAnalytics> {
     try {
-      const timeCondition = timeframe === 'day' ? 'interval \'1 day\'' :
-                           timeframe === 'week' ? 'interval \'7 days\'' :
-                           'interval \'30 days\'';
+      const timeCondition =
+        timeframe === 'day'
+          ? "interval '1 day'"
+          : timeframe === 'week'
+            ? "interval '7 days'"
+            : "interval '30 days'";
 
       // Get agent info
       const agentResult = await this.database.query(
         'SELECT agent_id, name FROM agents WHERE agent_id = $1',
-        [agentId]
+        [agentId],
       );
 
       if (agentResult.rows.length === 0) {
@@ -321,7 +336,8 @@ export class AgentPaymentService extends EventEmitter {
       const agent = agentResult.rows[0];
 
       // Get spending statistics
-      const statsResult = await this.database.query(`
+      const statsResult = await this.database.query(
+        `
         SELECT
           SUM(total_spent_satoshis) as total_spent,
           SUM(transaction_count) as total_transactions,
@@ -330,29 +346,37 @@ export class AgentPaymentService extends EventEmitter {
           SUM(failed_payments) as failed_payments
         FROM agent_spending_analytics
         WHERE agent_id = $1 AND period_start >= NOW() - ${timeCondition}
-      `, [agentId]);
+      `,
+        [agentId],
+      );
 
       const stats = statsResult.rows[0];
 
       // Get current limits and usage
-      const authResult = await this.database.query(`
+      const authResult = await this.database.query(
+        `
         SELECT daily_limit_satoshis, monthly_limit_satoshis,
                daily_spent_satoshis, monthly_spent_satoshis
         FROM agent_payment_authorizations
         WHERE agent_id = $1 AND is_active = true
-      `, [agentId]);
+      `,
+        [agentId],
+      );
 
       const auth = authResult.rows[0];
 
       // Get top purchases
-      const purchasesResult = await this.database.query(`
+      const purchasesResult = await this.database.query(
+        `
         SELECT r.version_id, m.title, r.total_satoshis, r.created_at
         FROM overlay_receipts r
         LEFT JOIN manifests m ON r.version_id = m.version_id
         WHERE r.agent_id = $1 AND r.created_at >= NOW() - ${timeCondition}
         ORDER BY r.total_satoshis DESC
         LIMIT 10
-      `, [agentId]);
+      `,
+        [agentId],
+      );
 
       const totalSpent = parseInt(stats.total_spent || '0');
       const totalTransactions = parseInt(stats.total_transactions || '0');
@@ -364,20 +388,29 @@ export class AgentPaymentService extends EventEmitter {
         agentName: agent.name,
         totalSpentSatoshis: totalSpent,
         transactionCount: totalTransactions,
-        averageTransactionSatoshis: totalTransactions > 0 ? Math.floor(totalSpent / totalTransactions) : 0,
+        averageTransactionSatoshis:
+          totalTransactions > 0 ? Math.floor(totalSpent / totalTransactions) : 0,
         successfulPayments,
         failedPayments,
         successRate: totalTransactions > 0 ? successfulPayments / totalTransactions : 0,
-        budgetUtilization: auth ? {
-          dailyPercent: auth.daily_limit_satoshis > 0 ? (auth.daily_spent_satoshis / auth.daily_limit_satoshis) * 100 : 0,
-          monthlyPercent: auth.monthly_limit_satoshis > 0 ? (auth.monthly_spent_satoshis / auth.monthly_limit_satoshis) * 100 : 0
-        } : { dailyPercent: 0, monthlyPercent: 0 },
-        topPurchases: purchasesResult.rows.map(row => ({
+        budgetUtilization: auth
+          ? {
+              dailyPercent:
+                auth.daily_limit_satoshis > 0
+                  ? (auth.daily_spent_satoshis / auth.daily_limit_satoshis) * 100
+                  : 0,
+              monthlyPercent:
+                auth.monthly_limit_satoshis > 0
+                  ? (auth.monthly_spent_satoshis / auth.monthly_limit_satoshis) * 100
+                  : 0,
+            }
+          : { dailyPercent: 0, monthlyPercent: 0 },
+        topPurchases: purchasesResult.rows.map((row) => ({
           versionId: row.version_id,
           title: row.title || 'Unknown',
           amountSatoshis: row.total_satoshis,
-          timestamp: new Date(row.created_at)
-        }))
+          timestamp: new Date(row.created_at),
+        })),
       };
 
       return analytics;
@@ -397,7 +430,9 @@ export class AgentPaymentService extends EventEmitter {
     authorization?: AgentPaymentAuthorization;
   }> {
     try {
-      console.log(`🤖 Processing agent payment request: ${request.agentId} for ${request.versionId}`);
+      console.log(
+        `🤖 Processing agent payment request: ${request.agentId} for ${request.versionId}`,
+      );
 
       // Get pricing for the requested asset
       const { getBestUnitPrice } = await import('../db');
@@ -410,7 +445,7 @@ export class AgentPaymentService extends EventEmitter {
       if (!authCheck.authorized) {
         return {
           success: false,
-          reason: authCheck.reason
+          reason: authCheck.reason,
         };
       }
 
@@ -429,13 +464,13 @@ export class AgentPaymentService extends EventEmitter {
       return {
         success: true,
         receiptId,
-        authorization: authCheck.authorization
+        authorization: authCheck.authorization,
       };
     } catch (error) {
       console.error('❌ Agent payment request failed:', error);
       return {
         success: false,
-        reason: 'Payment processing error: ' + error.message
+        reason: 'Payment processing error: ' + error.message,
       };
     }
   }
@@ -447,7 +482,8 @@ export class AgentPaymentService extends EventEmitter {
     const today = new Date().toISOString().split('T')[0];
     const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
 
-    await this.database.query(`
+    await this.database.query(
+      `
       UPDATE agent_payment_authorizations
       SET
         daily_spent_satoshis = CASE
@@ -460,7 +496,9 @@ export class AgentPaymentService extends EventEmitter {
         END,
         last_reset_date = $2
       WHERE agent_id = $1
-    `, [agentId, today]);
+    `,
+      [agentId, today],
+    );
   }
 
   /**
@@ -470,11 +508,14 @@ export class AgentPaymentService extends EventEmitter {
     dailySpent: number;
     monthlySpent: number;
   }> {
-    const result = await this.database.query(`
+    const result = await this.database.query(
+      `
       SELECT daily_spent_satoshis, monthly_spent_satoshis
       FROM agent_payment_authorizations
       WHERE agent_id = $1
-    `, [agentId]);
+    `,
+      [agentId],
+    );
 
     if (result.rows.length === 0) {
       return { dailySpent: 0, monthlySpent: 0 };
@@ -482,7 +523,7 @@ export class AgentPaymentService extends EventEmitter {
 
     return {
       dailySpent: parseInt(result.rows[0].daily_spent_satoshis),
-      monthlySpent: parseInt(result.rows[0].monthly_spent_satoshis)
+      monthlySpent: parseInt(result.rows[0].monthly_spent_satoshis),
     };
   }
 
@@ -492,13 +533,14 @@ export class AgentPaymentService extends EventEmitter {
   private async recordSpendingAnalytics(
     agentId: string,
     amountSatoshis: number,
-    successful: boolean
+    successful: boolean,
   ): Promise<void> {
     const now = new Date();
     const periodStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const periodEnd = new Date(periodStart.getTime() + 24 * 60 * 60 * 1000);
 
-    await this.database.query(`
+    await this.database.query(
+      `
       INSERT INTO agent_spending_analytics (
         agent_id, period_start, period_end, period_type,
         total_spent_satoshis, transaction_count, average_transaction_satoshis,
@@ -517,14 +559,16 @@ export class AgentPaymentService extends EventEmitter {
           THEN (agent_spending_analytics.successful_payments + EXCLUDED.successful_payments)::decimal / (agent_spending_analytics.transaction_count + 1)
           ELSE 0
         END
-    `, [
-      agentId,
-      periodStart,
-      periodEnd,
-      amountSatoshis,
-      successful ? 1 : 0,
-      successful ? 0 : 1,
-      successful ? 1.0 : 0.0
-    ]);
+    `,
+      [
+        agentId,
+        periodStart,
+        periodEnd,
+        amountSatoshis,
+        successful ? 1 : 0,
+        successful ? 0 : 1,
+        successful ? 1.0 : 0.0,
+      ],
+    );
   }
 }

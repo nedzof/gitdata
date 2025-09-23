@@ -1,7 +1,9 @@
-import type { Request, Response, Router } from 'express';
-import { Router as makeRouter } from 'express';
 import fs from 'fs';
 import path from 'path';
+
+import type { Request, Response, Router } from 'express';
+import { Router as makeRouter } from 'express';
+
 import * as db from '../db';
 import { getStorageDriver, parseRange, formatContentRange } from '../storage';
 
@@ -78,7 +80,10 @@ export function dataRouter(): Router {
       // Optional manifest validation
       const man = await db.getManifest(rc.version_id);
       if (!man) {
-        return json(res, 409, { error: 'manifest-missing', hint: 'manifest not found for version' });
+        return json(res, 409, {
+          error: 'manifest-missing',
+          hint: 'manifest not found for version',
+        });
       }
 
       // Get storage driver and check object existence
@@ -97,7 +102,7 @@ export function dataRouter(): Router {
       if (BYTES_MAX_PER_RECEIPT > 0 && used + size > BYTES_MAX_PER_RECEIPT) {
         return json(res, 409, {
           error: 'quota-exceeded',
-          hint: `limit=${BYTES_MAX_PER_RECEIPT}, used=${used}, size=${size}`
+          hint: `limit=${BYTES_MAX_PER_RECEIPT}, used=${used}, size=${size}`,
         });
       }
 
@@ -124,7 +129,7 @@ export function dataRouter(): Router {
                 method: 'presigned-url',
                 url: presignedUrl.url,
                 expiresAt: presignedUrl.expiresAt,
-                headers: presignedUrl.headers || {}
+                headers: presignedUrl.headers || {},
               },
               metadata: {
                 contentHash,
@@ -133,8 +138,8 @@ export function dataRouter(): Router {
                 size,
                 tier: DATA_DELIVERY_TIER,
                 bytesUsed: used + size,
-                bytesLimit: BYTES_MAX_PER_RECEIPT
-              }
+                bytesLimit: BYTES_MAX_PER_RECEIPT,
+              },
             });
           }
         } catch (error) {
@@ -154,7 +159,11 @@ export function dataRouter(): Router {
         }
       }
 
-      const { data, metadata: streamMetadata } = await storage.getObject(contentHash, DATA_DELIVERY_TIER, range);
+      const { data, metadata: streamMetadata } = await storage.getObject(
+        contentHash,
+        DATA_DELIVERY_TIER,
+        range,
+      );
 
       // Set response headers
       res.setHeader('content-type', streamMetadata.contentType || 'application/octet-stream');
@@ -176,15 +185,22 @@ export function dataRouter(): Router {
       // Stream data
       data.on('error', (err) => {
         if (!res.headersSent) {
-          return json(res, 500, { error: 'stream-error', message: String((err as any)?.message || err) });
+          return json(res, 500, {
+            error: 'stream-error',
+            message: String((err as any)?.message || err),
+          });
         }
-        try { res.end(); } catch {}
+        try {
+          res.end();
+        } catch {
+          // Ignore res.end() errors (client may have disconnected)
+        }
       });
 
       data.on('end', async () => {
         // Update counters after successful delivery
         try {
-          await db.updateReceiptUsage(receiptId, range ? (range.end! - range.start! + 1) : size);
+          await db.updateReceiptUsage(receiptId, range ? range.end! - range.start! + 1 : size);
           if (SINGLE_USE_RECEIPTS && !range) {
             await db.setReceiptStatus(receiptId, 'consumed');
           }
@@ -194,7 +210,6 @@ export function dataRouter(): Router {
       });
 
       data.pipe(res);
-
     } catch (e: any) {
       return json(res, 500, { error: 'data-failed', message: String(e?.message || e) });
     }

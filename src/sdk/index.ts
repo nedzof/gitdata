@@ -1,5 +1,5 @@
-import { SDKOptions, ReadyResult, PriceQuote, Receipt, LineageBundle } from './types';
 import { getJson, postJson } from './http';
+import type { SDKOptions, ReadyResult, PriceQuote, Receipt, LineageBundle } from './types';
 import { verifyBundleSPV } from './verify';
 
 export class GitdataSDK {
@@ -9,7 +9,7 @@ export class GitdataSDK {
   private timeoutMs: number;
 
   constructor(opts: SDKOptions) {
-    this.baseUrl = opts.baseUrl.replace(/\/+$/,'');
+    this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
     this.headersUrl = opts.headersUrl;
     this.f = opts.fetchImpl || fetch;
     this.timeoutMs = Number(opts.timeoutMs || 8000);
@@ -25,9 +25,23 @@ export class GitdataSDK {
     return await getJson(this.baseUrl, path, this.timeoutMs, this.f);
   }
 
-  async verifyBundle(versionIdOrBundle: string | LineageBundle, minConfs = 0): Promise<{ ok: boolean; minConfirmations?: number; results: { versionId: string; ok: boolean; reason?: string; confirmations?: number }[] }> {
-    const bundle = typeof versionIdOrBundle === 'string' ? await this.bundle(versionIdOrBundle) : versionIdOrBundle;
-    const { ok, results, minConfirmations } = await verifyBundleSPV(bundle, { headersUrl: this.headersUrl, minConfs, fetchImpl: this.f });
+  async verifyBundle(
+    versionIdOrBundle: string | LineageBundle,
+    minConfs = 0,
+  ): Promise<{
+    ok: boolean;
+    minConfirmations?: number;
+    results: { versionId: string; ok: boolean; reason?: string; confirmations?: number }[];
+  }> {
+    const bundle =
+      typeof versionIdOrBundle === 'string'
+        ? await this.bundle(versionIdOrBundle)
+        : versionIdOrBundle;
+    const { ok, results, minConfirmations } = await verifyBundleSPV(bundle, {
+      headersUrl: this.headersUrl,
+      minConfs,
+      fetchImpl: this.f,
+    });
     return { ok, minConfirmations, results };
   }
 

@@ -2,7 +2,8 @@
 // Placeholder for chunked upload/download and video streaming capabilities
 
 import { EventEmitter } from 'events';
-import { DatabaseAdapter } from './brc26-uhrp';
+
+import type { DatabaseAdapter } from './brc26-uhrp';
 
 export interface StreamableContent {
   hash: string;
@@ -17,9 +18,9 @@ export interface StreamableContent {
   uploadedAt: number;
   metadata?: {
     duration?: number; // for video/audio
-    width?: number;    // for video/images
-    height?: number;   // for video/images
-    bitrate?: number;  // for video/audio
+    width?: number; // for video/images
+    height?: number; // for video/images
+    bitrate?: number; // for video/audio
   };
 }
 
@@ -88,11 +89,7 @@ export class StreamingService extends EventEmitter {
   private uploadSessions = new Map<string, ChunkedUploadSession>();
   private transcodingJobs = new Map<string, TranscodingJob>();
 
-  constructor(
-    database: DatabaseAdapter,
-    storageBasePath: string,
-    baseUrl: string
-  ) {
+  constructor(database: DatabaseAdapter, storageBasePath: string, baseUrl: string) {
     super();
     this.database = database;
     this.storageBasePath = storageBasePath;
@@ -221,29 +218,32 @@ export class StreamingService extends EventEmitter {
       enableStreaming: params.enableStreaming || false,
       streamingProfiles: params.streamingProfiles || [],
       createdAt: Date.now(),
-      expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours
-      status: 'pending'
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
+      status: 'pending',
     };
 
     // Store in database
-    await this.database.execute(`
+    await this.database.execute(
+      `
       INSERT INTO uhrp_upload_sessions
       (upload_id, filename, content_type, total_size, chunk_size, total_chunks,
        enable_streaming, streaming_profiles_json, status, created_at, expires_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    `, [
-      session.uploadId,
-      session.filename,
-      session.contentType,
-      session.totalSize,
-      session.chunkSize,
-      session.totalChunks,
-      session.enableStreaming,
-      JSON.stringify(session.streamingProfiles),
-      session.status,
-      session.createdAt,
-      session.expiresAt
-    ]);
+    `,
+      [
+        session.uploadId,
+        session.filename,
+        session.contentType,
+        session.totalSize,
+        session.chunkSize,
+        session.totalChunks,
+        session.enableStreaming,
+        JSON.stringify(session.streamingProfiles),
+        session.status,
+        session.createdAt,
+        session.expiresAt,
+      ],
+    );
 
     this.uploadSessions.set(uploadId, session);
 
@@ -259,7 +259,7 @@ export class StreamingService extends EventEmitter {
   async uploadChunk(
     uploadId: string,
     chunkIndex: number,
-    chunkData: Buffer
+    chunkData: Buffer,
   ): Promise<{ success: boolean; chunkHash: string; message: string }> {
     const session = this.uploadSessions.get(uploadId);
     if (!session) {
@@ -291,7 +291,6 @@ export class StreamingService extends EventEmitter {
       this.emit('chunk-uploaded', { uploadId, chunkIndex, chunkHash });
 
       return { success: true, chunkHash, message: 'Chunk uploaded successfully' };
-
     } catch (error) {
       console.error(`[STREAMING] Failed to upload chunk ${chunkIndex}:`, error);
       return { success: false, chunkHash: '', message: error.message };
@@ -301,17 +300,16 @@ export class StreamingService extends EventEmitter {
   /**
    * Complete chunked upload
    */
-  async completeChunkedUpload(
-    uploadId: string,
-    chunkHashes: string[]
-  ): Promise<StreamableContent> {
+  async completeChunkedUpload(uploadId: string, chunkHashes: string[]): Promise<StreamableContent> {
     const session = this.uploadSessions.get(uploadId);
     if (!session) {
       throw new Error('Upload session not found');
     }
 
     if (session.uploadedChunks.size !== session.totalChunks) {
-      throw new Error(`Missing chunks: ${session.totalChunks - session.uploadedChunks.size} remaining`);
+      throw new Error(
+        `Missing chunks: ${session.totalChunks - session.uploadedChunks.size} remaining`,
+      );
     }
 
     // TODO: Verify chunk hashes
@@ -331,21 +329,18 @@ export class StreamingService extends EventEmitter {
       totalChunks: session.totalChunks,
       isStreamable: session.enableStreaming,
       transcoded: false,
-      uploadedAt: Date.now()
+      uploadedAt: Date.now(),
     };
 
     // Store in streaming content table
-    await this.database.execute(`
+    await this.database.execute(
+      `
       INSERT INTO uhrp_streaming_content
       (content_hash, is_streamable, chunk_size, total_chunks, transcoded)
       VALUES ($1, $2, $3, $4, $5)
-    `, [
-      contentHash,
-      session.enableStreaming,
-      session.chunkSize,
-      session.totalChunks,
-      false
-    ]);
+    `,
+      [contentHash, session.enableStreaming, session.chunkSize, session.totalChunks, false],
+    );
 
     // Start transcoding if enabled
     if (session.enableStreaming && this.isVideoContent(session.contentType)) {
@@ -373,10 +368,7 @@ export class StreamingService extends EventEmitter {
   /**
    * Get chunk by index (for streaming/download)
    */
-  async getChunk(
-    contentHash: string,
-    chunkIndex: number
-  ): Promise<Buffer | null> {
+  async getChunk(contentHash: string, chunkIndex: number): Promise<Buffer | null> {
     // TODO: Implement actual chunk retrieval
     console.log(`[STREAMING] Would retrieve chunk ${chunkIndex} for ${contentHash}`);
     return null;
@@ -385,10 +377,7 @@ export class StreamingService extends EventEmitter {
   /**
    * Start transcoding job (placeholder)
    */
-  private async startTranscoding(
-    contentHash: string,
-    profileIds: string[]
-  ): Promise<void> {
+  private async startTranscoding(contentHash: string, profileIds: string[]): Promise<void> {
     const jobId = this.generateJobId();
 
     // TODO: Implement actual transcoding with FFmpeg
@@ -401,7 +390,7 @@ export class StreamingService extends EventEmitter {
       sourceFile: this.getContentPath(contentHash),
       targetProfiles: [], // Would be populated from profileIds
       status: 'pending',
-      progress: 0
+      progress: 0,
     };
 
     this.transcodingJobs.set(jobId, job);
@@ -431,14 +420,14 @@ export class StreamingService extends EventEmitter {
       `),
       this.database.queryOne(`
         SELECT COUNT(*) as count FROM uhrp_content_chunks
-      `)
+      `),
     ]);
 
     return {
       activeSessions: this.uploadSessions.size,
       transcodingJobs: this.transcodingJobs.size,
       totalStreamableContent: parseInt(contentCount?.count || '0'),
-      totalChunks: parseInt(chunkCount?.count || '0')
+      totalChunks: parseInt(chunkCount?.count || '0'),
     };
   }
 
@@ -474,28 +463,31 @@ export class StreamingService extends EventEmitter {
   }
 
   private async updateUploadSession(session: ChunkedUploadSession): Promise<void> {
-    await this.database.execute(`
+    await this.database.execute(
+      `
       UPDATE uhrp_upload_sessions
       SET uploaded_chunks_json = $1, status = $2
       WHERE upload_id = $3
-    `, [
-      JSON.stringify(Array.from(session.uploadedChunks)),
-      session.status,
-      session.uploadId
-    ]);
+    `,
+      [JSON.stringify(Array.from(session.uploadedChunks)), session.status, session.uploadId],
+    );
   }
 
   private startCleanupTimer(): void {
     // Clean up expired upload sessions every hour
-    setInterval(() => {
-      this.cleanupExpiredSessions().catch(console.error);
-    }, 60 * 60 * 1000);
+    setInterval(
+      () => {
+        this.cleanupExpiredSessions().catch(console.error);
+      },
+      60 * 60 * 1000,
+    );
   }
 
   private async cleanupExpiredSessions(): Promise<void> {
     const now = Date.now();
-    const expiredSessions = Array.from(this.uploadSessions.values())
-      .filter(session => session.expiresAt < now);
+    const expiredSessions = Array.from(this.uploadSessions.values()).filter(
+      (session) => session.expiresAt < now,
+    );
 
     for (const session of expiredSessions) {
       this.uploadSessions.delete(session.uploadId);
@@ -504,9 +496,12 @@ export class StreamingService extends EventEmitter {
     }
 
     // Also clean up from database
-    await this.database.execute(`
+    await this.database.execute(
+      `
       DELETE FROM uhrp_upload_sessions WHERE expires_at < $1
-    `, [now]);
+    `,
+      [now],
+    );
   }
 }
 

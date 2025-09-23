@@ -13,7 +13,9 @@ import { sha256 } from '@noble/hashes/sha256';
 
 // ---------- utils ----------
 function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 function fromHex(hex: string): Uint8Array {
   const s = hex.startsWith('0x') ? hex.slice(2) : hex;

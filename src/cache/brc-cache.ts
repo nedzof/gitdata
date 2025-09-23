@@ -1,5 +1,6 @@
-import { getCacheTTLs } from './ttls';
 import { getRedisClient } from '../db/redis';
+
+import { getCacheTTLs } from './ttls';
 
 // BRC Method Cache implementation for D11H specification
 // Focuses on BRC-100 wallet method caching and cache invalidation
@@ -38,7 +39,11 @@ export async function invalidateAPIClientCache(): Promise<void> {
 
     // Set invalidation marker with zero TTL to force immediate reload
     const ttls = getCacheTTLs();
-    await redis.set(`${CACHE_INVALIDATION_PREFIX}api_client`, Date.now(), Math.floor(ttls.apiClient / 1000));
+    await redis.set(
+      `${CACHE_INVALIDATION_PREFIX}api_client`,
+      Date.now(),
+      Math.floor(ttls.apiClient / 1000),
+    );
 
     console.log('🔄 API Client cache invalidated - forcing reload of D06 methods');
   } catch (error) {
@@ -63,7 +68,7 @@ export async function cacheBRCVerification(
   method: string,
   hash: string,
   verified: boolean,
-  publicKey: string
+  publicKey: string,
 ): Promise<void> {
   const redis = getRedisClient();
   const ttls = getCacheTTLs();
@@ -74,7 +79,7 @@ export async function cacheBRCVerification(
     verified,
     timestamp: Date.now(),
     publicKey,
-    expiresAt: Date.now() + ttls.brcVerification
+    expiresAt: Date.now() + ttls.brcVerification,
   };
 
   try {
@@ -88,7 +93,7 @@ export async function cacheBRCVerification(
 // Get cached BRC verification
 export async function getCachedBRCVerification(
   method: string,
-  hash: string
+  hash: string,
 ): Promise<BRCVerificationEntry | null> {
   const redis = getRedisClient();
 
@@ -116,7 +121,7 @@ export async function getCachedBRCVerification(
 export async function cacheBRCSignature(
   hash: string,
   signature: string,
-  publicKey: string
+  publicKey: string,
 ): Promise<void> {
   const redis = getRedisClient();
   const ttls = getCacheTTLs();
@@ -125,7 +130,7 @@ export async function cacheBRCSignature(
     signature,
     publicKey,
     timestamp: Date.now(),
-    expiresAt: Date.now() + ttls.brcSignatures
+    expiresAt: Date.now() + ttls.brcSignatures,
   };
 
   try {
@@ -192,7 +197,7 @@ export async function shouldBypassCache(method: string): Promise<boolean> {
     'verifyPayment',
     'createSignature',
     'verifySignature',
-    'waitForAuthentication'
+    'waitForAuthentication',
   ];
 
   if (noCacheMethods.includes(method)) {

@@ -1,12 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import {
-  queryLineage,
-  getOLDataset,
-  getOLRun,
-  getOLJob,
-  searchOLDatasets
-} from '../db/index.js';
+
+import { queryLineage, getOLDataset, getOLRun, getOLJob, searchOLDatasets } from '../db/index.js';
 
 const router = Router();
 
@@ -17,7 +12,7 @@ router.get('/lineage', async (req, res) => {
       node: z.string().min(1),
       depth: z.coerce.number().min(1).max(10).default(3),
       direction: z.enum(['up', 'down', 'both']).default('both'),
-      format: z.enum(['simple', 'cyto']).default('simple')
+      format: z.enum(['simple', 'cyto']).default('simple'),
     });
 
     const { node, depth, direction, format } = schema.parse(req.query);
@@ -26,7 +21,7 @@ router.get('/lineage', async (req, res) => {
     const nodeMatch = node.match(/^dataset:([^:]+):(.+)$/);
     if (!nodeMatch) {
       return res.status(400).json({
-        error: 'Invalid node format. Expected: dataset:namespace:name'
+        error: 'Invalid node format. Expected: dataset:namespace:name',
       });
     }
 
@@ -35,19 +30,19 @@ router.get('/lineage', async (req, res) => {
     const result = await queryLineage({
       node: `dataset:${namespace}:${name}`,
       depth,
-      direction
+      direction,
     });
 
     if (format === 'cyto') {
       // Convert to Cytoscape format
-      const nodes = result.nodes.map(node => ({
+      const nodes = result.nodes.map((node) => ({
         data: {
           id: `dataset:${node.namespace}:${node.name}`,
           label: node.name,
           namespace: node.namespace,
           type: 'dataset',
-          facets: node.facets
-        }
+          facets: node.facets,
+        },
       }));
 
       const edges = result.edges.map((edge, index) => ({
@@ -55,13 +50,13 @@ router.get('/lineage', async (req, res) => {
           id: `edge-${index}`,
           source: `dataset:${edge.namespace}:${edge.parent_dataset_name}`,
           target: `dataset:${edge.namespace}:${edge.child_dataset_name}`,
-          rel: 'parent'
-        }
+          rel: 'parent',
+        },
       }));
 
       return res.json({
         elements: { nodes, edges },
-        stats: result.stats
+        stats: result.stats,
       });
     }
 
@@ -70,20 +65,19 @@ router.get('/lineage', async (req, res) => {
       node,
       depth,
       direction,
-      nodes: result.nodes.map(n => ({
+      nodes: result.nodes.map((n) => ({
         namespace: n.namespace,
         name: n.name,
         type: 'dataset',
-        facets: n.facets
+        facets: n.facets,
       })),
-      edges: result.edges.map(e => ({
+      edges: result.edges.map((e) => ({
         from: `dataset:${e.namespace}:${e.parent_dataset_name}`,
         to: `dataset:${e.namespace}:${e.child_dataset_name}`,
-        rel: 'parent'
+        rel: 'parent',
       })),
-      stats: result.stats
+      stats: result.stats,
     });
-
   } catch (error) {
     console.error('Error in /lineage:', error);
     if (error instanceof z.ZodError) {
@@ -109,8 +103,8 @@ router.get('/nodes/dataset/:namespace/:name', async (req, res) => {
         name: dataset.name,
         facets: dataset.latest_facets_json ? JSON.parse(dataset.latest_facets_json) : {},
         created_at: dataset.created_at,
-        updated_at: dataset.updated_at
-      }
+        updated_at: dataset.updated_at,
+      },
     });
   } catch (error) {
     console.error('Error in /nodes/dataset:', error);
@@ -139,8 +133,8 @@ router.get('/runs/:runId', async (req, res) => {
         end_time: run.end_time,
         facets: run.facets_json ? JSON.parse(run.facets_json) : {},
         created_at: run.created_at,
-        updated_at: run.updated_at
-      }
+        updated_at: run.updated_at,
+      },
     });
   } catch (error) {
     console.error('Error in /runs:', error);
@@ -165,8 +159,8 @@ router.get('/jobs/:namespace/:name', async (req, res) => {
         name: job.name,
         facets: job.latest_facets_json ? JSON.parse(job.latest_facets_json) : {},
         created_at: job.created_at,
-        updated_at: job.updated_at
-      }
+        updated_at: job.updated_at,
+      },
     });
   } catch (error) {
     console.error('Error in /jobs:', error);
@@ -179,7 +173,7 @@ router.get('/search', async (req, res) => {
   try {
     const schema = z.object({
       q: z.string().min(1),
-      limit: z.coerce.number().min(1).max(100).default(20)
+      limit: z.coerce.number().min(1).max(100).default(20),
     });
 
     const { q, limit } = schema.parse(req.query);
@@ -188,14 +182,14 @@ router.get('/search', async (req, res) => {
 
     res.json({
       query: q,
-      results: results.map(r => ({
+      results: results.map((r) => ({
         namespace: r.namespace,
         name: r.name,
         type: 'dataset',
         facets: r.latest_facets_json ? JSON.parse(r.latest_facets_json) : {},
-        updated_at: r.updated_at
+        updated_at: r.updated_at,
       })),
-      count: results.length
+      count: results.length,
     });
   } catch (error) {
     console.error('Error in /search:', error);
@@ -213,7 +207,7 @@ router.get('/health', async (req, res) => {
     const testResult = await queryLineage({
       node: 'dataset:overlay:test:test',
       depth: 1,
-      direction: 'both'
+      direction: 'both',
     });
 
     res.json({
@@ -223,15 +217,15 @@ router.get('/health', async (req, res) => {
         database: 'ok',
         adapter: 'ok',
         store: 'ok',
-        query: 'ok'
-      }
+        query: 'ok',
+      },
     });
   } catch (error) {
     console.error('Health check failed:', error);
     res.status(503).json({
       status: 'error',
       timestamp: new Date().toISOString(),
-      error: 'Service unavailable'
+      error: 'Service unavailable',
     });
   }
 });

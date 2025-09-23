@@ -3,8 +3,12 @@
  */
 
 import { Router } from 'express';
-import { createStreamingProducer, generateProducerCredentials } from '../producer/streaming-producer';
+
 import { authenticateProducer, validateStreamPermissions } from '../middleware/producer-auth';
+import {
+  createStreamingProducer,
+  generateProducerCredentials,
+} from '../producer/streaming-producer';
 
 const router = Router();
 
@@ -14,7 +18,16 @@ const router = Router();
  */
 router.post('/streams', authenticateProducer, async (req, res) => {
   try {
-    const { title, description, category, pricePerPacket, maxPacketsPerMinute, retentionHours, isPublic, tags } = req.body;
+    const {
+      title,
+      description,
+      category,
+      pricePerPacket,
+      maxPacketsPerMinute,
+      retentionHours,
+      isPublic,
+      tags,
+    } = req.body;
 
     const producer = createStreamingProducer(req.producer);
     const streamId = `stream-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -28,21 +41,21 @@ router.post('/streams', authenticateProducer, async (req, res) => {
       maxPacketsPerMinute: maxPacketsPerMinute || 60,
       retentionHours: retentionHours || 24,
       isPublic: isPublic !== false,
-      tags: tags || []
+      tags: tags || [],
     });
 
     res.json({
       success: true,
       data: {
         streamId: stream.version_id,
-        stream
-      }
+        stream,
+      },
     });
   } catch (error) {
     console.error('Error creating stream:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -58,13 +71,13 @@ router.get('/streams', authenticateProducer, async (req, res) => {
 
     res.json({
       success: true,
-      data: streams
+      data: streams,
     });
   } catch (error) {
     console.error('Error fetching streams:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -73,42 +86,47 @@ router.get('/streams', authenticateProducer, async (req, res) => {
  * POST /producer/streams/:streamId/packets
  * Submit a data packet to a stream
  */
-router.post('/streams/:streamId/packets', authenticateProducer, validateStreamPermissions, async (req, res) => {
-  try {
-    const { streamId } = req.params;
-    const { data, metadata } = req.body;
+router.post(
+  '/streams/:streamId/packets',
+  authenticateProducer,
+  validateStreamPermissions,
+  async (req, res) => {
+    try {
+      const { streamId } = req.params;
+      const { data, metadata } = req.body;
 
-    if (!data) {
-      return res.status(400).json({
+      if (!data) {
+        return res.status(400).json({
+          success: false,
+          error: 'Packet data is required',
+        });
+      }
+
+      const producer = createStreamingProducer(req.producer);
+      const packet = await producer.submitPacket({
+        streamId,
+        data,
+        metadata,
+      });
+
+      res.json({
+        success: true,
+        data: {
+          packetId: packet.id,
+          sequence: packet.packet_sequence,
+          txid: packet.txid,
+          status: packet.confirmation_status,
+        },
+      });
+    } catch (error) {
+      console.error('Error submitting packet:', error);
+      res.status(500).json({
         success: false,
-        error: 'Packet data is required'
+        error: error.message,
       });
     }
-
-    const producer = createStreamingProducer(req.producer);
-    const packet = await producer.submitPacket({
-      streamId,
-      data,
-      metadata
-    });
-
-    res.json({
-      success: true,
-      data: {
-        packetId: packet.id,
-        sequence: packet.packet_sequence,
-        txid: packet.txid,
-        status: packet.confirmation_status
-      }
-    });
-  } catch (error) {
-    console.error('Error submitting packet:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
+  },
+);
 
 /**
  * GET /producer/stats
@@ -122,13 +140,13 @@ router.get('/stats', authenticateProducer, async (req, res) => {
 
     res.json({
       success: true,
-      data: stats
+      data: stats,
     });
   } catch (error) {
     console.error('Error fetching stats:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -137,58 +155,68 @@ router.get('/stats', authenticateProducer, async (req, res) => {
  * PUT /producer/streams/:streamId/config
  * Update stream configuration
  */
-router.put('/streams/:streamId/config', authenticateProducer, validateStreamPermissions, async (req, res) => {
-  try {
-    const { streamId } = req.params;
-    const updates = req.body;
+router.put(
+  '/streams/:streamId/config',
+  authenticateProducer,
+  validateStreamPermissions,
+  async (req, res) => {
+    try {
+      const { streamId } = req.params;
+      const updates = req.body;
 
-    const producer = createStreamingProducer(req.producer);
-    await producer.updateStreamConfig(streamId, updates);
+      const producer = createStreamingProducer(req.producer);
+      await producer.updateStreamConfig(streamId, updates);
 
-    res.json({
-      success: true,
-      message: 'Stream configuration updated'
-    });
-  } catch (error) {
-    console.error('Error updating stream config:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
+      res.json({
+        success: true,
+        message: 'Stream configuration updated',
+      });
+    } catch (error) {
+      console.error('Error updating stream config:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  },
+);
 
 /**
  * PUT /producer/streams/:streamId/status
  * Update stream status (pause/resume/stop)
  */
-router.put('/streams/:streamId/status', authenticateProducer, validateStreamPermissions, async (req, res) => {
-  try {
-    const { streamId } = req.params;
-    const { status } = req.body;
+router.put(
+  '/streams/:streamId/status',
+  authenticateProducer,
+  validateStreamPermissions,
+  async (req, res) => {
+    try {
+      const { streamId } = req.params;
+      const { status } = req.body;
 
-    if (!['active', 'paused', 'stopped'].includes(status)) {
-      return res.status(400).json({
+      if (!['active', 'paused', 'stopped'].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid status. Must be active, paused, or stopped',
+        });
+      }
+
+      const producer = createStreamingProducer(req.producer);
+      await producer.setStreamStatus(streamId, status);
+
+      res.json({
+        success: true,
+        message: `Stream status set to ${status}`,
+      });
+    } catch (error) {
+      console.error('Error updating stream status:', error);
+      res.status(500).json({
         success: false,
-        error: 'Invalid status. Must be active, paused, or stopped'
+        error: error.message,
       });
     }
-
-    const producer = createStreamingProducer(req.producer);
-    await producer.setStreamStatus(streamId, status);
-
-    res.json({
-      success: true,
-      message: `Stream status set to ${status}`
-    });
-  } catch (error) {
-    console.error('Error updating stream status:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
+  },
+);
 
 /**
  * POST /producer/credentials
@@ -201,7 +229,7 @@ router.post('/credentials', async (req, res) => {
     if (!producerId) {
       return res.status(400).json({
         success: false,
-        error: 'Producer ID is required'
+        error: 'Producer ID is required',
       });
     }
 
@@ -209,13 +237,13 @@ router.post('/credentials', async (req, res) => {
 
     res.json({
       success: true,
-      data: credentials
+      data: credentials,
     });
   } catch (error) {
     console.error('Error generating credentials:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });

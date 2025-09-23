@@ -1,11 +1,12 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
+
+import { evaluatePolicy, type PolicyJSON, type PolicyDecision } from '../policies';
 import {
   loadHeaders,
   verifyEnvelopeAgainstHeaders,
   type HeadersIndex,
 } from '../spv/verify-envelope';
-import { evaluatePolicy, type PolicyJSON, type PolicyDecision } from '../policies';
 
 function getPolicyMinConfs() {
   return Number(process.env.POLICY_MIN_CONFS || 1);
@@ -30,7 +31,7 @@ async function getPolicy(policyId: string) {
     const pgClient = getPostgreSQLClient();
     const result = await pgClient.query(
       `SELECT * FROM policies WHERE policy_id = $1 AND enabled = 1`,
-      [policyId]
+      [policyId],
     );
     const row = result.rows[0] as any;
     return row ? JSON.parse(row.policy_json) : null;
@@ -77,7 +78,11 @@ export function readyRouter(): Router {
 
         // Advisory check (active) - use async PostgreSQL functions
         const now = Math.floor(Date.now() / 1000);
-        const { listAdvisoriesForVersionActiveAsync, listAdvisoriesForProducerActiveAsync, getProducerIdForVersionAsync } = await import('../db');
+        const {
+          listAdvisoriesForVersionActiveAsync,
+          listAdvisoriesForProducerActiveAsync,
+          getProducerIdForVersionAsync,
+        } = await import('../db');
 
         const pid = await getProducerIdForVersionAsync(v);
         const advV = await listAdvisoriesForVersionActiveAsync(v, now);
@@ -142,13 +147,13 @@ export function readyRouter(): Router {
             policy: { classification: 'public', license: 'MIT' },
             provenance: {
               producer: { identityKey: 'demo-producer' },
-              createdAt: new Date().toISOString()
+              createdAt: new Date().toISOString(),
             },
-            content: { mimeType: 'application/json' }
+            content: { mimeType: 'application/json' },
           };
 
           // Create mock lineage
-          const lineage = Array.from(seen).map(v => ({ versionId: v, type: 'data' }));
+          const lineage = Array.from(seen).map((v) => ({ versionId: v, type: 'data' }));
 
           policyDecision = await evaluatePolicy(versionId, policy, manifest, lineage);
 
@@ -158,7 +163,7 @@ export function readyRouter(): Router {
               ready: false,
               reason: 'policy-blocked',
               confirmations: confsOut,
-              policy: policyDecision
+              policy: policyDecision,
             });
           }
         } catch (e) {
@@ -166,7 +171,7 @@ export function readyRouter(): Router {
           policyDecision = {
             decision: 'warn' as const,
             reasons: [`Policy evaluation failed: ${e.message}`],
-            evidence: {}
+            evidence: {},
           };
         }
       }

@@ -1,8 +1,8 @@
 export type SDKOptions = {
-  baseUrl: string;          // e.g., http://localhost:8788
-  headersUrl?: string;      // optional: URL to headers.json for client-side verifyBundle
+  baseUrl: string; // e.g., http://localhost:8788
+  headersUrl?: string; // optional: URL to headers.json for client-side verifyBundle
   fetchImpl?: typeof fetch; // override for tests
-  timeoutMs?: number;       // per-request timeout
+  timeoutMs?: number; // per-request timeout
 };
 
 export type ReadyResult = {
@@ -17,7 +17,7 @@ export type PriceQuote = {
   unitSatoshis: number;
   quantity: number;
   totalSatoshis: number;
-  ruleSource: 'version-rule'|'version-override'|'producer-rule'|'default';
+  ruleSource: 'version-rule' | 'version-override' | 'producer-rule' | 'default';
   tierFrom: number;
   expiresAt: number;
 };
@@ -28,7 +28,7 @@ export type Receipt = {
   contentHash: string | null;
   quantity: number;
   amountSat: number;
-  status: 'pending'|'paid'|'consumed'|'expired';
+  status: 'pending' | 'paid' | 'consumed' | 'expired';
   createdAt: number;
   expiresAt: number;
 };

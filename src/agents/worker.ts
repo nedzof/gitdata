@@ -3,7 +3,7 @@ export function startJobsWorker() {
   const worker = {
     start: () => {},
     stop: () => {},
-    isRunning: () => false
+    isRunning: () => false,
   };
 
   // Start the worker

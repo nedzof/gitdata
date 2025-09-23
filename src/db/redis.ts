@@ -20,7 +20,7 @@ export class RedisClient {
       maxRetriesPerRequest: 3,
       retryDelayOnFailover: 100,
       lazyConnect: true,
-      ...config
+      ...config,
     };
 
     if (this.config.url) {
@@ -31,7 +31,7 @@ export class RedisClient {
         port: this.config.port || 6379,
         password: this.config.password,
         db: this.config.db || 0,
-        ...this.config
+        ...this.config,
       });
     }
 
@@ -253,12 +253,12 @@ export class RedisClient {
 
 // Cache TTL configuration
 export interface CacheTTLs {
-  assets: number;       // Asset metadata cache TTL
-  listings: number;     // Catalog listings cache TTL
-  lineage: number;      // Lineage graph cache TTL
-  sessions: number;     // User session TTL
-  policies: number;     // Policy cache TTL
-  prices: number;       // Price cache TTL
+  assets: number; // Asset metadata cache TTL
+  listings: number; // Catalog listings cache TTL
+  lineage: number; // Lineage graph cache TTL
+  sessions: number; // User session TTL
+  policies: number; // Policy cache TTL
+  prices: number; // Price cache TTL
 }
 
 export function getCacheTTLs(): CacheTTLs {
@@ -267,12 +267,12 @@ export function getCacheTTLs(): CacheTTLs {
     if (raw) {
       const config = JSON.parse(raw);
       return {
-        assets: Number(config.assets ?? 300),     // 5 minutes
+        assets: Number(config.assets ?? 300), // 5 minutes
         listings: Number(config.listings ?? 180), // 3 minutes
-        lineage: Number(config.lineage ?? 120),   // 2 minutes
+        lineage: Number(config.lineage ?? 120), // 2 minutes
         sessions: Number(config.sessions ?? 1800), // 30 minutes
-        policies: Number(config.policies ?? 600),  // 10 minutes
-        prices: Number(config.prices ?? 120),     // 2 minutes
+        policies: Number(config.policies ?? 600), // 10 minutes
+        prices: Number(config.prices ?? 120), // 2 minutes
       };
     }
   } catch (error) {
@@ -327,7 +327,7 @@ export const CacheKeys = {
   session: (sessionId: string) => `sess:${sessionId}`,
 
   // Job queues and worker state
-  jobs: (state?: string) => state ? `jobs:${state}` : 'jobs:*',
+  jobs: (state?: string) => (state ? `jobs:${state}` : 'jobs:*'),
 
   // Policy cache
   policy: (policyId: string) => `cache:policy:${policyId}`,

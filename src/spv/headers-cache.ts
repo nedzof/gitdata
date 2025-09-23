@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import { loadHeaders, type HeadersIndex } from './verify-envelope';
+
 import { getCacheTTLs } from '../cache/ttls';
+
+import { loadHeaders, type HeadersIndex } from './verify-envelope';
 
 let memo: {
   file: string;

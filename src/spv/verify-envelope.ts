@@ -10,12 +10,12 @@ export type SPVEnvelope = {
   rawTx: Hex;
   txid?: Hex;
   proof: {
-    txid: Hex;          // big-endian
-    merkleRoot: Hex;    // big-endian
+    txid: Hex; // big-endian
+    merkleRoot: Hex; // big-endian
     path: MerkleNode[]; // nodes are big-endian hex
   };
   block:
-    | { blockHeader: Hex }              // raw 80-byte hex
+    | { blockHeader: Hex } // raw 80-byte hex
     | { blockHash: Hex; blockHeight: number };
   headerChain?: Hex[];
   confirmations?: number;
@@ -23,9 +23,9 @@ export type SPVEnvelope = {
 };
 
 export type HeaderRecord = {
-  hash: Hex;        // big-endian hex
-  prevHash: Hex;    // big-endian hex
-  merkleRoot: Hex;  // big-endian hex
+  hash: Hex; // big-endian hex
+  prevHash: Hex; // big-endian hex
+  merkleRoot: Hex; // big-endian hex
   height: number;
 };
 
@@ -114,9 +114,7 @@ export function verifyMerklePath(
   for (const step of path) {
     const nodeLE = rev(hexToBytesBE(normHex(step.hash)));
     const concat =
-      step.position === 'left'
-        ? Buffer.concat([nodeLE, accLE])
-        : Buffer.concat([accLE, nodeLE]);
+      step.position === 'left' ? Buffer.concat([nodeLE, accLE]) : Buffer.concat([accLE, nodeLE]);
     accLE = sha256d(concat);
   }
   const accBE = bytesToHexBE(rev(accLE));
@@ -149,10 +147,7 @@ export function loadHeaders(filePath: string): HeadersIndex {
   const byHash = new Map<string, HeaderRecord>();
   const byHeight = new Map<number, HeaderRecord>();
   const tipHash = normHex(json.tipHash || '');
-  const bestHeight =
-    typeof json.bestHeight === 'number'
-      ? json.bestHeight
-      : 0;
+  const bestHeight = typeof json.bestHeight === 'number' ? json.bestHeight : 0;
 
   if (Array.isArray(json.headers)) {
     for (const h of json.headers) {

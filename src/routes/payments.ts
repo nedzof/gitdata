@@ -1,6 +1,8 @@
+import crypto from 'crypto';
+
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import crypto from 'crypto';
+
 import * as db from '../db';
 
 function json(res: Response, code: number, body: any) {
@@ -61,7 +63,7 @@ export function paymentsRouter(): Router {
 
       const producerResult = await pgClient.query(
         'SELECT payout_script_hex FROM producers WHERE producer_id = $1',
-        [manifest.producer_id]
+        [manifest.producer_id],
       );
 
       if (producerResult.rows.length === 0) {
@@ -87,17 +89,18 @@ export function paymentsRouter(): Router {
         receiptId,
         outputs,
         amountSat: receipt.amount_sat,
-        expiresAt: Math.floor(Date.now() / 1000) + getReceiptTtlSec()
+        expiresAt: Math.floor(Date.now() / 1000) + getReceiptTtlSec(),
       };
 
-      const templateHash = crypto.createHash('sha256')
+      const templateHash = crypto
+        .createHash('sha256')
         .update(JSON.stringify(templateData))
         .digest('hex');
 
       // Update receipt with quote info (keep status as pending)
       await pgClient.query(
         'UPDATE receipts SET quote_template_hash = $1, quote_expires_at = $2 WHERE receipt_id = $3',
-        [templateHash, templateData.expiresAt, receiptId]
+        [templateHash, templateData.expiresAt, receiptId],
       );
 
       // Log payment event
@@ -109,8 +112,8 @@ export function paymentsRouter(): Router {
           'payment-quoted',
           receiptId,
           JSON.stringify({ templateHash }),
-          Math.floor(Date.now() / 1000)
-        ]
+          Math.floor(Date.now() / 1000),
+        ],
       );
 
       return json(res, 200, {
@@ -118,9 +121,8 @@ export function paymentsRouter(): Router {
         amountSat: receipt.amount_sat,
         outputs,
         templateHash,
-        expiresAt: templateData.expiresAt
+        expiresAt: templateData.expiresAt,
       });
-
     } catch (e: any) {
       return json(res, 500, { error: 'quote-failed', message: String(e?.message || e) });
     }
@@ -145,13 +147,16 @@ export function paymentsRouter(): Router {
           status: 'accepted',
           txid: receipt.payment_txid,
           note: 'idempotent-return',
-          mapi: { mode: 'dryrun' }
+          mapi: { mode: 'dryrun' },
         });
       }
 
       // Accept both 'quoted' and 'pending' status for flexibility
       if (receipt.status !== 'quoted' && receipt.status !== 'pending') {
-        return json(res, 409, { error: 'invalid-state', hint: `Receipt status is ${receipt.status}` });
+        return json(res, 409, {
+          error: 'invalid-state',
+          hint: `Receipt status is ${receipt.status}`,
+        });
       }
 
       // Check quote expiration
@@ -169,7 +174,7 @@ export function paymentsRouter(): Router {
 
       await pgClient.query(
         'UPDATE receipts SET payment_txid = $1, paid_at = to_timestamp($2) WHERE receipt_id = $3',
-        [txid, Math.floor(Date.now() / 1000), receiptId]
+        [txid, Math.floor(Date.now() / 1000), receiptId],
       );
 
       // Log payment event
@@ -182,16 +187,15 @@ export function paymentsRouter(): Router {
           receiptId,
           txid,
           JSON.stringify({ outputs }),
-          Math.floor(Date.now() / 1000)
-        ]
+          Math.floor(Date.now() / 1000),
+        ],
       );
 
       return json(res, 200, {
         status: 'accepted',
         txid,
-        mapi: { mode: 'dryrun' }
+        mapi: { mode: 'dryrun' },
       });
-
     } catch (e: any) {
       return json(res, 500, { error: 'submit-failed', message: String(e?.message || e) });
     }
@@ -215,17 +219,20 @@ export function paymentsRouter(): Router {
           quantity: Number(receipt.quantity),
           amountSat: Number(receipt.amount_sat),
           unitPriceSat: Math.floor(Number(receipt.amount_sat) / Number(receipt.quantity)),
-          quote: receipt.quote_template_hash ? {
-            templateHash: receipt.quote_template_hash,
-            expiresAt: receipt.quote_expires_at
-          } : null,
-          payment: receipt.payment_txid ? {
-            txid: receipt.payment_txid,
-            paidAt: receipt.paid_at
-          } : null
-        }
+          quote: receipt.quote_template_hash
+            ? {
+                templateHash: receipt.quote_template_hash,
+                expiresAt: receipt.quote_expires_at,
+              }
+            : null,
+          payment: receipt.payment_txid
+            ? {
+                txid: receipt.payment_txid,
+                paidAt: receipt.paid_at,
+              }
+            : null,
+        },
       });
-
     } catch (e: any) {
       return json(res, 500, { error: 'get-failed', message: String(e?.message || e) });
     }

@@ -14,9 +14,11 @@
     await migrator.verifyMigration();
 */
 
-import { Readable } from 'stream';
 import { createHash } from 'crypto';
-import { StorageDriver, StorageTier, calculateContentHash } from './index';
+import { Readable } from 'stream';
+
+import type { StorageDriver, StorageTier } from './index';
+import { calculateContentHash } from './index';
 
 export interface MigrationConfig {
   batchSize: number;
@@ -83,7 +85,7 @@ export class StorageMigrator {
       deleteSourceAfterCopy: process.env.MIGRATION_DELETE_SOURCE === 'true',
       resumeFromCheckpoint: process.env.MIGRATION_RESUME === 'true',
       checkpointFile: process.env.MIGRATION_CHECKPOINT_FILE || './migration.checkpoint',
-      ...config
+      ...config,
     };
 
     this.progress = {
@@ -94,7 +96,7 @@ export class StorageMigrator {
       errorCount: 0,
       skippedCount: 0,
       bytesTransferred: 0,
-      startTime: Date.now()
+      startTime: Date.now(),
     };
   }
 
@@ -134,7 +136,6 @@ export class StorageMigrator {
 
       this.progress.phase = 'completed';
       console.log('Migration completed successfully');
-
     } catch (error) {
       console.error('Migration failed:', error);
       this.progress.lastError = String(error);
@@ -157,8 +158,8 @@ export class StorageMigrator {
         const sourceObjects = await this.source.listObjects(tier);
         const targetObjects = await this.target.listObjects(tier);
 
-        const sourceHashes = new Set(sourceObjects.map(o => o.contentHash));
-        const targetHashes = new Set(targetObjects.map(o => o.contentHash));
+        const sourceHashes = new Set(sourceObjects.map((o) => o.contentHash));
+        const targetHashes = new Set(targetObjects.map((o) => o.contentHash));
 
         // Check for missing objects
         for (const hash of sourceHashes) {
@@ -166,7 +167,7 @@ export class StorageMigrator {
             results.push({
               contentHash: hash,
               tier,
-              status: 'missing'
+              status: 'missing',
             });
             continue;
           }
@@ -179,7 +180,7 @@ export class StorageMigrator {
             results.push({
               contentHash: hash,
               tier,
-              status: 'verified'
+              status: 'verified',
             });
           }
         }
@@ -190,14 +191,13 @@ export class StorageMigrator {
             console.warn(`Extra object in target: ${hash} (${tier})`);
           }
         }
-
       } catch (error) {
         console.error(`Failed to verify ${tier} tier:`, error);
         results.push({
           contentHash: 'tier-error',
           tier,
           status: 'error',
-          error: String(error)
+          error: String(error),
         });
       }
     }
@@ -208,7 +208,9 @@ export class StorageMigrator {
     return results;
   }
 
-  async benchmarkPerformance(objectSizes: number[] = [1024, 10240, 102400, 1048576]): Promise<BenchmarkResult[]> {
+  async benchmarkPerformance(
+    objectSizes: number[] = [1024, 10240, 102400, 1048576],
+  ): Promise<BenchmarkResult[]> {
     console.log('Starting performance benchmark...');
 
     const results: BenchmarkResult[] = [];
@@ -235,7 +237,9 @@ export class StorageMigrator {
     return results;
   }
 
-  private async discoverAllObjects(): Promise<Array<{ contentHash: string; tier: StorageTier; size: number }>> {
+  private async discoverAllObjects(): Promise<
+    Array<{ contentHash: string; tier: StorageTier; size: number }>
+  > {
     const allObjects: Array<{ contentHash: string; tier: StorageTier; size: number }> = [];
     const tiers: StorageTier[] = ['hot', 'warm', 'cold'];
 
@@ -246,7 +250,7 @@ export class StorageMigrator {
           allObjects.push({
             contentHash: obj.contentHash,
             tier,
-            size: obj.size || 0
+            size: obj.size || 0,
           });
         }
       } catch (error) {
@@ -257,56 +261,64 @@ export class StorageMigrator {
     return allObjects;
   }
 
-  private async migrateBatch(objects: Array<{ contentHash: string; tier: StorageTier; size: number }>): Promise<void> {
+  private async migrateBatch(
+    objects: Array<{ contentHash: string; tier: StorageTier; size: number }>,
+  ): Promise<void> {
     const semaphore = new Array(this.config.parallelTransfers).fill(null);
 
     for (let i = 0; i < objects.length; i += this.config.batchSize) {
       const batch = objects.slice(i, i + this.config.batchSize);
 
-      await Promise.all(batch.map(async (obj, index) => {
-        // Wait for available slot
-        await new Promise(resolve => {
-          const checkSlot = () => {
-            const slotIndex = semaphore.findIndex(slot => slot === null);
+      await Promise.all(
+        batch.map(async (obj, index) => {
+          // Wait for available slot
+          await new Promise((resolve) => {
+            const checkSlot = () => {
+              const slotIndex = semaphore.findIndex((slot) => slot === null);
+              if (slotIndex !== -1) {
+                semaphore[slotIndex] = obj.contentHash;
+                resolve(slotIndex);
+              } else {
+                setTimeout(checkSlot, 100);
+              }
+            };
+            checkSlot();
+          });
+
+          try {
+            await this.migrateObject(obj);
+            this.progress.successCount++;
+            this.progress.bytesTransferred += obj.size;
+          } catch (error) {
+            console.error(`Failed to migrate ${obj.contentHash}:`, error);
+            this.progress.errorCount++;
+            this.progress.lastError = String(error);
+          } finally {
+            // Free slot
+            const slotIndex = semaphore.indexOf(obj.contentHash);
             if (slotIndex !== -1) {
-              semaphore[slotIndex] = obj.contentHash;
-              resolve(slotIndex);
-            } else {
-              setTimeout(checkSlot, 100);
+              semaphore[slotIndex] = null;
             }
-          };
-          checkSlot();
-        });
 
-        try {
-          await this.migrateObject(obj);
-          this.progress.successCount++;
-          this.progress.bytesTransferred += obj.size;
-        } catch (error) {
-          console.error(`Failed to migrate ${obj.contentHash}:`, error);
-          this.progress.errorCount++;
-          this.progress.lastError = String(error);
-        } finally {
-          // Free slot
-          const slotIndex = semaphore.indexOf(obj.contentHash);
-          if (slotIndex !== -1) {
-            semaphore[slotIndex] = null;
+            this.progress.processedObjects++;
+            this.progress.currentObject = obj.contentHash;
+            this.updateTimeEstimate();
+
+            // Save checkpoint every 100 objects
+            if (this.progress.processedObjects % 100 === 0) {
+              await this.saveCheckpoint();
+            }
           }
-
-          this.progress.processedObjects++;
-          this.progress.currentObject = obj.contentHash;
-          this.updateTimeEstimate();
-
-          // Save checkpoint every 100 objects
-          if (this.progress.processedObjects % 100 === 0) {
-            await this.saveCheckpoint();
-          }
-        }
-      }));
+        }),
+      );
     }
   }
 
-  private async migrateObject(obj: { contentHash: string; tier: StorageTier; size: number }): Promise<void> {
+  private async migrateObject(obj: {
+    contentHash: string;
+    tier: StorageTier;
+    size: number;
+  }): Promise<void> {
     // Check if object already exists in target
     const targetExists = await this.target.objectExists(obj.contentHash, obj.tier);
     if (targetExists) {
@@ -323,7 +335,10 @@ export class StorageMigrator {
     console.log(`Migrated ${obj.contentHash} (${obj.tier}) - ${obj.size} bytes`);
   }
 
-  private async verifyObjectChecksum(contentHash: string, tier: StorageTier): Promise<VerificationResult> {
+  private async verifyObjectChecksum(
+    contentHash: string,
+    tier: StorageTier,
+  ): Promise<VerificationResult> {
     try {
       // Get object from both sources
       const sourceResult = await this.source.getObject(contentHash, tier);
@@ -339,7 +354,7 @@ export class StorageMigrator {
           tier,
           status: 'verified',
           sourceChecksum,
-          targetChecksum
+          targetChecksum,
         };
       } else {
         return {
@@ -347,21 +362,24 @@ export class StorageMigrator {
           tier,
           status: 'mismatch',
           sourceChecksum,
-          targetChecksum
+          targetChecksum,
         };
       }
-
     } catch (error) {
       return {
         contentHash,
         tier,
         status: 'error',
-        error: String(error)
+        error: String(error),
       };
     }
   }
 
-  private async benchmarkUploads(tier: StorageTier, objectSize: number, count: number): Promise<BenchmarkResult> {
+  private async benchmarkUploads(
+    tier: StorageTier,
+    objectSize: number,
+    count: number,
+  ): Promise<BenchmarkResult> {
     const latencies: number[] = [];
     const startTime = Date.now();
 
@@ -387,18 +405,22 @@ export class StorageMigrator {
       objectCount: count,
       totalSizeBytes: totalSize,
       durationMs: duration,
-      throughputMBps: (totalSize / 1024 / 1024) / (duration / 1000),
+      throughputMBps: totalSize / 1024 / 1024 / (duration / 1000),
       opsPerSecond: count / (duration / 1000),
       latencyMs: {
         min: Math.min(...latencies),
         max: Math.max(...latencies),
         avg: latencies.reduce((a, b) => a + b, 0) / latencies.length,
-        p95: latencies.sort((a, b) => a - b)[Math.floor(latencies.length * 0.95)]
-      }
+        p95: latencies.sort((a, b) => a - b)[Math.floor(latencies.length * 0.95)],
+      },
     };
   }
 
-  private async benchmarkDownloads(tier: StorageTier, objectSize: number, count: number): Promise<BenchmarkResult> {
+  private async benchmarkDownloads(
+    tier: StorageTier,
+    objectSize: number,
+    count: number,
+  ): Promise<BenchmarkResult> {
     // First upload test objects
     const testHashes: string[] = [];
     for (let i = 0; i < count; i++) {
@@ -419,7 +441,7 @@ export class StorageMigrator {
       // Consume the stream
       await new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
-        data.on('data', chunk => chunks.push(chunk));
+        data.on('data', (chunk) => chunks.push(chunk));
         data.on('end', resolve);
         data.on('error', reject);
       });
@@ -439,14 +461,14 @@ export class StorageMigrator {
       objectCount: count,
       totalSizeBytes: totalSize,
       durationMs: duration,
-      throughputMBps: (totalSize / 1024 / 1024) / (duration / 1000),
+      throughputMBps: totalSize / 1024 / 1024 / (duration / 1000),
       opsPerSecond: count / (duration / 1000),
       latencyMs: {
         min: Math.min(...latencies),
         max: Math.max(...latencies),
         avg: latencies.reduce((a, b) => a + b, 0) / latencies.length,
-        p95: latencies.sort((a, b) => a - b)[Math.floor(latencies.length * 0.95)]
-      }
+        p95: latencies.sort((a, b) => a - b)[Math.floor(latencies.length * 0.95)],
+      },
     };
   }
 
@@ -463,7 +485,9 @@ export class StorageMigrator {
     }
   }
 
-  private async cleanupSource(objects: Array<{ contentHash: string; tier: StorageTier }>): Promise<void> {
+  private async cleanupSource(
+    objects: Array<{ contentHash: string; tier: StorageTier }>,
+  ): Promise<void> {
     console.log('Cleaning up source objects...');
 
     for (const obj of objects) {
@@ -486,10 +510,13 @@ export class StorageMigrator {
   private async saveCheckpoint(): Promise<void> {
     try {
       const fs = await import('fs/promises');
-      await fs.writeFile(this.config.checkpointFile, JSON.stringify({
-        processedObjects: this.progress.processedObjects,
-        timestamp: Date.now()
-      }));
+      await fs.writeFile(
+        this.config.checkpointFile,
+        JSON.stringify({
+          processedObjects: this.progress.processedObjects,
+          timestamp: Date.now(),
+        }),
+      );
     } catch (error) {
       console.warn('Failed to save checkpoint:', error);
     }
@@ -511,7 +538,7 @@ export class StorageMigrator {
       verified: 0,
       mismatch: 0,
       missing: 0,
-      error: 0
+      error: 0,
     };
 
     for (const result of results) {
@@ -545,7 +572,9 @@ export async function runMigrationCLI(): Promise<void> {
 
   // Run verification
   const verificationResults = await migrator.verifyMigration();
-  console.log(`Verification: ${verificationResults.filter(r => r.status === 'verified').length} verified, ${verificationResults.filter(r => r.status === 'mismatch').length} mismatches`);
+  console.log(
+    `Verification: ${verificationResults.filter((r) => r.status === 'verified').length} verified, ${verificationResults.filter((r) => r.status === 'mismatch').length} mismatches`,
+  );
 }
 
 export async function runBenchmarkCLI(): Promise<void> {
@@ -560,6 +589,8 @@ export async function runBenchmarkCLI(): Promise<void> {
 
   console.log('Benchmark Results:');
   for (const result of results) {
-    console.log(`${result.operation} (${result.tier}): ${result.throughputMBps.toFixed(2)} MB/s, ${result.opsPerSecond.toFixed(2)} ops/s`);
+    console.log(
+      `${result.operation} (${result.tier}): ${result.throughputMBps.toFixed(2)} MB/s, ${result.opsPerSecond.toFixed(2)} ops/s`,
+    );
   }
 }

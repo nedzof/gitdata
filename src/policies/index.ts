@@ -7,7 +7,7 @@
 
 import type { Router, Request, Response } from 'express';
 import { Router as makeRouter } from 'express';
- //import { getDatabase, isTestEnvironment } from '../db/index.js';
+//import { getDatabase, isTestEnvironment } from '../db/index.js';
 
 // Environment configuration
 const POLICY_PREVIEW_ENABLE = process.env.POLICY_PREVIEW_ENABLE === 'true';
@@ -74,7 +74,9 @@ interface PolicyRow {
 export async function runPolicyMigrations(db?: Database.Database) {
   if (isTestEnvironment() || db) {
     const database = db || getDatabase();
-    database.prepare(`
+    database
+      .prepare(
+        `
       CREATE TABLE IF NOT EXISTS policies (
         policy_id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -83,10 +85,14 @@ export async function runPolicyMigrations(db?: Database.Database) {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
-    `).run();
+    `,
+      )
+      .run();
 
     database.prepare(`CREATE INDEX IF NOT EXISTS idx_policies_enabled ON policies(enabled)`).run();
-    database.prepare(`CREATE INDEX IF NOT EXISTS idx_policies_created ON policies(created_at)`).run();
+    database
+      .prepare(`CREATE INDEX IF NOT EXISTS idx_policies_created ON policies(created_at)`)
+      .run();
   } else {
     const { getPostgreSQLClient } = await import('../db/postgresql');
     const pgClient = getPostgreSQLClient();
@@ -109,7 +115,8 @@ export async function runPolicyMigrations(db?: Database.Database) {
 
 // Database helpers
 async function createPolicy(db: any, data: Partial<PolicyRow>): Promise<string> {
-  const id = data.policy_id || `pol_${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`;
+  const id =
+    data.policy_id || `pol_${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`;
   const now = Math.floor(Date.now() / 1000);
 
   const { getPostgreSQLClient } = await import('../db/postgresql');
@@ -117,7 +124,7 @@ async function createPolicy(db: any, data: Partial<PolicyRow>): Promise<string> 
   await pgClient.query(
     `INSERT INTO policies (policy_id, name, enabled, policy_json, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [id, data.name, data.enabled || 1, data.policy_json, now, now]
+    [id, data.name, data.enabled || 1, data.policy_json, now, now],
   );
 
   return id;
@@ -126,14 +133,16 @@ async function createPolicy(db: any, data: Partial<PolicyRow>): Promise<string> 
 async function getPolicy(db: any, id: string): Promise<PolicyRow | undefined> {
   const { getPostgreSQLClient } = await import('../db/postgresql');
   const pgClient = getPostgreSQLClient();
-  const result = await pgClient.query(
-    `SELECT * FROM policies WHERE policy_id = $1`,
-    [id]
-  );
+  const result = await pgClient.query(`SELECT * FROM policies WHERE policy_id = $1`, [id]);
   return result.rows[0] as PolicyRow | undefined;
 }
 
-async function listPolicies(db: any, enabled?: boolean, limit = 50, offset = 0): Promise<PolicyRow[]> {
+async function listPolicies(
+  db: any,
+  enabled?: boolean,
+  limit = 50,
+  offset = 0,
+): Promise<PolicyRow[]> {
   const { getPostgreSQLClient } = await import('../db/postgresql');
   const pgClient = getPostgreSQLClient();
 
@@ -142,7 +151,7 @@ async function listPolicies(db: any, enabled?: boolean, limit = 50, offset = 0):
       `SELECT * FROM policies WHERE enabled = $1
        ORDER BY created_at DESC
        LIMIT $2 OFFSET $3`,
-      [enabled ? 1 : 0, limit, offset]
+      [enabled ? 1 : 0, limit, offset],
     );
     return result.rows as PolicyRow[];
   } else {
@@ -150,7 +159,7 @@ async function listPolicies(db: any, enabled?: boolean, limit = 50, offset = 0):
       `SELECT * FROM policies
        ORDER BY created_at DESC
        LIMIT $1 OFFSET $2`,
-      [limit, offset]
+      [limit, offset],
     );
     return result.rows as PolicyRow[];
   }
@@ -162,26 +171,23 @@ async function updatePolicy(db: any, id: string, updates: Partial<PolicyRow>) {
   const { getPostgreSQLClient } = await import('../db/postgresql');
   const pgClient = getPostgreSQLClient();
 
-  const fields = Object.keys(updates).filter(k => k !== 'policy_id' && k !== 'created_at');
+  const fields = Object.keys(updates).filter((k) => k !== 'policy_id' && k !== 'created_at');
   const setClause = fields.map((k, i) => `${k} = $${i + 1}`).join(', ');
-  const values = fields.map(k => updates[k as keyof PolicyRow]);
+  const values = fields.map((k) => updates[k as keyof PolicyRow]);
 
   values.push(now); // updated_at
-  values.push(id);  // WHERE policy_id
+  values.push(id); // WHERE policy_id
 
   await pgClient.query(
     `UPDATE policies SET ${setClause}, updated_at = $${values.length - 1} WHERE policy_id = $${values.length}`,
-    values
+    values,
   );
 }
 
 async function deletePolicy(db: any, id: string) {
   const { getPostgreSQLClient } = await import('../db/postgresql');
   const pgClient = getPostgreSQLClient();
-  await pgClient.query(
-    `DELETE FROM policies WHERE policy_id = $1`,
-    [id]
-  );
+  await pgClient.query(`DELETE FROM policies WHERE policy_id = $1`, [id]);
 }
 
 // Policy evaluation logic
@@ -190,7 +196,7 @@ export async function evaluatePolicy(
   policy: PolicyJSON,
   manifest?: any,
   lineage?: any[],
-  externalData?: Record<string, any>
+  externalData?: Record<string, any>,
 ): Promise<PolicyDecision> {
   const reasons: string[] = [];
   const warnings: string[] = [];
@@ -256,7 +262,7 @@ export async function evaluatePolicy(
   }
 
   if (policy.requiredAncestor && lineage) {
-    const hasAncestor = lineage.some(item => item.versionId === policy.requiredAncestor);
+    const hasAncestor = lineage.some((item) => item.versionId === policy.requiredAncestor);
     evidence.hasRequiredAncestor = hasAncestor;
     if (!hasAncestor) {
       setDecision('block', 'POLICY.LINEAGE.MISSING_ANCESTOR');
@@ -283,7 +289,7 @@ export async function evaluatePolicy(
   if (policy.requiredOntologyTags && manifest?.ontologyTags) {
     const tags = manifest.ontologyTags;
     evidence.ontologyTags = tags;
-    const hasAllTags = policy.requiredOntologyTags.every(tag => tags.includes(tag));
+    const hasAllTags = policy.requiredOntologyTags.every((tag) => tags.includes(tag));
     if (!hasAllTags) {
       setDecision('block', 'POLICY.CONTENT.TAGS_MISSING');
     }
@@ -297,7 +303,6 @@ export async function evaluatePolicy(
       setDecision('block', 'POLICY.COMPLIANCE.LICENSE_NOT_ALLOWED');
     }
   }
-
 
   if (policy.geoOriginAllowList && manifest?.geoOrigin) {
     const geoOrigin = manifest.geoOrigin;
@@ -325,7 +330,6 @@ export async function evaluatePolicy(
     }
   }
 
-
   // 6. Quality & Profiling (limited for unstructured data)
   if (policy.maxRowCount !== undefined && manifest?.stats?.rowCount) {
     const rowCount = manifest.stats.rowCount;
@@ -344,7 +348,6 @@ export async function evaluatePolicy(
     }
   }
 
-
   // 8. Security
   if (policy.blockIfInThreatFeed && externalData?.threatFeedMatch) {
     evidence.threatFeedMatch = true;
@@ -355,7 +358,7 @@ export async function evaluatePolicy(
     decision,
     reasons,
     warnings,
-    evidence
+    evidence,
   };
 }
 
@@ -366,59 +369,61 @@ async function getExternalData(versionId: string): Promise<Record<string, any>> 
     uptime: 99.5 + Math.random() * 0.5,
     threatFeedMatch: Math.random() < 0.01, // 1% chance of threat match
     pricing: {
-      pricePerByte: Math.random() * 0.1
-    }
+      pricePerByte: Math.random() * 0.1,
+    },
   };
 }
 
 // Mock manifest/lineage data for demo
 function getMockManifest(versionId: string): any {
   const manifests = {
-    'md_a1b2c3d4e5f6789012345678': {
+    md_a1b2c3d4e5f6789012345678: {
       confirmations: 15,
       recalled: false,
       policy: { classification: 'public', license: 'MIT' },
       provenance: {
         producer: { identityKey: 'test-producer-key' },
-        createdAt: new Date(Date.now() - 3600000).toISOString() // 1 hour ago
+        createdAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
       },
       content: {
         mimeType: 'application/x-pytorch',
-        schemaHash: 'abc123def456'
+        schemaHash: 'abc123def456',
       },
       stats: { rowCount: 1000000, nullPercentage: 0.5 },
       featureSetId: 'test-features-v1',
       splitTag: 'train',
       piiFlags: [],
-      geoOrigin: 'US'
-    }
+      geoOrigin: 'US',
+    },
   };
 
-  return manifests[versionId] || {
-    confirmations: 10,
-    recalled: false,
-    policy: { classification: 'public', license: 'Apache-2.0' },
-    provenance: {
-      producer: { identityKey: 'demo-producer' },
-      createdAt: new Date(Date.now() - 7200000).toISOString() // 2 hours ago
-    },
-    content: { mimeType: 'application/json' },
-    stats: { rowCount: 500000, nullPercentage: 1.2 },
-    piiFlags: [],
-    geoOrigin: 'EU'
-  };
+  return (
+    manifests[versionId] || {
+      confirmations: 10,
+      recalled: false,
+      policy: { classification: 'public', license: 'Apache-2.0' },
+      provenance: {
+        producer: { identityKey: 'demo-producer' },
+        createdAt: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
+      },
+      content: { mimeType: 'application/json' },
+      stats: { rowCount: 500000, nullPercentage: 1.2 },
+      piiFlags: [],
+      geoOrigin: 'EU',
+    }
+  );
 }
 
 function getMockLineage(versionId: string): any[] {
   return [
     { versionId: 'parent_dataset_v1', type: 'dataset' },
-    { versionId: versionId, type: 'model' }
+    { versionId: versionId, type: 'model' },
   ];
 }
 
 // Default policies
 const DEFAULT_POLICIES = {
-  'pol_default': {
+  pol_default: {
     name: 'Default Policy (Unstructured Data)',
     policy: {
       minConfs: 6,
@@ -426,10 +431,10 @@ const DEFAULT_POLICIES = {
       classificationAllowList: ['public', 'internal'],
       licenseAllowList: ['MIT', 'Apache-2.0', 'GPL-3.0', 'CC-BY-4.0'],
       maxLineageDepth: 10,
-      maxDataAgeSeconds: 30 * 24 * 60 * 60 // 30 days
-    }
+      maxDataAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+    },
   },
-  'pol_strict_banking': {
+  pol_strict_banking: {
     name: 'Strict Banking Policy (Documents)',
     policy: {
       minConfs: 12,
@@ -442,10 +447,10 @@ const DEFAULT_POLICIES = {
       maxPricePerByte: 0.5,
       maxTotalCostForLineage: 250000,
       maxDataAgeSeconds: 3600,
-      blockIfInThreatFeed: true
-    }
+      blockIfInThreatFeed: true,
+    },
   },
-  'pol_content_general': {
+  pol_content_general: {
     name: 'General Content Policy (Media & Documents)',
     policy: {
       minConfs: 3,
@@ -453,9 +458,9 @@ const DEFAULT_POLICIES = {
       licenseAllowList: ['MIT', 'Apache-2.0', 'CC-BY-4.0'],
       requiredFeatureSetId: 'content-features-v1',
       maxPricePerByte: 2.0,
-      maxDataAgeSeconds: 7 * 24 * 60 * 60 // 7 days
-    }
-  }
+      maxDataAgeSeconds: 7 * 24 * 60 * 60, // 7 days
+    },
+  },
 };
 
 // Bootstrap default policies
@@ -467,7 +472,7 @@ async function bootstrapDefaultPolicies(db: any) {
         policy_id: id,
         name: config.name,
         enabled: 1,
-        policy_json: JSON.stringify(config.policy)
+        policy_json: JSON.stringify(config.policy),
       });
     }
   }
@@ -488,7 +493,7 @@ export function policiesRouter(db: any): Router {
       if (!name || !policy) {
         return res.status(400).json({
           error: 'bad-request',
-          hint: 'name and policy required'
+          hint: 'name and policy required',
         });
       }
 
@@ -498,39 +503,40 @@ export function policiesRouter(db: any): Router {
       } catch (e) {
         return res.status(400).json({
           error: 'invalid-policy-json',
-          hint: 'policy must be valid JSON object'
+          hint: 'policy must be valid JSON object',
         });
       }
 
       const policyId = await createPolicy(db, {
         name,
         enabled: enabled ? 1 : 0,
-        policy_json: JSON.stringify(policy)
+        policy_json: JSON.stringify(policy),
       });
 
       res.json({ status: 'ok', policyId });
     } catch (error) {
       res.status(500).json({
         error: 'create-policy-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
 
   // GET /policies (list policies)
   router.get('/', async (req: Request, res: Response) => {
-    const enabled = req.query.enabled === 'true' ? true : req.query.enabled === 'false' ? false : undefined;
+    const enabled =
+      req.query.enabled === 'true' ? true : req.query.enabled === 'false' ? false : undefined;
     const limit = Number(req.query.limit) || 50;
     const offset = Number(req.query.offset) || 0;
 
     const policies = await listPolicies(db, enabled, limit, offset);
-    const items = policies.map(p => ({
+    const items = policies.map((p) => ({
       policyId: p.policy_id,
       name: p.name,
       enabled: !!p.enabled,
       policy: JSON.parse(p.policy_json),
       createdAt: p.created_at,
-      updatedAt: p.updated_at
+      updatedAt: p.updated_at,
     }));
 
     res.json({ items });
@@ -549,7 +555,7 @@ export function policiesRouter(db: any): Router {
       enabled: !!policy.enabled,
       policy: JSON.parse(policy.policy_json),
       createdAt: policy.created_at,
-      updatedAt: policy.updated_at
+      updatedAt: policy.updated_at,
     });
   });
 
@@ -570,7 +576,7 @@ export function policiesRouter(db: any): Router {
         } catch (e) {
           return res.status(400).json({
             error: 'invalid-policy-json',
-            hint: 'policy must be valid JSON object'
+            hint: 'policy must be valid JSON object',
           });
         }
       }
@@ -580,7 +586,7 @@ export function policiesRouter(db: any): Router {
     } catch (error) {
       res.status(500).json({
         error: 'update-policy-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -599,7 +605,7 @@ export function policiesRouter(db: any): Router {
       if (!versionId) {
         return res.status(400).json({
           error: 'bad-request',
-          hint: 'versionId required'
+          hint: 'versionId required',
         });
       }
 
@@ -616,7 +622,7 @@ export function policiesRouter(db: any): Router {
       } else {
         return res.status(400).json({
           error: 'bad-request',
-          hint: 'policy or policyId required'
+          hint: 'policy or policyId required',
         });
       }
 
@@ -630,14 +636,14 @@ export function policiesRouter(db: any): Router {
         policyToEvaluate,
         manifest,
         lineage,
-        externalData
+        externalData,
       );
 
       res.json(decision);
     } catch (error) {
       res.status(500).json({
         error: 'evaluation-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });

@@ -8,7 +8,8 @@ import type { OverlayConfig } from './bsv-overlay-service';
  */
 export const D01A_TOPICS = {
   // Data publishing and discovery
-  DATA_MANIFEST: 'gitdata.d01a.manifest',
+  DATA_ASSET: 'gitdata.d01a.asset',
+  DATA_MANIFEST: 'gitdata.d01a.manifest', // Deprecated: use DATA_ASSET
   DATA_CONTENT: 'gitdata.d01a.content',
   DATA_METADATA: 'gitdata.d01a.metadata',
 
@@ -52,14 +53,15 @@ export const D01A_TOPICS = {
   // Governance and policies
   POLICY_UPDATES: 'gitdata.policy.updates',
   GOVERNANCE_VOTES: 'gitdata.governance.votes',
-  COMPLIANCE_REPORTS: 'gitdata.compliance.reports'
+  COMPLIANCE_REPORTS: 'gitdata.compliance.reports',
 } as const;
 
 /**
  * Topic classification and access control
  */
 export const TOPIC_CLASSIFICATION = {
-  [D01A_TOPICS.DATA_MANIFEST]: 'public',
+  [D01A_TOPICS.DATA_ASSET]: 'public',
+  [D01A_TOPICS.DATA_MANIFEST]: 'public', // Deprecated: keep for backward compatibility
   [D01A_TOPICS.DATA_CONTENT]: 'restricted',
   [D01A_TOPICS.DATA_METADATA]: 'public',
   [D01A_TOPICS.DATASET_PUBLIC]: 'public',
@@ -87,7 +89,7 @@ export const TOPIC_CLASSIFICATION = {
   [D01A_TOPICS.ALERT_SECURITY]: 'restricted',
   [D01A_TOPICS.POLICY_UPDATES]: 'public',
   [D01A_TOPICS.GOVERNANCE_VOTES]: 'public',
-  [D01A_TOPICS.COMPLIANCE_REPORTS]: 'internal'
+  [D01A_TOPICS.COMPLIANCE_REPORTS]: 'internal',
 } as const;
 
 /**
@@ -126,17 +128,19 @@ export class TopicGenerator {
 /**
  * Default overlay configuration for different environments
  */
-export function getOverlayConfig(env: 'development' | 'staging' | 'production' = 'development'): OverlayConfig {
+export function getOverlayConfig(
+  env: 'development' | 'staging' | 'production' = 'development',
+): OverlayConfig {
   const baseConfig = {
     peerDiscovery: {
       lookupServices: [
         'https://overlay.powping.com',
         'https://overlay.bitcoinfiles.org',
-        'https://overlay.preev.com'
+        'https://overlay.preev.com',
       ],
-      timeout: 30000
+      timeout: 30000,
     },
-    network: 'mainnet' as const
+    network: 'mainnet' as const,
   };
 
   switch (env) {
@@ -145,27 +149,27 @@ export function getOverlayConfig(env: 'development' | 'staging' | 'production' =
         ...baseConfig,
         network: 'testnet',
         topics: [
-          D01A_TOPICS.DATA_MANIFEST,
+          D01A_TOPICS.DATA_ASSET,
           D01A_TOPICS.DATA_METADATA,
           D01A_TOPICS.DATASET_PUBLIC,
           D01A_TOPICS.AGENT_REGISTRY,
           D01A_TOPICS.SEARCH_QUERIES,
           D01A_TOPICS.SEARCH_RESULTS,
           D01A_TOPICS.LINEAGE_GRAPH,
-          D01A_TOPICS.POLICY_UPDATES
+          D01A_TOPICS.POLICY_UPDATES,
         ],
         advertiseTopics: [
-          D01A_TOPICS.DATA_MANIFEST,
+          D01A_TOPICS.DATA_ASSET,
           D01A_TOPICS.DATASET_PUBLIC,
-          D01A_TOPICS.AGENT_REGISTRY
+          D01A_TOPICS.AGENT_REGISTRY,
         ],
         peerDiscovery: {
           ...baseConfig.peerDiscovery,
           lookupServices: [
             'https://testnet-overlay.powping.com',
-            'http://localhost:8080' // Local overlay node for development
-          ]
-        }
+            'http://localhost:8080', // Local overlay node for development
+          ],
+        },
       };
 
     case 'staging':
@@ -173,7 +177,7 @@ export function getOverlayConfig(env: 'development' | 'staging' | 'production' =
         ...baseConfig,
         network: 'testnet',
         topics: [
-          D01A_TOPICS.DATA_MANIFEST,
+          D01A_TOPICS.DATA_ASSET,
           D01A_TOPICS.DATA_METADATA,
           D01A_TOPICS.DATASET_PUBLIC,
           D01A_TOPICS.DATASET_COMMERCIAL,
@@ -186,15 +190,15 @@ export function getOverlayConfig(env: 'development' | 'staging' | 'production' =
           D01A_TOPICS.SEARCH_RESULTS,
           D01A_TOPICS.LINEAGE_GRAPH,
           D01A_TOPICS.LINEAGE_EVENTS,
-          D01A_TOPICS.POLICY_UPDATES
+          D01A_TOPICS.POLICY_UPDATES,
         ],
         advertiseTopics: [
-          D01A_TOPICS.DATA_MANIFEST,
+          D01A_TOPICS.DATA_ASSET,
           D01A_TOPICS.DATASET_PUBLIC,
           D01A_TOPICS.DATASET_COMMERCIAL,
           D01A_TOPICS.AGENT_REGISTRY,
-          D01A_TOPICS.AGENT_CAPABILITIES
-        ]
+          D01A_TOPICS.AGENT_CAPABILITIES,
+        ],
       };
 
     case 'production':
@@ -202,7 +206,7 @@ export function getOverlayConfig(env: 'development' | 'staging' | 'production' =
         ...baseConfig,
         topics: [
           // All public topics
-          D01A_TOPICS.DATA_MANIFEST,
+          D01A_TOPICS.DATA_ASSET,
           D01A_TOPICS.DATA_METADATA,
           D01A_TOPICS.DATASET_PUBLIC,
           D01A_TOPICS.DATASET_COMMERCIAL,
@@ -219,17 +223,17 @@ export function getOverlayConfig(env: 'development' | 'staging' | 'production' =
           D01A_TOPICS.SEARCH_QUERIES,
           D01A_TOPICS.SEARCH_RESULTS,
           D01A_TOPICS.POLICY_UPDATES,
-          D01A_TOPICS.GOVERNANCE_VOTES
+          D01A_TOPICS.GOVERNANCE_VOTES,
         ],
         advertiseTopics: [
-          D01A_TOPICS.DATA_MANIFEST,
+          D01A_TOPICS.DATA_ASSET,
           D01A_TOPICS.DATASET_PUBLIC,
           D01A_TOPICS.DATASET_COMMERCIAL,
           D01A_TOPICS.AGENT_REGISTRY,
           D01A_TOPICS.AGENT_CAPABILITIES,
           D01A_TOPICS.SEARCH_RESULTS,
-          D01A_TOPICS.LINEAGE_GRAPH
-        ]
+          D01A_TOPICS.LINEAGE_GRAPH,
+        ],
       };
 
     case 'test':
@@ -239,8 +243,8 @@ export function getOverlayConfig(env: 'development' | 'staging' | 'production' =
         topics: [
           D01A_TOPICS.MANIFEST_SUBMISSION,
           D01A_TOPICS.PAYMENT_RECEIPTS,
-          D01A_TOPICS.LINEAGE_GRAPH
-        ]
+          D01A_TOPICS.LINEAGE_GRAPH,
+        ],
       };
 
     default:
@@ -252,13 +256,16 @@ export function getOverlayConfig(env: 'development' | 'staging' | 'production' =
  * Topic subscription manager for handling dynamic subscriptions
  */
 export class TopicSubscriptionManager {
-  private activeSubscriptions = new Map<string, {
-    topic: string;
-    classification: string;
-    subscribedAt: number;
-    lastActivity: number;
-    messageCount: number;
-  }>();
+  private activeSubscriptions = new Map<
+    string,
+    {
+      topic: string;
+      classification: string;
+      subscribedAt: number;
+      lastActivity: number;
+      messageCount: number;
+    }
+  >();
 
   /**
    * Add a subscription with metadata
@@ -269,7 +276,7 @@ export class TopicSubscriptionManager {
       classification,
       subscribedAt: Date.now(),
       lastActivity: Date.now(),
-      messageCount: 0
+      messageCount: 0,
     });
   }
 
@@ -309,8 +316,8 @@ export class TopicSubscriptionManager {
    */
   getSubscriptionsByClassification(classification: string): string[] {
     return Array.from(this.activeSubscriptions.values())
-      .filter(sub => sub.classification === classification)
-      .map(sub => sub.topic);
+      .filter((sub) => sub.classification === classification)
+      .map((sub) => sub.topic);
   }
 
   /**
@@ -357,7 +364,7 @@ export class TopicSubscriptionManager {
       totalSubscriptions: subscriptions.length,
       byClassification,
       averageMessageCount: subscriptions.length > 0 ? totalMessages / subscriptions.length : 0,
-      oldestSubscription: oldestTime
+      oldestSubscription: oldestTime,
     };
   }
 }

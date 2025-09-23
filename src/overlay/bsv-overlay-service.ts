@@ -1,10 +1,12 @@
 // BSV Overlay Service
 // Integrates @bsv/overlay for real overlay network connectivity
 
-import { Overlay } from '@bsv/overlay';
-import { walletService } from '../../ui/src/lib/wallet';
-import type { Wallet } from '../../ui/src/lib/brc100-types';
 import { EventEmitter } from 'events';
+
+import { Overlay } from '@bsv/overlay';
+
+import type { Wallet } from '../../ui/src/lib/brc100-types';
+import { walletService } from '../../ui/src/lib/wallet';
 
 export interface OverlayConfig {
   topics: string[];
@@ -21,7 +23,28 @@ export interface OverlayConfig {
 }
 
 export interface D01AData {
-  manifest: {
+  asset: {
+    datasetId: string;
+    description: string;
+    provenance: {
+      createdAt: string;
+      issuer: string;
+    };
+    policy: {
+      license: string;
+      classification: string;
+    };
+    content: {
+      contentHash: string;
+      mediaType: string;
+      sizeBytes: number;
+      url: string;
+    };
+    parents: string[];
+    tags: string[];
+  };
+  // Backward compatibility
+  manifest?: {
     datasetId: string;
     description: string;
     provenance: {
@@ -82,7 +105,7 @@ class BSVOverlayService extends EventEmitter {
           isConnected: () => true,
           on: () => {},
           off: () => {},
-          emit: () => {}
+          emit: () => {},
         } as any;
         this.isConnected = true;
         this.emit('connected');
@@ -107,7 +130,7 @@ class BSVOverlayService extends EventEmitter {
         peerDiscovery: this.config.peerDiscovery,
 
         // Node identity (will be generated if not provided)
-        nodeIdentity: this.config.nodeIdentity
+        nodeIdentity: this.config.nodeIdentity,
       });
 
       // Set up event handlers
@@ -119,7 +142,6 @@ class BSVOverlayService extends EventEmitter {
 
       this.emit('connected');
       console.log('BSV Overlay service initialized and connected');
-
     } catch (error) {
       console.error('Failed to initialize BSV overlay:', error);
       throw new Error(`Overlay initialization failed: ${error.message}`);
@@ -212,12 +234,11 @@ class BSVOverlayService extends EventEmitter {
         type: 'subscribe',
         topic,
         data: { timestamp: Date.now() },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
 
       await this.publishMessage(topic, message);
       this.emit('subscribed', topic);
-
     } catch (error) {
       throw new Error(`Failed to subscribe to topic ${topic}: ${error.message}`);
     }
@@ -235,7 +256,6 @@ class BSVOverlayService extends EventEmitter {
       await this.overlay.unsubscribe(topic);
       this.subscribedTopics.delete(topic);
       this.emit('unsubscribed', topic);
-
     } catch (error) {
       throw new Error(`Failed to unsubscribe from topic ${topic}: ${error.message}`);
     }
@@ -261,7 +281,7 @@ class BSVOverlayService extends EventEmitter {
         type: 'publish',
         topic,
         data,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
 
       // Sign the message
@@ -280,7 +300,6 @@ class BSVOverlayService extends EventEmitter {
       this.emit('data-published', { topic, data, messageId });
 
       return messageId;
-
     } catch (error) {
       throw new Error(`Failed to publish D01A data: ${error.message}`);
     }
@@ -299,7 +318,7 @@ class BSVOverlayService extends EventEmitter {
         type: 'request',
         topic,
         data: query,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
 
       // Sign the request
@@ -312,7 +331,6 @@ class BSVOverlayService extends EventEmitter {
 
       await this.publishMessage(topic, message);
       this.emit('data-requested', { topic, query });
-
     } catch (error) {
       throw new Error(`Failed to request data: ${error.message}`);
     }
@@ -331,7 +349,7 @@ class BSVOverlayService extends EventEmitter {
         type: 'data',
         topic,
         data,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
 
       // Sign the data
@@ -351,7 +369,6 @@ class BSVOverlayService extends EventEmitter {
       }
 
       this.emit('data-sent', { topic, data, recipient });
-
     } catch (error) {
       throw new Error(`Failed to send data: ${error.message}`);
     }
@@ -373,7 +390,11 @@ class BSVOverlayService extends EventEmitter {
    * Generate a unique message ID
    */
   private generateMessageId(message: OverlayMessage): string {
-    const content = JSON.stringify({ topic: message.topic, timestamp: message.timestamp, data: message.data });
+    const content = JSON.stringify({
+      topic: message.topic,
+      timestamp: message.timestamp,
+      data: message.data,
+    });
     // Simple hash - in production you'd use a proper hash function
     return Buffer.from(content).toString('base64').substring(0, 16);
   }
@@ -426,7 +447,7 @@ class BSVOverlayService extends EventEmitter {
       subscribedTopics: this.subscribedTopics.size,
       publishedTopics: this.publishedTopics.size,
       messagesSent: 0, // TODO: Implement message counters
-      messagesReceived: 0
+      messagesReceived: 0,
     };
   }
 

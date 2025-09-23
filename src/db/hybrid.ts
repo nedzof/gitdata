@@ -1,5 +1,8 @@
-import { PostgreSQLClient, getPostgreSQLClient } from './postgresql';
-import { RedisClient, getRedisClient, CacheKeys, getCacheTTLs } from './redis';
+import type { PostgreSQLClient } from './postgresql';
+import { getPostgreSQLClient } from './postgresql';
+import type { RedisClient } from './redis';
+import { getRedisClient, CacheKeys, getCacheTTLs } from './redis';
+
 import type {
   DeclarationRow,
   ManifestRow,
@@ -18,7 +21,7 @@ import type {
   OLRunRow,
   OLDatasetRow,
   OLEdgeRow,
-  OpenLineageEvent
+  OpenLineageEvent,
 } from './index';
 
 export class HybridDatabase {
@@ -36,7 +39,7 @@ export class HybridDatabase {
   private async getFromCacheOrDb<T>(
     cacheKey: string,
     dbQuery: () => Promise<T>,
-    ttlSeconds: number
+    ttlSeconds: number,
   ): Promise<T> {
     // Try cache first
     const cached = await this.redis.get<T>(cacheKey);
@@ -64,7 +67,7 @@ export class HybridDatabase {
     // Bypass cache for now to fix test issues - directly query database
     const result = await this.pg.queryOne<ManifestRow>(
       'SELECT * FROM assets WHERE version_id = $1',
-      [versionId.toLowerCase()]
+      [versionId.toLowerCase()],
     );
     return result;
   }
@@ -72,15 +75,23 @@ export class HybridDatabase {
   async upsertAsset(asset: Partial<ManifestRow>): Promise<void> {
     // Filter to only include columns that exist in the assets table
     const validColumns = [
-      'version_id', 'dataset_id', 'producer_id', 'name', 'description',
-      'content_hash', 'mime_type', 'size_bytes', 'policy_meta',
-      'created_at', 'updated_at'
+      'version_id',
+      'dataset_id',
+      'producer_id',
+      'name',
+      'description',
+      'content_hash',
+      'mime_type',
+      'size_bytes',
+      'policy_meta',
+      'created_at',
+      'updated_at',
     ];
 
     const filteredAsset = Object.fromEntries(
-      Object.entries(asset).filter(([key, value]) =>
-        validColumns.includes(key) && value != null && value !== ''
-      )
+      Object.entries(asset).filter(
+        ([key, value]) => validColumns.includes(key) && value != null && value !== '',
+      ),
     );
 
     // Require version_id to be present
@@ -99,31 +110,37 @@ export class HybridDatabase {
 
     const placeholders = values.map((_, i) => `$${i + 1}`);
     const updateSet = columns
-      .filter(col => col !== 'version_id')
-      .map(col => `${col} = EXCLUDED.${col}`)
+      .filter((col) => col !== 'version_id')
+      .map((col) => `${col} = EXCLUDED.${col}`)
       .join(', ');
 
     if (updateSet) {
-      await this.pg.query(`
+      await this.pg.query(
+        `
         INSERT INTO assets (${columns.join(', ')})
         VALUES (${placeholders.join(', ')})
         ON CONFLICT (version_id)
         DO UPDATE SET ${updateSet}
-      `, values);
+      `,
+        values,
+      );
     } else {
       // Only version_id, use INSERT ... ON CONFLICT DO NOTHING
-      await this.pg.query(`
+      await this.pg.query(
+        `
         INSERT INTO assets (${columns.join(', ')})
         VALUES (${placeholders.join(', ')})
         ON CONFLICT (version_id) DO NOTHING
-      `, values);
+      `,
+        values,
+      );
     }
 
     // Invalidate caches
     if (asset.version_id) {
       await this.invalidateCache([
         CacheKeys.asset(asset.version_id),
-        CacheKeys.listings() // Invalidate all listings cache
+        CacheKeys.listings(), // Invalidate all listings cache
       ]);
 
       // Also invalidate pattern-based cache
@@ -172,7 +189,7 @@ export class HybridDatabase {
         const result = await this.pg.query<ManifestRow>(sql, params);
         return result.rows;
       },
-      this.ttls.listings
+      this.ttls.listings,
     );
   }
 
@@ -184,10 +201,10 @@ export class HybridDatabase {
       async () => {
         return await this.pg.queryOne<ProducerRow>(
           'SELECT * FROM producers WHERE producer_id = $1',
-          [producerId]
+          [producerId],
         );
       },
-      this.ttls.assets // Use assets TTL for producers
+      this.ttls.assets, // Use assets TTL for producers
     );
   }
 
@@ -197,7 +214,7 @@ export class HybridDatabase {
     if (producer.identity_key) {
       const existing = await this.pg.queryOne<{ producer_id: string }>(
         'SELECT producer_id FROM producers WHERE identity_key = $1',
-        [producer.identity_key.toLowerCase()]
+        [producer.identity_key.toLowerCase()],
       );
       existingId = existing?.producer_id || null;
     }
@@ -206,7 +223,7 @@ export class HybridDatabase {
       // Update existing producer
       await this.pg.query(
         'UPDATE producers SET display_name = COALESCE($1, display_name), website = COALESCE($2, website) WHERE producer_id = $3',
-        [producer.name, producer.website, existingId]
+        [producer.name, producer.website, existingId],
       );
 
       // Invalidate cache
@@ -214,18 +231,22 @@ export class HybridDatabase {
       return existingId;
     } else {
       // Create new producer
-      const producerId = producer.producer_id ||
+      const producerId =
+        producer.producer_id ||
         'pr_' + Math.random().toString(16).slice(2) + Date.now().toString(16);
 
-      await this.pg.query(`
+      await this.pg.query(
+        `
         INSERT INTO producers(producer_id, identity_key, display_name, website, created_at)
         VALUES ($1, $2, $3, $4, NOW())
-      `, [
-        producerId,
-        producer.identity_key?.toLowerCase() || null,
-        producer.name || null,
-        producer.website || null
-      ]);
+      `,
+        [
+          producerId,
+          producer.identity_key?.toLowerCase() || null,
+          producer.name || null,
+          producer.website || null,
+        ],
+      );
 
       return producerId;
     }
@@ -239,19 +260,22 @@ export class HybridDatabase {
       async () => {
         const result = await this.pg.queryOne<{ satoshis: number }>(
           'SELECT satoshis FROM prices WHERE version_id = $1',
-          [versionId.toLowerCase()]
+          [versionId.toLowerCase()],
         );
         return result?.satoshis || null;
       },
-      this.ttls.prices
+      this.ttls.prices,
     );
   }
 
   async setPrice(versionId: string, satoshis: number): Promise<void> {
-    await this.pg.query(`
+    await this.pg.query(
+      `
       INSERT INTO prices(version_id, satoshis) VALUES ($1, $2)
       ON CONFLICT(version_id) DO UPDATE SET satoshis = EXCLUDED.satoshis
-    `, [versionId.toLowerCase(), satoshis]);
+    `,
+      [versionId.toLowerCase(), satoshis],
+    );
 
     // Invalidate price cache
     await this.invalidateCache(CacheKeys.price(versionId));
@@ -267,7 +291,7 @@ export class HybridDatabase {
       for (const parent of parents) {
         await client.query(
           'INSERT INTO edges(child_version_id, parent_version_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-          [child, parent]
+          [child, parent],
         );
       }
     });
@@ -279,41 +303,46 @@ export class HybridDatabase {
   async getParents(child: string): Promise<string[]> {
     const result = await this.pg.query<{ parent_version_id: string }>(
       'SELECT parent_version_id FROM edges WHERE child_version_id = $1',
-      [child]
+      [child],
     );
-    return result.rows.map(r => r.parent_version_id);
+    return result.rows.map((r) => r.parent_version_id);
   }
 
   // Receipts
-  async insertReceipt(receipt: Omit<ReceiptRow, 'bytes_used' | 'last_seen'> & Partial<Pick<ReceiptRow, 'bytes_used' | 'last_seen'>>): Promise<void> {
-    await this.pg.query(`
+  async insertReceipt(
+    receipt: Omit<ReceiptRow, 'bytes_used' | 'last_seen'> &
+      Partial<Pick<ReceiptRow, 'bytes_used' | 'last_seen'>>,
+  ): Promise<void> {
+    await this.pg.query(
+      `
       INSERT INTO receipts(receipt_id, version_id, quantity, content_hash, amount_sat, status, created_at, expires_at, bytes_used, last_seen)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-    `, [
-      receipt.receipt_id,
-      receipt.version_id,
-      receipt.quantity,
-      receipt.content_hash,
-      receipt.amount_sat,
-      receipt.status,
-      receipt.created_at,
-      receipt.expires_at,
-      receipt.bytes_used || 0,
-      receipt.last_seen
-    ]);
+    `,
+      [
+        receipt.receipt_id,
+        receipt.version_id,
+        receipt.quantity,
+        receipt.content_hash,
+        receipt.amount_sat,
+        receipt.status,
+        receipt.created_at,
+        receipt.expires_at,
+        receipt.bytes_used || 0,
+        receipt.last_seen,
+      ],
+    );
   }
 
   async getReceipt(receiptId: string): Promise<ReceiptRow | null> {
-    return await this.pg.queryOne<ReceiptRow>(
-      'SELECT * FROM receipts WHERE receipt_id = $1',
-      [receiptId]
-    );
+    return await this.pg.queryOne<ReceiptRow>('SELECT * FROM receipts WHERE receipt_id = $1', [
+      receiptId,
+    ]);
   }
 
   async getRecentReceipts(limit: number = 50, offset: number = 0): Promise<ReceiptRow[]> {
     return await this.pg.queryAll<ReceiptRow>(
       'SELECT * FROM receipts ORDER BY created_at DESC LIMIT $1 OFFSET $2',
-      [limit, offset]
+      [limit, offset],
     );
   }
 
@@ -326,27 +355,36 @@ export class HybridDatabase {
 
     try {
       // Store in PostgreSQL for audit
-      await this.pg.query(`
+      await this.pg.query(
+        `
         INSERT INTO ol_events(event_id, event_time, namespace, job_name, run_id, event_type, payload_json, hash, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT(hash) DO NOTHING
-      `, [eventId, event.eventTime, event.job.namespace, event.job.name, event.run.runId, event.eventType, payload, hash, now]);
+      `,
+        [
+          eventId,
+          event.eventTime,
+          event.job.namespace,
+          event.job.name,
+          event.run.runId,
+          event.eventType,
+          payload,
+          hash,
+          now,
+        ],
+      );
 
       // Store in Redis for fast querying
       const namespace = event.job.namespace;
 
       // Store raw event
-      await this.redis.set(
-        CacheKeys.olEvent(namespace, hash),
-        event,
-        this.ttls.lineage
-      );
+      await this.redis.set(CacheKeys.olEvent(namespace, hash), event, this.ttls.lineage);
 
       // Add to time-ordered index
       await this.redis.zadd(
         CacheKeys.olEventsByTime(namespace),
         new Date(event.eventTime).getTime(),
-        hash
+        hash,
       );
 
       // Update job info
@@ -449,14 +487,16 @@ export class HybridDatabase {
               namespace,
               name: currentName,
               type: 'dataset',
-              facets: dsInfo.facets ? JSON.parse(dsInfo.facets) : {}
+              facets: dsInfo.facets ? JSON.parse(dsInfo.facets) : {},
             });
           }
 
           if (currentDepth < maxDepth) {
             // Traverse upstream (parents)
             if (direction === 'up' || direction === 'both') {
-              const parents = await this.redis.smembers(CacheKeys.olUpstream(namespace, currentName));
+              const parents = await this.redis.smembers(
+                CacheKeys.olUpstream(namespace, currentName),
+              );
               for (const parent of parents) {
                 const parentKey = `dataset:${namespace}:${parent}`;
                 const childKey = `dataset:${namespace}:${currentName}`;
@@ -467,7 +507,9 @@ export class HybridDatabase {
 
             // Traverse downstream (children)
             if (direction === 'down' || direction === 'both') {
-              const children = await this.redis.smembers(CacheKeys.olDownstream(namespace, currentName));
+              const children = await this.redis.smembers(
+                CacheKeys.olDownstream(namespace, currentName),
+              );
               for (const child of children) {
                 const parentKey = `dataset:${namespace}:${currentName}`;
                 const childKey = `dataset:${namespace}:${child}`;
@@ -489,30 +531,24 @@ export class HybridDatabase {
           stats: {
             nodes: resultNodes.size,
             edges: resultEdges.length,
-            truncated: visitedNodes.size > resultNodes.size
-          }
+            truncated: visitedNodes.size > resultNodes.size,
+          },
         };
       },
-      this.ttls.lineage
+      this.ttls.lineage,
     );
   }
 
   // Health checks
   async healthCheck(): Promise<{ pg: boolean; redis: boolean }> {
-    const [pgHealth, redisHealth] = await Promise.all([
-      this.pg.healthCheck(),
-      this.redis.ping()
-    ]);
+    const [pgHealth, redisHealth] = await Promise.all([this.pg.healthCheck(), this.redis.ping()]);
 
     return { pg: pgHealth, redis: redisHealth };
   }
 
   // Cleanup
   async close(): Promise<void> {
-    await Promise.all([
-      this.pg.close(),
-      this.redis.disconnect()
-    ]);
+    await Promise.all([this.pg.close(), this.redis.disconnect()]);
   }
 }
 

@@ -3,9 +3,10 @@
  * Implements BRC-22 payment notifications and BRC-31 identity verification for payments
  */
 
-import { EventEmitter } from 'events';
-import { Pool } from 'pg';
 import crypto from 'crypto';
+import { EventEmitter } from 'events';
+
+import type { Pool } from 'pg';
 
 // BRC-22 Payment Notification Service
 export interface BRC22PaymentEvent {
@@ -45,7 +46,7 @@ export class BRC22PaymentNotificationService extends EventEmitter {
       'settlements',
       'refunds',
       'agent-payments',
-      ...overlayTopics
+      ...overlayTopics,
     ]);
   }
 
@@ -54,23 +55,28 @@ export class BRC22PaymentNotificationService extends EventEmitter {
    */
   async broadcastPaymentEvent(event: BRC22PaymentEvent): Promise<void> {
     try {
-      console.log(`📡 Broadcasting BRC-22 payment event: ${event.eventType} for receipt ${event.receiptId}`);
+      console.log(
+        `📡 Broadcasting BRC-22 payment event: ${event.eventType} for receipt ${event.receiptId}`,
+      );
 
       // Store event in payment_events table
-      await this.database.query(`
+      await this.database.query(
+        `
         INSERT INTO payment_events (
           event_type, receipt_id, payment_txid, agent_id, details_json,
           overlay_topics, brc22_notification_sent, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-      `, [
-        event.eventType,
-        event.receiptId,
-        event.paymentTxid || null,
-        event.agentId || null,
-        JSON.stringify(event.details),
-        event.topics,
-        true
-      ]);
+      `,
+        [
+          event.eventType,
+          event.receiptId,
+          event.paymentTxid || null,
+          event.agentId || null,
+          JSON.stringify(event.details),
+          event.topics,
+          true,
+        ],
+      );
 
       // Emit to local event handlers
       this.emit('payment-event', event);
@@ -101,21 +107,19 @@ export class BRC22PaymentNotificationService extends EventEmitter {
       event: event.eventType,
       receiptId: event.receiptId,
       timestamp: event.timestamp.toISOString(),
-      details: event.details
+      details: event.details,
     };
 
     // Store topic-specific notification
-    await this.database.query(`
+    await this.database.query(
+      `
       INSERT INTO brc22_notifications (
         topic, event_type, receipt_id, payload_json, created_at
       ) VALUES ($1, $2, $3, $4, NOW())
       ON CONFLICT DO NOTHING
-    `, [
-      topic,
-      event.eventType,
-      event.receiptId,
-      JSON.stringify(notificationPayload)
-    ]);
+    `,
+      [topic, event.eventType, event.receiptId, JSON.stringify(notificationPayload)],
+    );
 
     console.log(`📤 Broadcasted to topic: ${topic}`);
   }
@@ -136,22 +140,25 @@ export class BRC22PaymentNotificationService extends EventEmitter {
    * Get payment event history for a receipt
    */
   async getPaymentEventHistory(receiptId: string): Promise<BRC22PaymentEvent[]> {
-    const result = await this.database.query(`
+    const result = await this.database.query(
+      `
       SELECT event_type, receipt_id, payment_txid, agent_id,
              overlay_topics, details_json, created_at
       FROM payment_events
       WHERE receipt_id = $1
       ORDER BY created_at ASC
-    `, [receiptId]);
+    `,
+      [receiptId],
+    );
 
-    return result.rows.map(row => ({
+    return result.rows.map((row) => ({
       eventType: row.event_type,
       receiptId: row.receipt_id,
       paymentTxid: row.payment_txid,
       agentId: row.agent_id,
       topics: row.overlay_topics || [],
       timestamp: new Date(row.created_at),
-      details: JSON.parse(row.details_json || '{}')
+      details: JSON.parse(row.details_json || '{}'),
     }));
   }
 }
@@ -168,18 +175,24 @@ export class BRC31IdentityVerificationService {
   /**
    * Verify BRC-31 identity for payment authorization
    */
-  async verifyIdentity(identityKey: string, certificate?: string): Promise<BRC31VerificationResult> {
+  async verifyIdentity(
+    identityKey: string,
+    certificate?: string,
+  ): Promise<BRC31VerificationResult> {
     try {
       console.log(`🔐 Verifying BRC-31 identity: ${identityKey.slice(0, 10)}...`);
 
       // Check if identity exists in our database
-      const identityResult = await this.database.query(`
+      const identityResult = await this.database.query(
+        `
         SELECT identity_key, identity_certificate, verification_level,
                trust_score, payment_history_count, total_payments_satoshis,
                reputation_score
         FROM payment_identities
         WHERE identity_key = $1
-      `, [identityKey]);
+      `,
+        [identityKey],
+      );
 
       let identity: BRC31Identity;
       let trustScore: number;
@@ -191,7 +204,7 @@ export class BRC31IdentityVerificationService {
           certificate: row.identity_certificate,
           verificationLevel: row.verification_level,
           trustScore: parseFloat(row.trust_score),
-          isValid: true
+          isValid: true,
         };
         trustScore = parseFloat(row.trust_score);
       } else {
@@ -207,7 +220,7 @@ export class BRC31IdentityVerificationService {
           return {
             success: false,
             reason: 'Invalid BRC-31 certificate',
-            trustScore: 0
+            trustScore: 0,
           };
         }
       }
@@ -215,20 +228,24 @@ export class BRC31IdentityVerificationService {
       // Check trust score threshold
       const meetsThreshold = trustScore >= this.minTrustScore;
 
-      console.log(`${meetsThreshold ? '✅' : '❌'} Identity verification ${meetsThreshold ? 'passed' : 'failed'}: trust score ${trustScore}`);
+      console.log(
+        `${meetsThreshold ? '✅' : '❌'} Identity verification ${meetsThreshold ? 'passed' : 'failed'}: trust score ${trustScore}`,
+      );
 
       return {
         success: meetsThreshold,
         identity,
-        reason: meetsThreshold ? undefined : `Trust score ${trustScore} below threshold ${this.minTrustScore}`,
-        trustScore
+        reason: meetsThreshold
+          ? undefined
+          : `Trust score ${trustScore} below threshold ${this.minTrustScore}`,
+        trustScore,
       };
     } catch (error) {
       console.error('❌ Identity verification failed:', error);
       return {
         success: false,
         reason: 'Identity verification error: ' + error.message,
-        trustScore: 0
+        trustScore: 0,
       };
     }
   }
@@ -236,21 +253,27 @@ export class BRC31IdentityVerificationService {
   /**
    * Create new identity record
    */
-  private async createNewIdentity(identityKey: string, certificate?: string): Promise<BRC31Identity> {
+  private async createNewIdentity(
+    identityKey: string,
+    certificate?: string,
+  ): Promise<BRC31Identity> {
     const identity: BRC31Identity = {
       identityKey,
       certificate,
       verificationLevel: 'basic',
       trustScore: 1.0,
-      isValid: true
+      isValid: true,
     };
 
-    await this.database.query(`
+    await this.database.query(
+      `
       INSERT INTO payment_identities (
         identity_key, identity_certificate, verification_level, trust_score
       ) VALUES ($1, $2, $3, $4)
       ON CONFLICT (identity_key) DO NOTHING
-    `, [identityKey, certificate, identity.verificationLevel, identity.trustScore]);
+    `,
+      [identityKey, certificate, identity.verificationLevel, identity.trustScore],
+    );
 
     console.log(`📝 Created new BRC-31 identity record for ${identityKey.slice(0, 10)}...`);
     return identity;
@@ -297,21 +320,30 @@ export class BRC31IdentityVerificationService {
   /**
    * Update identity trust score based on payment behavior
    */
-  async updateTrustScore(identityKey: string, paymentSuccessful: boolean, paymentAmount: number): Promise<void> {
+  async updateTrustScore(
+    identityKey: string,
+    paymentSuccessful: boolean,
+    paymentAmount: number,
+  ): Promise<void> {
     try {
       const adjustment = paymentSuccessful ? 0.01 : -0.05;
       const amountFactor = Math.min(paymentAmount / 100000, 0.01); // Small bonus for larger payments
 
-      await this.database.query(`
+      await this.database.query(
+        `
         UPDATE payment_identities
         SET trust_score = GREATEST(0.0, LEAST(1.0, trust_score + $2 + $3)),
             payment_history_count = payment_history_count + 1,
             total_payments_satoshis = total_payments_satoshis + $4,
             last_payment_at = NOW()
         WHERE identity_key = $1
-      `, [identityKey, adjustment, amountFactor, paymentAmount]);
+      `,
+        [identityKey, adjustment, amountFactor, paymentAmount],
+      );
 
-      console.log(`📊 Updated trust score for ${identityKey.slice(0, 10)}... (${paymentSuccessful ? '+' : '-'})`);
+      console.log(
+        `📊 Updated trust score for ${identityKey.slice(0, 10)}... (${paymentSuccessful ? '+' : '-'})`,
+      );
     } catch (error) {
       console.error('Failed to update trust score:', error);
     }
@@ -321,12 +353,15 @@ export class BRC31IdentityVerificationService {
    * Get identity payment statistics
    */
   async getIdentityStats(identityKey: string): Promise<any> {
-    const result = await this.database.query(`
+    const result = await this.database.query(
+      `
       SELECT verification_level, trust_score, payment_history_count,
              total_payments_satoshis, reputation_score, last_payment_at
       FROM payment_identities
       WHERE identity_key = $1
-    `, [identityKey]);
+    `,
+      [identityKey],
+    );
 
     return result.rows[0] || null;
   }
@@ -337,18 +372,15 @@ export class BRCPaymentIntegrationService {
   private brc22Service: BRC22PaymentNotificationService;
   private brc31Service: BRC31IdentityVerificationService;
 
-  constructor(database: Pool, config: {
-    overlayTopics?: string[];
-    minTrustScore?: number;
-  } = {}) {
-    this.brc22Service = new BRC22PaymentNotificationService(
-      database,
-      config.overlayTopics
-    );
-    this.brc31Service = new BRC31IdentityVerificationService(
-      database,
-      config.minTrustScore
-    );
+  constructor(
+    database: Pool,
+    config: {
+      overlayTopics?: string[];
+      minTrustScore?: number;
+    } = {},
+  ) {
+    this.brc22Service = new BRC22PaymentNotificationService(database, config.overlayTopics);
+    this.brc31Service = new BRC31IdentityVerificationService(database, config.minTrustScore);
   }
 
   get notifications() {
@@ -384,7 +416,7 @@ export class BRCPaymentIntegrationService {
       if (params.identityKey) {
         const verification = await this.brc31Service.verifyIdentity(
           params.identityKey,
-          params.certificate
+          params.certificate,
         );
         identityVerified = verification.success;
         trustScore = verification.trustScore;
@@ -394,7 +426,7 @@ export class BRCPaymentIntegrationService {
             success: false,
             identityVerified,
             trustScore,
-            reason: verification.reason
+            reason: verification.reason,
           };
         }
       }
@@ -407,13 +439,13 @@ export class BRCPaymentIntegrationService {
         agentId: params.agentId,
         topics: ['payments', 'settlements'],
         timestamp: new Date(),
-        details: params.details
+        details: params.details,
       });
 
       return {
         success: true,
         identityVerified,
-        trustScore
+        trustScore,
       };
     } catch (error) {
       console.error('BRC payment integration failed:', error);
@@ -421,7 +453,7 @@ export class BRCPaymentIntegrationService {
         success: false,
         identityVerified: false,
         trustScore: 0,
-        reason: 'BRC integration error: ' + error.message
+        reason: 'BRC integration error: ' + error.message,
       };
     }
   }

@@ -2,8 +2,10 @@
 // Complete implementation of BRC-22, BRC-24, BRC-64, BRC-88 for production scale
 
 import { EventEmitter } from 'events';
-import { DatabaseAdapter } from './brc26-uhrp';
+
 import { walletService } from '../../ui/src/lib/wallet';
+
+import type { DatabaseAdapter } from './brc26-uhrp';
 
 // ==================== BRC-22: Transaction Submission ====================
 
@@ -106,16 +108,21 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
   }
 
   private setupDefaultTopicManagers(): void {
-    // Gitdata D01A manifest topic manager
+    // Gitdata D01A asset topic manager
     this.addTopicManager({
-      topicName: 'gitdata.d01a.manifest',
+      topicName: 'gitdata.d01a.asset',
       admittanceLogic: (transaction, outputIndex) => {
-        // Logic to identify D01A manifest outputs
-        return transaction.topics.includes('gitdata.d01a.manifest');
+        // Logic to identify D01A asset outputs
+        return (
+          transaction.topics.includes('gitdata.d01a.asset') ||
+          transaction.topics.includes('gitdata.d01a.manifest')
+        );
       },
       onOutputAdmitted: (txid, vout, outputScript, satoshis) => {
+        this.emit('asset-utxo-admitted', { txid, vout, outputScript, satoshis });
+        // Backward compatibility
         this.emit('manifest-utxo-admitted', { txid, vout, outputScript, satoshis });
-      }
+      },
     });
 
     // Dataset topic manager
@@ -123,7 +130,7 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
       topicName: 'gitdata.dataset.public',
       admittanceLogic: (transaction, outputIndex) => {
         return transaction.topics.includes('gitdata.dataset.public');
-      }
+      },
     });
   }
 
@@ -132,7 +139,10 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
     this.trackedUTXOs.set(manager.topicName, new Set());
   }
 
-  async processSubmission(transaction: BRC22Transaction, requesterId?: string): Promise<BRC22Response> {
+  async processSubmission(
+    transaction: BRC22Transaction,
+    requesterId?: string,
+  ): Promise<BRC22Response> {
     try {
       const txid = this.extractTxId(transaction.rawTx);
 
@@ -155,8 +165,8 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
         status: 'error',
         error: {
           code: 'PROCESSING_ERROR',
-          description: error.message
-        }
+          description: error.message,
+        },
       };
     }
   }
@@ -165,7 +175,7 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
     transaction: BRC22Transaction,
     txid: string,
     topic: string,
-    manager: TopicManager
+    manager: TopicManager,
   ): Promise<void> {
     // Parse transaction outputs (simplified)
     const outputs = this.parseTransactionOutputs(transaction.rawTx);
@@ -182,11 +192,12 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
     vout: number,
     topic: string,
     output: { script: string; satoshis: number },
-    manager: TopicManager
+    manager: TopicManager,
   ): Promise<void> {
     const utxoId = `${txid}:${vout}`;
 
-    await this.database.execute(`
+    await this.database.execute(
+      `
       INSERT INTO brc22_utxos
       (utxo_id, topic, txid, vout, output_script, satoshis, admitted_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -195,7 +206,9 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
         output_script = EXCLUDED.output_script,
         satoshis = EXCLUDED.satoshis,
         admitted_at = EXCLUDED.admitted_at
-    `, [utxoId, topic, txid, vout, output.script, output.satoshis, Date.now()]);
+    `,
+      [utxoId, topic, txid, vout, output.script, output.satoshis, Date.now()],
+    );
 
     this.trackedUTXOs.get(topic)?.add(utxoId);
 
@@ -205,48 +218,56 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
   }
 
   private async storeTransactionRecord(transaction: BRC22Transaction, txid: string): Promise<void> {
-    await this.database.execute(`
+    await this.database.execute(
+      `
       INSERT INTO brc22_transactions
       (txid, raw_tx, topics_json, inputs_json, mapi_responses_json, proof, processed_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (txid) DO UPDATE SET
         topics_json = EXCLUDED.topics_json,
         processed_at = EXCLUDED.processed_at
-    `, [
-      txid,
-      transaction.rawTx,
-      JSON.stringify(transaction.topics),
-      JSON.stringify(transaction.inputs),
-      JSON.stringify(transaction.mapiResponses || []),
-      transaction.proof || null,
-      Date.now()
-    ]);
+    `,
+      [
+        txid,
+        transaction.rawTx,
+        JSON.stringify(transaction.topics),
+        JSON.stringify(transaction.inputs),
+        JSON.stringify(transaction.mapiResponses || []),
+        transaction.proof || null,
+        Date.now(),
+      ],
+    );
   }
 
-  async getUTXOsByTopic(topic: string): Promise<Array<{
-    utxoId: string;
-    txid: string;
-    vout: number;
-    outputScript: string;
-    satoshis: number;
-    admittedAt: number;
-    spentAt?: number;
-  }>> {
-    const results = await this.database.query(`
+  async getUTXOsByTopic(topic: string): Promise<
+    Array<{
+      utxoId: string;
+      txid: string;
+      vout: number;
+      outputScript: string;
+      satoshis: number;
+      admittedAt: number;
+      spentAt?: number;
+    }>
+  > {
+    const results = await this.database.query(
+      `
       SELECT utxo_id, txid, vout, output_script, satoshis, admitted_at, spent_at
       FROM brc22_utxos
       WHERE topic = $1
       ORDER BY admitted_at DESC
-    `, [topic]);
+    `,
+      [topic],
+    );
 
-    return results.map(row => ({
+    return results.map((row) => ({
       utxoId: row.utxo_id,
       txid: row.txid,
       vout: row.vout,
       outputScript: row.output_script,
       satoshis: parseInt(row.satoshis),
       admittedAt: parseInt(row.admitted_at),
-      spentAt: row.spent_at ? parseInt(row.spent_at) : undefined
+      spentAt: row.spent_at ? parseInt(row.spent_at) : undefined,
     }));
   }
 
@@ -258,14 +279,20 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
 
     for (const [topic] of this.topicManagers) {
       const [activeResult, spentResult] = await Promise.all([
-        this.database.queryOne(`
+        this.database.queryOne(
+          `
           SELECT COUNT(*) as count FROM brc22_utxos
           WHERE topic = $1 AND spent_at IS NULL
-        `, [topic]),
-        this.database.queryOne(`
+        `,
+          [topic],
+        ),
+        this.database.queryOne(
+          `
           SELECT COUNT(*) as count FROM brc22_utxos
           WHERE topic = $1 AND spent_at IS NOT NULL
-        `, [topic])
+        `,
+          [topic],
+        ),
       ]);
 
       const active = parseInt(activeResult?.count || '0');
@@ -275,10 +302,13 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
 
     const [totalResult, recentResult] = await Promise.all([
       this.database.queryOne(`SELECT COUNT(*) as count FROM brc22_transactions`),
-      this.database.queryOne(`
+      this.database.queryOne(
+        `
         SELECT COUNT(*) as count FROM brc22_transactions
         WHERE processed_at > $1
-      `, [Date.now() - 24 * 60 * 60 * 1000])
+      `,
+        [Date.now() - 24 * 60 * 60 * 1000],
+      ),
     ]);
 
     stats.transactions.total = parseInt(totalResult?.count || '0');
@@ -326,12 +356,17 @@ export interface LookupProvider {
   providerId: string;
   name: string;
   description: string;
-  processQuery: (query: any, requesterId?: string) => Promise<Array<{
-    topic: string;
-    txid: string;
-    vout: number;
-    envelope?: any;
-  }>>;
+  processQuery: (
+    query: any,
+    requesterId?: string,
+  ) => Promise<
+    Array<{
+      topic: string;
+      txid: string;
+      vout: number;
+      envelope?: any;
+    }>
+  >;
 }
 
 export class PostgreSQLBRC24LookupService extends EventEmitter {
@@ -379,12 +414,12 @@ export class PostgreSQLBRC24LookupService extends EventEmitter {
       processQuery: async (query) => {
         if (!query.topic) return [];
         const utxos = await this.brc22Service.getUTXOsByTopic(query.topic);
-        return utxos.slice(0, query.limit || 10).map(utxo => ({
+        return utxos.slice(0, query.limit || 10).map((utxo) => ({
           topic: query.topic,
           txid: utxo.txid,
-          vout: utxo.vout
+          vout: utxo.vout,
         }));
-      }
+      },
     });
 
     // Dataset search provider
@@ -395,7 +430,7 @@ export class PostgreSQLBRC24LookupService extends EventEmitter {
       processQuery: async (query) => {
         // In production, implement proper dataset search
         return [];
-      }
+      },
     });
   }
 
@@ -403,24 +438,31 @@ export class PostgreSQLBRC24LookupService extends EventEmitter {
     this.providers.set(provider.providerId, provider);
   }
 
-  async processLookup(providerId: string, query: any, requesterId?: string): Promise<BRC24Response> {
+  async processLookup(
+    providerId: string,
+    query: any,
+    requesterId?: string,
+  ): Promise<BRC24Response> {
     try {
       const provider = this.providers.get(providerId);
       if (!provider) {
         return {
           status: 'error',
           results: [],
-          error: { code: 'PROVIDER_NOT_FOUND', description: `Provider ${providerId} not found` }
+          error: { code: 'PROVIDER_NOT_FOUND', description: `Provider ${providerId} not found` },
         };
       }
 
       const results = await provider.processQuery(query, requesterId);
 
       // Store query record
-      await this.database.execute(`
+      await this.database.execute(
+        `
         INSERT INTO brc24_queries (provider, query_json, requester_id, results_count, processed_at)
         VALUES ($1, $2, $3, $4, $5)
-      `, [providerId, JSON.stringify(query), requesterId || null, results.length, Date.now()]);
+      `,
+        [providerId, JSON.stringify(query), requesterId || null, results.length, Date.now()],
+      );
 
       this.emit('lookup-processed', { provider: providerId, query, results, requesterId });
 
@@ -429,16 +471,16 @@ export class PostgreSQLBRC24LookupService extends EventEmitter {
       return {
         status: 'error',
         results: [],
-        error: { code: 'LOOKUP_ERROR', description: error.message }
+        error: { code: 'LOOKUP_ERROR', description: error.message },
       };
     }
   }
 
   getAvailableProviders(): Array<{ id: string; name: string; description: string }> {
-    return Array.from(this.providers.values()).map(p => ({
+    return Array.from(this.providers.values()).map((p) => ({
       id: p.providerId,
       name: p.name,
-      description: p.description
+      description: p.description,
     }));
   }
 }
@@ -485,7 +527,7 @@ export class PostgreSQLBRC64HistoryService extends EventEmitter {
   constructor(
     database: DatabaseAdapter,
     brc22Service: PostgreSQLBRC22SubmitService,
-    brc24Service: PostgreSQLBRC24LookupService
+    brc24Service: PostgreSQLBRC24LookupService,
   ) {
     super();
     this.database = database;
@@ -536,44 +578,54 @@ export class PostgreSQLBRC64HistoryService extends EventEmitter {
 
   async queryHistory(query: HistoryQuery): Promise<HistoricalUTXO[]> {
     // Implementation for history querying
-    const results = await this.database.query(`
+    const results = await this.database.query(
+      `
       SELECT utxo_id, input_txid as txid, input_vout as vout, 'preserved' as topic, captured_at
       FROM brc64_historical_inputs
       WHERE utxo_id = $1
       ORDER BY captured_at DESC
       LIMIT $2
-    `, [query.utxoId, query.depth || 10]);
+    `,
+      [query.utxoId, query.depth || 10],
+    );
 
-    return results.map(row => ({
+    return results.map((row) => ({
       utxoId: row.utxo_id,
       txid: row.txid,
       vout: row.vout,
       topic: row.topic,
       capturedAt: parseInt(row.captured_at),
-      inputsPreserved: true
+      inputsPreserved: true,
     }));
   }
 
-  async generateLineageGraph(startUtxoId: string, topic?: string, maxDepth: number = 5): Promise<LineageGraph> {
+  async generateLineageGraph(
+    startUtxoId: string,
+    topic?: string,
+    maxDepth: number = 5,
+  ): Promise<LineageGraph> {
     // Implementation for lineage graph generation
     const nodes: LineageGraph['nodes'] = [];
     const edges: LineageGraph['edges'] = [];
 
     // Build graph starting from the UTXO
-    const edgeResults = await this.database.query(`
+    const edgeResults = await this.database.query(
+      `
       SELECT parent_utxo, child_utxo, relationship, timestamp_created
       FROM brc64_lineage_edges
       WHERE parent_utxo = $1 OR child_utxo = $1
       ORDER BY timestamp_created DESC
       LIMIT $2
-    `, [startUtxoId, maxDepth * 10]);
+    `,
+      [startUtxoId, maxDepth * 10],
+    );
 
-    edgeResults.forEach(row => {
+    edgeResults.forEach((row) => {
       edges.push({
         from: row.parent_utxo,
         to: row.child_utxo,
         relationship: row.relationship,
-        timestamp: parseInt(row.timestamp_created)
+        timestamp: parseInt(row.timestamp_created),
       });
     });
 
@@ -588,14 +640,14 @@ export class PostgreSQLBRC64HistoryService extends EventEmitter {
   }> {
     const [inputsResult, edgesResult] = await Promise.all([
       this.database.queryOne(`SELECT COUNT(*) as count FROM brc64_historical_inputs`),
-      this.database.queryOne(`SELECT COUNT(*) as count FROM brc64_lineage_edges`)
+      this.database.queryOne(`SELECT COUNT(*) as count FROM brc64_lineage_edges`),
     ]);
 
     return {
       historicalInputs: parseInt(inputsResult?.count || '0'),
       lineageEdges: parseInt(edgesResult?.count || '0'),
       trackedTransactions: 0, // Calculated differently
-      cacheHitRate: 0.85 // Mock value
+      cacheHitRate: 0.85, // Mock value
     };
   }
 }
@@ -678,10 +730,11 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
       domainName: this.domain,
       topicName,
       signature,
-      timestamp
+      timestamp,
     };
 
-    await this.database.execute(`
+    await this.database.execute(
+      `
       INSERT INTO brc88_ship_ads
       (advertiser_identity, domain_name, topic_name, signature, timestamp_created)
       VALUES ($1, $2, $3, $4, $5)
@@ -689,7 +742,9 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
         signature = EXCLUDED.signature,
         timestamp_created = EXCLUDED.timestamp_created,
         is_active = TRUE
-    `, [identity, this.domain, topicName, signature, timestamp]);
+    `,
+      [identity, this.domain, topicName, signature, timestamp],
+    );
 
     this.emit('ship-advertisement-created', advertisement);
     return advertisement;
@@ -706,10 +761,11 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
       domainName: this.domain,
       serviceId,
       signature,
-      timestamp
+      timestamp,
     };
 
-    await this.database.execute(`
+    await this.database.execute(
+      `
       INSERT INTO brc88_slap_ads
       (advertiser_identity, domain_name, service_id, signature, timestamp_created)
       VALUES ($1, $2, $3, $4, $5)
@@ -717,7 +773,9 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
         signature = EXCLUDED.signature,
         timestamp_created = EXCLUDED.timestamp_created,
         is_active = TRUE
-    `, [identity, this.domain, serviceId, signature, timestamp]);
+    `,
+      [identity, this.domain, serviceId, signature, timestamp],
+    );
 
     this.emit('slap-advertisement-created', advertisement);
     return advertisement;
@@ -731,13 +789,13 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
       ORDER BY timestamp_created DESC
     `);
 
-    return results.map(row => ({
+    return results.map((row) => ({
       advertiserIdentity: row.advertiser_identity,
       domainName: row.domain_name,
       topicName: row.topic_name,
       signature: row.signature,
       timestamp: parseInt(row.timestamp_created),
-      utxoId: row.utxo_id
+      utxoId: row.utxo_id,
     }));
   }
 
@@ -749,13 +807,13 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
       ORDER BY timestamp_created DESC
     `);
 
-    return results.map(row => ({
+    return results.map((row) => ({
       advertiserIdentity: row.advertiser_identity,
       domainName: row.domain_name,
       serviceId: row.service_id,
       signature: row.signature,
       timestamp: parseInt(row.timestamp_created),
-      utxoId: row.utxo_id
+      utxoId: row.utxo_id,
     }));
   }
 }

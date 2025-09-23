@@ -1,8 +1,11 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
+
 import { searchManifests, getManifest } from '../db';
 
-function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
+function json(res: Response, code: number, body: any) {
+  return res.status(code).json(body);
+}
 
 export function listingsRouter(): Router {
   const router = makeRouter();
@@ -18,14 +21,14 @@ export function listingsRouter(): Router {
 
       // Use modern hybrid database with cache-aside pattern
       const rows = await searchManifests({ q, datasetId, limit, offset });
-      const items = rows.map(m => ({
+      const items = rows.map((m) => ({
         versionId: m.version_id,
         name: m.title || null,
         description: null, // Could extract from manifest_json if needed
         datasetId: m.dataset_id || null,
         producerId: m.producer_id || null,
         tags: null, // Could extract from manifest_json if needed
-        updatedAt: m.created_at || null
+        updatedAt: m.created_at || null,
       }));
 
       // Set cache headers for successful responses
@@ -65,8 +68,8 @@ export function listingsRouter(): Router {
           contentHash: manifest.content_hash || null,
           license: manifest.license || null,
           classification: manifest.classification || null,
-          createdAt: manifest.created_at || null
-        }
+          createdAt: manifest.created_at || null,
+        },
         // Note: price snippet would be added here with feature flag
       };
 

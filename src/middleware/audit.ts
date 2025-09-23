@@ -5,7 +5,12 @@
 export function auditLogger() {
   return function (req: any, res: any, next: any) {
     const start = Date.now();
-    const ip = (req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').toString();
+    const ip = (
+      req.ip ||
+      req.headers['x-forwarded-for'] ||
+      req.socket?.remoteAddress ||
+      ''
+    ).toString();
     const ua = (req.headers['user-agent'] || '').toString();
 
     // Hook into finish event to get status
@@ -21,7 +26,6 @@ export function auditLogger() {
         ua,
       };
       try {
-        // eslint-disable-next-line no-console
         console.log(JSON.stringify(line));
       } catch {
         // ignore

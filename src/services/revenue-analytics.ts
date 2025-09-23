@@ -3,9 +3,10 @@
  * Comprehensive revenue tracking, analytics, and financial reporting
  */
 
-import { Pool } from 'pg';
-import { EventEmitter } from 'events';
 import crypto from 'crypto';
+import { EventEmitter } from 'events';
+
+import type { Pool } from 'pg';
 
 export interface RevenueMetrics {
   totalRevenueSatoshis: number;
@@ -102,7 +103,9 @@ export class RevenueAnalyticsService extends EventEmitter {
     includeTimeSeries?: boolean;
   }): Promise<RevenueAnalyticsReport> {
     try {
-      console.log(`📊 Generating revenue analytics report: ${params.startDate.toISOString()} to ${params.endDate.toISOString()}`);
+      console.log(
+        `📊 Generating revenue analytics report: ${params.startDate.toISOString()} to ${params.endDate.toISOString()}`,
+      );
 
       const granularity = params.granularity || 'daily';
 
@@ -113,7 +116,10 @@ export class RevenueAnalyticsService extends EventEmitter {
       const breakdown = await this.getRevenueBreakdown(params.startDate, params.endDate);
 
       // Get agent marketplace metrics
-      const agentMarketplace = await this.getAgentMarketplaceMetrics(params.startDate, params.endDate);
+      const agentMarketplace = await this.getAgentMarketplaceMetrics(
+        params.startDate,
+        params.endDate,
+      );
 
       // Get revenue trends
       const trends = await this.getRevenueTrends(params.startDate, params.endDate);
@@ -127,16 +133,18 @@ export class RevenueAnalyticsService extends EventEmitter {
         timeRange: {
           startDate: params.startDate.toISOString().split('T')[0],
           endDate: params.endDate.toISOString().split('T')[0],
-          granularity
+          granularity,
         },
         revenueMetrics,
         breakdown,
         agentMarketplace,
         trends,
-        timeSeries
+        timeSeries,
       };
 
-      console.log(`✅ Revenue report generated: ${revenueMetrics.totalRevenueSatoshis} satoshis total revenue`);
+      console.log(
+        `✅ Revenue report generated: ${revenueMetrics.totalRevenueSatoshis} satoshis total revenue`,
+      );
       this.emit('report-generated', report);
 
       return report;
@@ -161,33 +169,39 @@ export class RevenueAnalyticsService extends EventEmitter {
     agentType?: string;
   }): Promise<void> {
     try {
-      const netRevenue = params.grossRevenueSatoshis - params.platformFeeSatoshis - params.agentCommissionSatoshis;
+      const netRevenue =
+        params.grossRevenueSatoshis - params.platformFeeSatoshis - params.agentCommissionSatoshis;
       const now = new Date();
       const revenueDate = now.toISOString().split('T')[0];
       const revenueHour = now.getHours();
 
-      await this.database.query(`
+      await this.database.query(
+        `
         INSERT INTO revenue_log (
           receipt_id, producer_id, gross_revenue_satoshis, platform_fee_satoshis,
           agent_commission_satoshis, net_revenue_satoshis, payment_method,
           revenue_date, revenue_hour, content_category, payer_region, agent_type
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      `, [
-        params.receiptId,
-        params.producerId,
-        params.grossRevenueSatoshis,
-        params.platformFeeSatoshis,
-        params.agentCommissionSatoshis,
-        netRevenue,
-        params.paymentMethod,
-        revenueDate,
-        revenueHour,
-        params.contentCategory || null,
-        params.payerRegion || null,
-        params.agentType || null
-      ]);
+      `,
+        [
+          params.receiptId,
+          params.producerId,
+          params.grossRevenueSatoshis,
+          params.platformFeeSatoshis,
+          params.agentCommissionSatoshis,
+          netRevenue,
+          params.paymentMethod,
+          revenueDate,
+          revenueHour,
+          params.contentCategory || null,
+          params.payerRegion || null,
+          params.agentType || null,
+        ],
+      );
 
-      console.log(`💰 Revenue recorded: ${params.grossRevenueSatoshis} satoshis for receipt ${params.receiptId}`);
+      console.log(
+        `💰 Revenue recorded: ${params.grossRevenueSatoshis} satoshis for receipt ${params.receiptId}`,
+      );
       this.emit('revenue-recorded', { ...params, netRevenue });
     } catch (error) {
       console.error('Failed to record revenue:', error);
@@ -199,7 +213,8 @@ export class RevenueAnalyticsService extends EventEmitter {
    * Get overall revenue metrics for a time period
    */
   private async getRevenueMetrics(startDate: Date, endDate: Date): Promise<RevenueMetrics> {
-    const result = await this.database.query(`
+    const result = await this.database.query(
+      `
       SELECT
         SUM(gross_revenue_satoshis) as total_revenue,
         SUM(net_revenue_satoshis) as net_revenue,
@@ -210,7 +225,9 @@ export class RevenueAnalyticsService extends EventEmitter {
         COUNT(DISTINCT receipt_id) as unique_receipts
       FROM revenue_log
       WHERE revenue_date >= $1 AND revenue_date <= $2
-    `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
+    `,
+      [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]],
+    );
 
     const row = result.rows[0];
 
@@ -221,7 +238,7 @@ export class RevenueAnalyticsService extends EventEmitter {
       agentCommissionSatoshis: parseInt(row.agent_commissions || '0'),
       transactionCount: parseInt(row.transaction_count || '0'),
       averageTransactionSatoshis: parseInt(row.avg_transaction || '0'),
-      uniquePayers: parseInt(row.unique_receipts || '0')
+      uniquePayers: parseInt(row.unique_receipts || '0'),
     };
   }
 
@@ -230,7 +247,8 @@ export class RevenueAnalyticsService extends EventEmitter {
    */
   private async getRevenueBreakdown(startDate: Date, endDate: Date): Promise<RevenueBreakdown> {
     // By producer
-    const producerResult = await this.database.query(`
+    const producerResult = await this.database.query(
+      `
       SELECT
         rl.producer_id,
         p.display_name as producer_name,
@@ -246,10 +264,13 @@ export class RevenueAnalyticsService extends EventEmitter {
       GROUP BY rl.producer_id, p.display_name
       ORDER BY revenue DESC
       LIMIT 10
-    `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
+    `,
+      [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]],
+    );
 
     // By content category
-    const categoryResult = await this.database.query(`
+    const categoryResult = await this.database.query(
+      `
       SELECT
         COALESCE(content_category, 'uncategorized') as category,
         SUM(gross_revenue_satoshis) as revenue,
@@ -261,10 +282,13 @@ export class RevenueAnalyticsService extends EventEmitter {
       WHERE revenue_date >= $1 AND revenue_date <= $2
       GROUP BY content_category
       ORDER BY revenue DESC
-    `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
+    `,
+      [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]],
+    );
 
     // By payment method
-    const methodResult = await this.database.query(`
+    const methodResult = await this.database.query(
+      `
       SELECT
         payment_method as method,
         SUM(gross_revenue_satoshis) as revenue,
@@ -276,44 +300,53 @@ export class RevenueAnalyticsService extends EventEmitter {
       WHERE revenue_date >= $1 AND revenue_date <= $2
       GROUP BY payment_method
       ORDER BY revenue DESC
-    `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
+    `,
+      [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]],
+    );
 
     return {
-      byProducer: producerResult.rows.map(row => ({
+      byProducer: producerResult.rows.map((row) => ({
         producerId: row.producer_id,
         producerName: row.producer_name || row.producer_id,
         revenueSatoshis: parseInt(row.revenue),
         transactionCount: parseInt(row.transaction_count),
-        percentage: parseFloat(row.percentage || '0')
+        percentage: parseFloat(row.percentage || '0'),
       })),
-      byContentCategory: categoryResult.rows.map(row => ({
+      byContentCategory: categoryResult.rows.map((row) => ({
         category: row.category,
         revenueSatoshis: parseInt(row.revenue),
-        percentage: parseFloat(row.percentage || '0')
+        percentage: parseFloat(row.percentage || '0'),
       })),
-      byPaymentMethod: methodResult.rows.map(row => ({
+      byPaymentMethod: methodResult.rows.map((row) => ({
         method: row.method,
         revenueSatoshis: parseInt(row.revenue),
-        percentage: parseFloat(row.percentage || '0')
-      }))
+        percentage: parseFloat(row.percentage || '0'),
+      })),
     };
   }
 
   /**
    * Get agent marketplace specific metrics
    */
-  private async getAgentMarketplaceMetrics(startDate: Date, endDate: Date): Promise<AgentMarketplaceMetrics> {
+  private async getAgentMarketplaceMetrics(
+    startDate: Date,
+    endDate: Date,
+  ): Promise<AgentMarketplaceMetrics> {
     // Agent revenue metrics
-    const agentRevenueResult = await this.database.query(`
+    const agentRevenueResult = await this.database.query(
+      `
       SELECT
         SUM(agent_commission_satoshis) as agent_revenue,
         COUNT(*) FILTER (WHERE agent_commission_satoshis > 0) as agent_transactions
       FROM revenue_log
       WHERE revenue_date >= $1 AND revenue_date <= $2
-    `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
+    `,
+      [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]],
+    );
 
     // Top spending agents
-    const topAgentsResult = await this.database.query(`
+    const topAgentsResult = await this.database.query(
+      `
       SELECT
         or_table.agent_id,
         a.name as agent_name,
@@ -327,19 +360,21 @@ export class RevenueAnalyticsService extends EventEmitter {
       GROUP BY or_table.agent_id, a.name
       ORDER BY spending DESC
       LIMIT 10
-    `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
+    `,
+      [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]],
+    );
 
     const agentRevenue = agentRevenueResult.rows[0];
 
     return {
       agentRevenueSatoshis: parseInt(agentRevenue.agent_revenue || '0'),
       agentTransactionCount: parseInt(agentRevenue.agent_transactions || '0'),
-      topAgents: topAgentsResult.rows.map(row => ({
+      topAgents: topAgentsResult.rows.map((row) => ({
         agentId: row.agent_id,
         agentName: row.agent_name,
         spendingSatoshis: parseInt(row.spending),
-        transactionCount: parseInt(row.transaction_count)
-      }))
+        transactionCount: parseInt(row.transaction_count),
+      })),
     };
   }
 
@@ -352,23 +387,29 @@ export class RevenueAnalyticsService extends EventEmitter {
     const previousStartDate = new Date(startDate.getTime() - periodLength);
     const previousEndDate = startDate;
 
-    const currentPeriodResult = await this.database.query(`
+    const currentPeriodResult = await this.database.query(
+      `
       SELECT
         SUM(gross_revenue_satoshis) as revenue,
         COUNT(*) as transactions,
         AVG(gross_revenue_satoshis) as avg_transaction
       FROM revenue_log
       WHERE revenue_date >= $1 AND revenue_date <= $2
-    `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
+    `,
+      [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]],
+    );
 
-    const previousPeriodResult = await this.database.query(`
+    const previousPeriodResult = await this.database.query(
+      `
       SELECT
         SUM(gross_revenue_satoshis) as revenue,
         COUNT(*) as transactions,
         AVG(gross_revenue_satoshis) as avg_transaction
       FROM revenue_log
       WHERE revenue_date >= $1 AND revenue_date < $2
-    `, [previousStartDate.toISOString().split('T')[0], previousEndDate.toISOString().split('T')[0]]);
+    `,
+      [previousStartDate.toISOString().split('T')[0], previousEndDate.toISOString().split('T')[0]],
+    );
 
     const current = currentPeriodResult.rows[0];
     const previous = previousPeriodResult.rows[0];
@@ -380,13 +421,13 @@ export class RevenueAnalyticsService extends EventEmitter {
     const currentAvgTransaction = parseInt(current.avg_transaction || '0');
     const previousAvgTransaction = parseInt(previous.avg_transaction || '0');
 
-    const revenueGrowthRate = previousRevenue > 0
-      ? (currentRevenue - previousRevenue) / previousRevenue
-      : 0;
+    const revenueGrowthRate =
+      previousRevenue > 0 ? (currentRevenue - previousRevenue) / previousRevenue : 0;
 
-    const transactionGrowthRate = previousTransactions > 0
-      ? (currentTransactions - previousTransactions) / previousTransactions
-      : 0;
+    const transactionGrowthRate =
+      previousTransactions > 0
+        ? (currentTransactions - previousTransactions) / previousTransactions
+        : 0;
 
     let averageTransactionTrend: 'increasing' | 'decreasing' | 'stable' = 'stable';
     if (currentAvgTransaction > previousAvgTransaction * 1.05) {
@@ -398,7 +439,7 @@ export class RevenueAnalyticsService extends EventEmitter {
     return {
       revenueGrowthRate,
       transactionGrowthRate,
-      averageTransactionTrend
+      averageTransactionTrend,
     };
   }
 
@@ -408,7 +449,7 @@ export class RevenueAnalyticsService extends EventEmitter {
   private async getRevenueTimeSeries(
     startDate: Date,
     endDate: Date,
-    granularity: 'hourly' | 'daily' | 'weekly' | 'monthly'
+    granularity: 'hourly' | 'daily' | 'weekly' | 'monthly',
   ): Promise<Array<{ timestamp: string; revenueSatoshis: number; transactionCount: number }>> {
     let dateFormat: string;
     let groupBy: string;
@@ -424,15 +465,16 @@ export class RevenueAnalyticsService extends EventEmitter {
         break;
       case 'weekly':
         dateFormat = 'YYYY-"W"WW';
-        groupBy = 'date_trunc(\'week\', revenue_date::date)';
+        groupBy = "date_trunc('week', revenue_date::date)";
         break;
       case 'monthly':
         dateFormat = 'YYYY-MM';
-        groupBy = 'date_trunc(\'month\', revenue_date::date)';
+        groupBy = "date_trunc('month', revenue_date::date)";
         break;
     }
 
-    const result = await this.database.query(`
+    const result = await this.database.query(
+      `
       SELECT
         CASE
           WHEN $3 = 'hourly' THEN to_char(revenue_date::date + (revenue_hour || ' hours')::interval, $4)
@@ -444,17 +486,19 @@ export class RevenueAnalyticsService extends EventEmitter {
       WHERE revenue_date >= $1 AND revenue_date <= $2
       GROUP BY ${granularity === 'hourly' ? groupBy : `${groupBy}`}
       ORDER BY timestamp
-    `, [
-      startDate.toISOString().split('T')[0],
-      endDate.toISOString().split('T')[0],
-      granularity,
-      dateFormat
-    ]);
+    `,
+      [
+        startDate.toISOString().split('T')[0],
+        endDate.toISOString().split('T')[0],
+        granularity,
+        dateFormat,
+      ],
+    );
 
-    return result.rows.map(row => ({
+    return result.rows.map((row) => ({
       timestamp: row.timestamp,
       revenueSatoshis: parseInt(row.revenue),
-      transactionCount: parseInt(row.transactions)
+      transactionCount: parseInt(row.transactions),
     }));
   }
 
@@ -468,16 +512,21 @@ export class RevenueAnalyticsService extends EventEmitter {
     settlementFeeSatoshis?: number;
   }): Promise<CrossNetworkSettlement> {
     try {
-      console.log(`🔄 Initiating cross-network settlement: ${params.sourceNetwork} -> ${params.targetNetwork}`);
+      console.log(
+        `🔄 Initiating cross-network settlement: ${params.sourceNetwork} -> ${params.targetNetwork}`,
+      );
 
       const settlementBatchId = crypto.randomUUID();
 
       // Calculate total amount from receipts
-      const receiptAmountsResult = await this.database.query(`
+      const receiptAmountsResult = await this.database.query(
+        `
         SELECT SUM(total_satoshis) as total_amount, COUNT(*) as receipt_count
         FROM overlay_receipts
         WHERE receipt_id = ANY($1) AND status = 'confirmed'
-      `, [params.receiptIds]);
+      `,
+        [params.receiptIds],
+      );
 
       const totalAmount = parseInt(receiptAmountsResult.rows[0].total_amount || '0');
       const receiptCount = parseInt(receiptAmountsResult.rows[0].receipt_count || '0');
@@ -487,27 +536,33 @@ export class RevenueAnalyticsService extends EventEmitter {
       }
 
       // Create settlement record
-      await this.database.query(`
+      await this.database.query(
+        `
         INSERT INTO cross_network_settlements (
           settlement_batch_id, source_network, target_network,
           total_receipts, total_amount_satoshis, settlement_fee_satoshis,
           status, initiated_at
         ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
-      `, [
-        settlementBatchId,
-        params.sourceNetwork,
-        params.targetNetwork,
-        receiptCount,
-        totalAmount,
-        params.settlementFeeSatoshis || 0
-      ]);
+      `,
+        [
+          settlementBatchId,
+          params.sourceNetwork,
+          params.targetNetwork,
+          receiptCount,
+          totalAmount,
+          params.settlementFeeSatoshis || 0,
+        ],
+      );
 
       // Mark receipts as part of this settlement
-      await this.database.query(`
+      await this.database.query(
+        `
         UPDATE overlay_receipts
         SET cross_network_ref = $1, updated_at = NOW()
         WHERE receipt_id = ANY($2)
-      `, [settlementBatchId, params.receiptIds]);
+      `,
+        [settlementBatchId, params.receiptIds],
+      );
 
       const settlement: CrossNetworkSettlement = {
         settlementBatchId,
@@ -517,10 +572,12 @@ export class RevenueAnalyticsService extends EventEmitter {
         totalAmountSatoshis: totalAmount,
         settlementFeeSatoshis: params.settlementFeeSatoshis || 0,
         status: 'pending',
-        initiatedAt: new Date()
+        initiatedAt: new Date(),
       };
 
-      console.log(`✅ Cross-network settlement initiated: ${settlementBatchId} (${totalAmount} satoshis)`);
+      console.log(
+        `✅ Cross-network settlement initiated: ${settlementBatchId} (${totalAmount} satoshis)`,
+      );
       this.emit('settlement-initiated', settlement);
 
       return settlement;
@@ -534,10 +591,13 @@ export class RevenueAnalyticsService extends EventEmitter {
    * Get settlement status
    */
   async getSettlementStatus(settlementBatchId: string): Promise<CrossNetworkSettlement | null> {
-    const result = await this.database.query(`
+    const result = await this.database.query(
+      `
       SELECT * FROM cross_network_settlements
       WHERE settlement_batch_id = $1
-    `, [settlementBatchId]);
+    `,
+      [settlementBatchId],
+    );
 
     if (result.rows.length === 0) {
       return null;
@@ -554,7 +614,7 @@ export class RevenueAnalyticsService extends EventEmitter {
       settlementFeeSatoshis: row.settlement_fee_satoshis,
       status: row.status,
       initiatedAt: new Date(row.initiated_at),
-      confirmedAt: row.confirmed_at ? new Date(row.confirmed_at) : undefined
+      confirmedAt: row.confirmed_at ? new Date(row.confirmed_at) : undefined,
     };
   }
 }

@@ -5,8 +5,9 @@
  * webhook delivery, and WebSocket broadcasting.
  */
 
-import { getHybridDatabase } from '../db/hybrid';
 import crypto from 'crypto';
+
+import { getHybridDatabase } from '../db/hybrid';
 
 export interface RealtimePacket {
   id: string;
@@ -68,28 +69,32 @@ export class RealtimeStreamingService {
     data_payload: any;
     producer_public_key: string;
   }): Promise<RealtimePacket> {
-    const data_hash = crypto.createHash('sha256')
+    const data_hash = crypto
+      .createHash('sha256')
       .update(JSON.stringify(data.data_payload))
       .digest('hex');
 
     const data_size_bytes = Buffer.byteLength(JSON.stringify(data.data_payload), 'utf8');
 
-    const result = await this.db.pg.query(`
+    const result = await this.db.pg.query(
+      `
       INSERT INTO realtime_packets (
         version_id, packet_sequence, txid, overlay_data, data_hash,
         data_payload, data_size_bytes, producer_public_key
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
-    `, [
-      data.version_id,
-      data.packet_sequence,
-      data.txid,
-      data.overlay_data,
-      data_hash,
-      JSON.stringify(data.data_payload),
-      data_size_bytes,
-      data.producer_public_key
-    ]);
+    `,
+      [
+        data.version_id,
+        data.packet_sequence,
+        data.txid,
+        data.overlay_data,
+        data_hash,
+        JSON.stringify(data.data_payload),
+        data_size_bytes,
+        data.producer_public_key,
+      ],
+    );
 
     const packet = result.rows[0] as RealtimePacket;
 
@@ -105,23 +110,25 @@ export class RealtimeStreamingService {
   async updatePacketConfirmation(
     txid: string,
     confirmations: number,
-    block_height?: number
+    block_height?: number,
   ): Promise<void> {
     const confirmation_status = confirmations > 0 ? 'confirmed' : 'pending';
     const confirmed_at = confirmations > 0 ? new Date() : null;
 
-    await this.db.pg.query(`
+    await this.db.pg.query(
+      `
       UPDATE realtime_packets
       SET confirmation_status = $1, confirmations = $2, block_height = $3, confirmed_at = $4
       WHERE txid = $5
-    `, [confirmation_status, confirmations, block_height, confirmed_at, txid]);
+    `,
+      [confirmation_status, confirmations, block_height, confirmed_at, txid],
+    );
 
     if (confirmations > 0) {
       // Get the updated packet
-      const result = await this.db.pg.query(
-        'SELECT * FROM realtime_packets WHERE txid = $1',
-        [txid]
-      );
+      const result = await this.db.pg.query('SELECT * FROM realtime_packets WHERE txid = $1', [
+        txid,
+      ]);
 
       if (result.rows.length > 0) {
         const packet = result.rows[0] as RealtimePacket;
@@ -136,10 +143,14 @@ export class RealtimeStreamingService {
    */
   private async deliverPacket(
     packet: RealtimePacket,
-    trigger: 'immediate' | 'confirmed'
+    trigger: 'immediate' | 'confirmed',
   ): Promise<void> {
     // Get webhooks that should receive this packet
-    const webhooks = await this.getWebhooksForDelivery(packet.version_id, trigger, packet.confirmations);
+    const webhooks = await this.getWebhooksForDelivery(
+      packet.version_id,
+      trigger,
+      packet.confirmations,
+    );
 
     // Get WebSocket connections that should receive this packet
     const websockets = await this.getWebsocketsForDelivery(packet.version_id, trigger);
@@ -164,7 +175,7 @@ export class RealtimeStreamingService {
   private async getWebhooksForDelivery(
     version_id: string,
     trigger: 'immediate' | 'confirmed',
-    confirmations: number = 0
+    confirmations: number = 0,
   ): Promise<StreamWebhook[]> {
     let whereClause = 'version_id = $1 AND status = $2';
     const params: any[] = [version_id, 'active'];
@@ -177,10 +188,13 @@ export class RealtimeStreamingService {
       params.push('confirmed', 'both', confirmations);
     }
 
-    const result = await this.db.pg.query(`
+    const result = await this.db.pg.query(
+      `
       SELECT * FROM stream_webhooks
       WHERE ${whereClause}
-    `, params);
+    `,
+      params,
+    );
 
     return result.rows as StreamWebhook[];
   }
@@ -190,7 +204,7 @@ export class RealtimeStreamingService {
    */
   private async getWebsocketsForDelivery(
     version_id: string,
-    trigger: 'immediate' | 'confirmed'
+    trigger: 'immediate' | 'confirmed',
   ): Promise<StreamWebsocket[]> {
     let whereClause = 'version_id = $1 AND status = $2';
     const params: any[] = [version_id, 'active'];
@@ -203,10 +217,13 @@ export class RealtimeStreamingService {
       params.push('confirmed', 'both');
     }
 
-    const result = await this.db.pg.query(`
+    const result = await this.db.pg.query(
+      `
       SELECT * FROM stream_websockets
       WHERE ${whereClause}
-    `, params);
+    `,
+      params,
+    );
 
     return result.rows as StreamWebsocket[];
   }
@@ -227,8 +244,8 @@ export class RealtimeStreamingService {
           chunkSize: 1024,
           compressionEnabled: false,
           maxRetries: 3,
-          retryDelayMs: 1000
-        }
+          retryDelayMs: 1000,
+        },
       };
 
       const webhookPayload = JSON.stringify({
@@ -244,13 +261,12 @@ export class RealtimeStreamingService {
           block_height: packet.block_height,
           data: packet.data_payload,
           size_bytes: packet.data_size_bytes,
-          status: packet.confirmation_status
+          status: packet.confirmation_status,
         },
-        delivery_timestamp: new Date().toISOString()
+        delivery_timestamp: new Date().toISOString(),
       });
 
       await deliverContentToWebhook(subscription, webhookPayload);
-
     } catch (error) {
       console.error(`Failed to deliver packet ${packet.id} to webhook ${webhook.id}:`, error);
     }
@@ -259,15 +275,19 @@ export class RealtimeStreamingService {
   /**
    * Deliver packet to WebSocket connection (placeholder for overlay-based WSS)
    */
-  private async deliverToWebsocket(packet: RealtimePacket, websocket: StreamWebsocket): Promise<void> {
+  private async deliverToWebsocket(
+    packet: RealtimePacket,
+    websocket: StreamWebsocket,
+  ): Promise<void> {
     try {
       // TODO: Implement overlay-based WebSocket delivery using SLAP protocol
-      console.log(`📡 [PLACEHOLDER] Would deliver packet ${packet.id} to WSS connection ${websocket.connection_id}`);
+      console.log(
+        `📡 [PLACEHOLDER] Would deliver packet ${packet.id} to WSS connection ${websocket.connection_id}`,
+      );
       console.log(`   Stream: ${packet.version_id}, Confirmations: ${packet.confirmations}`);
 
       // For now, just log the delivery - WebSocket functionality should be implemented
       // using the overlay library's SLAP infrastructure when available
-
     } catch (error) {
       console.error(`Failed to deliver packet ${packet.id} to WebSocket:`, error);
     }
@@ -276,11 +296,17 @@ export class RealtimeStreamingService {
   /**
    * Deliver packet to agent subscriptions
    */
-  private async deliverToAgents(packet: RealtimePacket, trigger: 'immediate' | 'confirmed'): Promise<void> {
-    const agentSubs = await this.db.pg.query(`
+  private async deliverToAgents(
+    packet: RealtimePacket,
+    trigger: 'immediate' | 'confirmed',
+  ): Promise<void> {
+    const agentSubs = await this.db.pg.query(
+      `
       SELECT * FROM stream_agent_subscriptions
       WHERE version_id = $1 AND status = $2
-    `, [packet.version_id, 'active']);
+    `,
+      [packet.version_id, 'active'],
+    );
 
     for (const sub of agentSubs.rows) {
       // Check if this packet should trigger agent processing
@@ -326,8 +352,8 @@ export class RealtimeStreamingService {
             chunkSize: 1024 * 1024,
             compressionEnabled: true,
             maxRetries: 3,
-            retryDelayMs: 1000
-          }
+            retryDelayMs: 1000,
+          },
         };
 
         // Create agent notification payload
@@ -344,28 +370,33 @@ export class RealtimeStreamingService {
             block_height: packet.block_height,
             data: packet.data_payload,
             size_bytes: packet.data_size_bytes,
-            status: packet.confirmation_status
+            status: packet.confirmation_status,
           },
           notification_timestamp: new Date().toISOString(),
-          processing_mode: subscription.processing_mode
+          processing_mode: subscription.processing_mode,
         });
 
         console.log(`🤖 Notifying agent ${subscription.agent_id} of packet ${packet.id}`);
 
         // Use existing streaming delivery with quota tracking
         await deliverContentToWebhook(agentSubscription, agentPayload);
-
       } catch (error) {
-        console.error(`Failed to notify agent ${subscription.agent_id} of packet ${packet.id}:`, error);
+        console.error(
+          `Failed to notify agent ${subscription.agent_id} of packet ${packet.id}:`,
+          error,
+        );
       }
     }
 
     // Update last processed packet
-    await this.db.pg.query(`
+    await this.db.pg.query(
+      `
       UPDATE stream_agent_subscriptions
       SET last_processed_packet = $1
       WHERE id = $2
-    `, [packet.packet_sequence, subscription.id]);
+    `,
+      [packet.packet_sequence, subscription.id],
+    );
   }
 
   /**
@@ -380,21 +411,24 @@ export class RealtimeStreamingService {
     min_confirmations?: number;
     batch_size?: number;
   }): Promise<StreamWebhook> {
-    const result = await this.db.pg.query(`
+    const result = await this.db.pg.query(
+      `
       INSERT INTO stream_webhooks (
         version_id, webhook_url, webhook_secret, subscriber_id,
         delivery_mode, min_confirmations, batch_size
       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
-    `, [
-      data.version_id,
-      data.webhook_url,
-      data.webhook_secret,
-      data.subscriber_id,
-      data.delivery_mode || 'confirmed',
-      data.min_confirmations || 1,
-      data.batch_size || 1
-    ]);
+    `,
+      [
+        data.version_id,
+        data.webhook_url,
+        data.webhook_secret,
+        data.subscriber_id,
+        data.delivery_mode || 'confirmed',
+        data.min_confirmations || 1,
+        data.batch_size || 1,
+      ],
+    );
 
     return result.rows[0] as StreamWebhook;
   }
@@ -408,17 +442,15 @@ export class RealtimeStreamingService {
     subscriber_id?: string;
     delivery_mode?: 'confirmed' | 'immediate' | 'both';
   }): Promise<StreamWebsocket> {
-    const result = await this.db.pg.query(`
+    const result = await this.db.pg.query(
+      `
       INSERT INTO stream_websockets (
         connection_id, version_id, subscriber_id, delivery_mode
       ) VALUES ($1, $2, $3, $4)
       RETURNING *
-    `, [
-      data.connection_id,
-      data.version_id,
-      data.subscriber_id,
-      data.delivery_mode || 'confirmed'
-    ]);
+    `,
+      [data.connection_id, data.version_id, data.subscriber_id, data.delivery_mode || 'confirmed'],
+    );
 
     return result.rows[0] as StreamWebsocket;
   }
@@ -433,7 +465,8 @@ export class RealtimeStreamingService {
     trigger_conditions?: any;
     agent_webhook_url?: string;
   }): Promise<any> {
-    const result = await this.db.pg.query(`
+    const result = await this.db.pg.query(
+      `
       INSERT INTO stream_agent_subscriptions (
         version_id, agent_id, processing_mode, trigger_conditions, agent_webhook_url
       ) VALUES ($1, $2, $3, $4, $5)
@@ -444,13 +477,15 @@ export class RealtimeStreamingService {
         agent_webhook_url = EXCLUDED.agent_webhook_url,
         status = 'active'
       RETURNING *
-    `, [
-      data.version_id,
-      data.agent_id,
-      data.processing_mode || 'realtime',
-      data.trigger_conditions ? JSON.stringify(data.trigger_conditions) : null,
-      data.agent_webhook_url
-    ]);
+    `,
+      [
+        data.version_id,
+        data.agent_id,
+        data.processing_mode || 'realtime',
+        data.trigger_conditions ? JSON.stringify(data.trigger_conditions) : null,
+        data.agent_webhook_url,
+      ],
+    );
 
     return result.rows[0];
   }
@@ -459,7 +494,8 @@ export class RealtimeStreamingService {
    * Get stream statistics
    */
   async getStreamStats(version_id: string): Promise<any> {
-    const result = await this.db.pg.query(`
+    const result = await this.db.pg.query(
+      `
       SELECT
         COUNT(*) as total_packets,
         COUNT(*) FILTER (WHERE confirmation_status = 'confirmed') as confirmed_packets,
@@ -468,7 +504,9 @@ export class RealtimeStreamingService {
         AVG(data_size_bytes) as avg_packet_size
       FROM realtime_packets
       WHERE version_id = $1
-    `, [version_id]);
+    `,
+      [version_id],
+    );
 
     return result.rows[0];
   }
@@ -477,12 +515,15 @@ export class RealtimeStreamingService {
    * Get recent packets for a stream
    */
   async getRecentPackets(version_id: string, limit: number = 10): Promise<RealtimePacket[]> {
-    const result = await this.db.pg.query(`
+    const result = await this.db.pg.query(
+      `
       SELECT * FROM realtime_packets
       WHERE version_id = $1
       ORDER BY packet_sequence DESC
       LIMIT $2
-    `, [version_id, limit]);
+    `,
+      [version_id, limit],
+    );
 
     return result.rows as RealtimePacket[];
   }

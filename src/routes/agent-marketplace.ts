@@ -1,15 +1,20 @@
 // D24 Agent Marketplace API Routes
 // Complete overlay-based agent marketplace with BRC standards integration
 
-import { Router, Request, Response } from 'express';
-import { OverlayAgentRegistry, OverlayAgent, AgentSearchQuery } from '../agents/overlay-agent-registry';
-import { OverlayRuleEngine, OverlayRule, OverlayJob } from '../agents/overlay-rule-engine';
-import { AgentExecutionService, AgentExecution } from '../agents/agent-execution-service';
+import type { Request, Response, NextFunction } from 'express';
+import { Router } from 'express';
+
+import type { AgentExecutionService } from '../agents/agent-execution-service';
+import { AgentExecution } from '../agents/agent-execution-service';
+import type { OverlayAgentRegistry, AgentSearchQuery } from '../agents/overlay-agent-registry';
+import { OverlayAgent } from '../agents/overlay-agent-registry';
+import type { OverlayRuleEngine } from '../agents/overlay-rule-engine';
+import { OverlayRule, OverlayJob } from '../agents/overlay-rule-engine';
 import { rateLimit } from '../middleware/limits';
 import {
   handleMarketPurchaseWithStreaming,
   createStreamingSubscription,
-  deliverContentToWebhook
+  deliverContentToWebhook,
 } from '../services/streaming-delivery';
 
 export interface AgentMarketplaceRouter {
@@ -39,11 +44,11 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
   }
 
   // Middleware to check if services are available
-  function requireServices(req: Request, res: Response, next: Function): void {
+  function requireServices(req: Request, res: Response, next: NextFunction): void {
     if (!services) {
       return res.status(503).json({
         error: 'agent-marketplace-unavailable',
-        message: 'Agent marketplace services are not available. Ensure overlay network is enabled.'
+        message: 'Agent marketplace services are not available. Ensure overlay network is enabled.',
       });
     }
     next();
@@ -55,148 +60,164 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
    * POST /overlay/agents/register
    * Register agent with BRC-88 SHIP advertisement
    */
-  router.post('/agents/register', requireServices, rateLimit('agent-register'), async (req: Request, res: Response) => {
-    try {
-      const {
-        name,
-        capabilities,
-        overlayTopics,
-        webhookUrl,
-        geographicRegion,
-        identityKey,
-        overlayNodeId
-      } = req.body;
+  router.post(
+    '/agents/register',
+    requireServices,
+    rateLimit('agent-register'),
+    async (req: Request, res: Response) => {
+      try {
+        const {
+          name,
+          capabilities,
+          overlayTopics,
+          webhookUrl,
+          geographicRegion,
+          identityKey,
+          overlayNodeId,
+        } = req.body;
 
-      // Validate required fields
-      if (!name || !capabilities || !Array.isArray(capabilities) || !webhookUrl) {
-        return res.status(400).json({
-          error: 'invalid-request',
-          message: 'name, capabilities (array), and webhookUrl are required'
-        });
-      }
-
-      // Validate capabilities format
-      for (const cap of capabilities) {
-        if (!cap.name || !Array.isArray(cap.inputs) || !Array.isArray(cap.outputs)) {
+        // Validate required fields
+        if (!name || !capabilities || !Array.isArray(capabilities) || !webhookUrl) {
           return res.status(400).json({
-            error: 'invalid-capabilities',
-            message: 'Each capability must have name, inputs (array), and outputs (array)'
+            error: 'invalid-request',
+            message: 'name, capabilities (array), and webhookUrl are required',
           });
         }
-      }
 
-      // Validate webhook URL
-      try {
-        new URL(webhookUrl);
-      } catch {
-        return res.status(400).json({
-          error: 'invalid-webhook-url',
-          message: 'webhookUrl must be a valid HTTP/HTTPS URL'
+        // Validate capabilities format
+        for (const cap of capabilities) {
+          if (!cap.name || !Array.isArray(cap.inputs) || !Array.isArray(cap.outputs)) {
+            return res.status(400).json({
+              error: 'invalid-capabilities',
+              message: 'Each capability must have name, inputs (array), and outputs (array)',
+            });
+          }
+        }
+
+        // Validate webhook URL
+        try {
+          new URL(webhookUrl);
+        } catch {
+          return res.status(400).json({
+            error: 'invalid-webhook-url',
+            message: 'webhookUrl must be a valid HTTP/HTTPS URL',
+          });
+        }
+
+        const agent = await services!.agentRegistry.registerAgent({
+          name,
+          capabilities,
+          overlayTopics: overlayTopics || [],
+          webhookUrl,
+          geographicRegion,
+          identityKey,
+          overlayNodeId,
+        });
+
+        res.json({
+          success: true,
+          agent: {
+            agentId: agent.agentId,
+            name: agent.name,
+            capabilities: agent.capabilities,
+            overlayTopics: agent.overlayTopics,
+            geographicRegion: agent.geographicRegion,
+            reputationScore: agent.reputationScore,
+            status: agent.status,
+            createdAt: agent.createdAt,
+          },
+        });
+      } catch (error) {
+        console.error('[AGENT-MARKETPLACE] Agent registration failed:', error);
+        res.status(500).json({
+          error: 'registration-failed',
+          message: error.message,
         });
       }
-
-      const agent = await services!.agentRegistry.registerAgent({
-        name,
-        capabilities,
-        overlayTopics: overlayTopics || [],
-        webhookUrl,
-        geographicRegion,
-        identityKey,
-        overlayNodeId
-      });
-
-      res.json({
-        success: true,
-        agent: {
-          agentId: agent.agentId,
-          name: agent.name,
-          capabilities: agent.capabilities,
-          overlayTopics: agent.overlayTopics,
-          geographicRegion: agent.geographicRegion,
-          reputationScore: agent.reputationScore,
-          status: agent.status,
-          createdAt: agent.createdAt
-        }
-      });
-
-    } catch (error) {
-      console.error('[AGENT-MARKETPLACE] Agent registration failed:', error);
-      res.status(500).json({
-        error: 'registration-failed',
-        message: error.message
-      });
-    }
-  });
+    },
+  );
 
   /**
    * GET /overlay/agents/search
    * Search agents by capability, region, reputation, etc. via BRC-24 lookup
    */
-  router.get('/agents/search', requireServices, rateLimit('agent-search'), async (req: Request, res: Response) => {
-    try {
-      const query: AgentSearchQuery = {
-        capability: req.query.capability as string,
-        region: req.query.region as string,
-        minReputation: req.query.minReputation ? parseFloat(req.query.minReputation as string) : undefined,
-        maxExecutionTime: req.query.maxExecutionTime ? parseInt(req.query.maxExecutionTime as string) : undefined,
-        overlayTopic: req.query.overlayTopic as string,
-        limit: req.query.limit ? parseInt(req.query.limit as string) : 20,
-        offset: req.query.offset ? parseInt(req.query.offset as string) : 0
-      };
+  router.get(
+    '/agents/search',
+    requireServices,
+    rateLimit('agent-search'),
+    async (req: Request, res: Response) => {
+      try {
+        const query: AgentSearchQuery = {
+          capability: req.query.capability as string,
+          region: req.query.region as string,
+          minReputation: req.query.minReputation
+            ? parseFloat(req.query.minReputation as string)
+            : undefined,
+          maxExecutionTime: req.query.maxExecutionTime
+            ? parseInt(req.query.maxExecutionTime as string)
+            : undefined,
+          overlayTopic: req.query.overlayTopic as string,
+          limit: req.query.limit ? parseInt(req.query.limit as string) : 20,
+          offset: req.query.offset ? parseInt(req.query.offset as string) : 0,
+        };
 
-      const agents = await services!.agentRegistry.searchAgents(query);
+        const agents = await services!.agentRegistry.searchAgents(query);
 
-      res.json({
-        success: true,
-        query,
-        agents: agents.map(agent => ({
-          agentId: agent.agentId,
-          name: agent.name,
-          capabilities: agent.capabilities,
-          geographicRegion: agent.geographicRegion,
-          reputationScore: agent.reputationScore,
-          performanceStats: agent.performanceStats,
-          status: agent.status,
-          lastPingAt: agent.lastPingAt
-        })),
-        count: agents.length
-      });
-
-    } catch (error) {
-      console.error('[AGENT-MARKETPLACE] Agent search failed:', error);
-      res.status(500).json({
-        error: 'search-failed',
-        message: error.message
-      });
-    }
-  });
+        res.json({
+          success: true,
+          query,
+          agents: agents.map((agent) => ({
+            agentId: agent.agentId,
+            name: agent.name,
+            capabilities: agent.capabilities,
+            geographicRegion: agent.geographicRegion,
+            reputationScore: agent.reputationScore,
+            performanceStats: agent.performanceStats,
+            status: agent.status,
+            lastPingAt: agent.lastPingAt,
+          })),
+          count: agents.length,
+        });
+      } catch (error) {
+        console.error('[AGENT-MARKETPLACE] Agent search failed:', error);
+        res.status(500).json({
+          error: 'search-failed',
+          message: error.message,
+        });
+      }
+    },
+  );
 
   /**
    * POST /overlay/agents/:id/ping
    * Health check with overlay confirmation
    */
-  router.post('/agents/:id/ping', requireServices, rateLimit('agent-ping'), async (req: Request, res: Response) => {
-    try {
-      const agentId = req.params.id;
-      const { status = true } = req.body;
+  router.post(
+    '/agents/:id/ping',
+    requireServices,
+    rateLimit('agent-ping'),
+    async (req: Request, res: Response) => {
+      try {
+        const agentId = req.params.id;
+        const { status = true } = req.body;
 
-      await services!.agentRegistry.updateAgentPing(agentId, status);
+        await services!.agentRegistry.updateAgentPing(agentId, status);
 
-      res.json({
-        success: true,
-        agentId,
-        status: status ? 'up' : 'down',
-        timestamp: Date.now()
-      });
-
-    } catch (error) {
-      console.error('[AGENT-MARKETPLACE] Agent ping failed:', error);
-      res.status(500).json({
-        error: 'ping-failed',
-        message: error.message
-      });
-    }
-  });
+        res.json({
+          success: true,
+          agentId,
+          status: status ? 'up' : 'down',
+          timestamp: Date.now(),
+        });
+      } catch (error) {
+        console.error('[AGENT-MARKETPLACE] Agent ping failed:', error);
+        res.status(500).json({
+          error: 'ping-failed',
+          message: error.message,
+        });
+      }
+    },
+  );
 
   /**
    * GET /overlay/agents/:id/reputation
@@ -209,13 +230,13 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
       const [agent, performanceHistory, brc31Stats] = await Promise.all([
         services!.agentRegistry.getAgent(agentId),
         services!.agentRegistry.getAgentPerformanceHistory(agentId, 100),
-        services!.executionService.getBRC31Stats(agentId)
+        services!.executionService.getBRC31Stats(agentId),
       ]);
 
       if (!agent) {
         return res.status(404).json({
           error: 'agent-not-found',
-          message: 'Agent not found'
+          message: 'Agent not found',
         });
       }
 
@@ -225,21 +246,24 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
           agentId: agent.agentId,
           name: agent.name,
           reputationScore: agent.reputationScore,
-          performanceStats: agent.performanceStats
+          performanceStats: agent.performanceStats,
         },
         performanceHistory: performanceHistory.slice(0, 20), // Last 20 jobs
         identityVerification: brc31Stats,
         trends: {
-          recentSuccessRate: performanceHistory.slice(0, 10).filter(p => p.success).length / Math.min(10, performanceHistory.length),
-          avgRecentExecutionTime: performanceHistory.slice(0, 10).reduce((sum, p) => sum + p.executionTimeMs, 0) / Math.min(10, performanceHistory.length)
-        }
+          recentSuccessRate:
+            performanceHistory.slice(0, 10).filter((p) => p.success).length /
+            Math.min(10, performanceHistory.length),
+          avgRecentExecutionTime:
+            performanceHistory.slice(0, 10).reduce((sum, p) => sum + p.executionTimeMs, 0) /
+            Math.min(10, performanceHistory.length),
+        },
       });
-
     } catch (error) {
       console.error('[AGENT-MARKETPLACE] Reputation query failed:', error);
       res.status(500).json({
         error: 'reputation-query-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -248,34 +272,38 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
    * PUT /overlay/agents/:id/capabilities
    * Update capabilities and re-advertise
    */
-  router.put('/agents/:id/capabilities', requireServices, rateLimit('agent-update'), async (req: Request, res: Response) => {
-    try {
-      const agentId = req.params.id;
-      const { capabilities, overlayTopics } = req.body;
+  router.put(
+    '/agents/:id/capabilities',
+    requireServices,
+    rateLimit('agent-update'),
+    async (req: Request, res: Response) => {
+      try {
+        const agentId = req.params.id;
+        const { capabilities, overlayTopics } = req.body;
 
-      if (!capabilities || !Array.isArray(capabilities)) {
-        return res.status(400).json({
-          error: 'invalid-capabilities',
-          message: 'capabilities array is required'
+        if (!capabilities || !Array.isArray(capabilities)) {
+          return res.status(400).json({
+            error: 'invalid-capabilities',
+            message: 'capabilities array is required',
+          });
+        }
+
+        await services!.agentRegistry.updateAgentCapabilities(agentId, capabilities, overlayTopics);
+
+        res.json({
+          success: true,
+          agentId,
+          message: 'Capabilities updated and re-advertised on overlay network',
+        });
+      } catch (error) {
+        console.error('[AGENT-MARKETPLACE] Capability update failed:', error);
+        res.status(500).json({
+          error: 'update-failed',
+          message: error.message,
         });
       }
-
-      await services!.agentRegistry.updateAgentCapabilities(agentId, capabilities, overlayTopics);
-
-      res.json({
-        success: true,
-        agentId,
-        message: 'Capabilities updated and re-advertised on overlay network'
-      });
-
-    } catch (error) {
-      console.error('[AGENT-MARKETPLACE] Capability update failed:', error);
-      res.status(500).json({
-        error: 'update-failed',
-        message: error.message
-      });
-    }
-  });
+    },
+  );
 
   // ==================== Rule Management ====================
 
@@ -283,48 +311,53 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
    * POST /overlay/rules
    * Create rule with overlay event subscriptions
    */
-  router.post('/rules', requireServices, rateLimit('rule-create'), async (req: Request, res: Response) => {
-    try {
-      const { name, overlayTopics, whenCondition, findStrategy, actions, ownerProducerId } = req.body;
+  router.post(
+    '/rules',
+    requireServices,
+    rateLimit('rule-create'),
+    async (req: Request, res: Response) => {
+      try {
+        const { name, overlayTopics, whenCondition, findStrategy, actions, ownerProducerId } =
+          req.body;
 
-      if (!name || !whenCondition || !findStrategy || !actions || !Array.isArray(actions)) {
-        return res.status(400).json({
-          error: 'invalid-rule',
-          message: 'name, whenCondition, findStrategy, and actions (array) are required'
+        if (!name || !whenCondition || !findStrategy || !actions || !Array.isArray(actions)) {
+          return res.status(400).json({
+            error: 'invalid-rule',
+            message: 'name, whenCondition, findStrategy, and actions (array) are required',
+          });
+        }
+
+        const rule = await services!.ruleEngine.createRule({
+          name,
+          overlayTopics,
+          whenCondition,
+          findStrategy,
+          actions,
+          ownerProducerId,
+        });
+
+        res.json({
+          success: true,
+          rule: {
+            ruleId: rule.ruleId,
+            name: rule.name,
+            enabled: rule.enabled,
+            overlayTopics: rule.overlayTopics,
+            whenCondition: rule.whenCondition,
+            findStrategy: rule.findStrategy,
+            actions: rule.actions,
+            createdAt: rule.createdAt,
+          },
+        });
+      } catch (error) {
+        console.error('[AGENT-MARKETPLACE] Rule creation failed:', error);
+        res.status(500).json({
+          error: 'rule-creation-failed',
+          message: error.message,
         });
       }
-
-      const rule = await services!.ruleEngine.createRule({
-        name,
-        overlayTopics,
-        whenCondition,
-        findStrategy,
-        actions,
-        ownerProducerId
-      });
-
-      res.json({
-        success: true,
-        rule: {
-          ruleId: rule.ruleId,
-          name: rule.name,
-          enabled: rule.enabled,
-          overlayTopics: rule.overlayTopics,
-          whenCondition: rule.whenCondition,
-          findStrategy: rule.findStrategy,
-          actions: rule.actions,
-          createdAt: rule.createdAt
-        }
-      });
-
-    } catch (error) {
-      console.error('[AGENT-MARKETPLACE] Rule creation failed:', error);
-      res.status(500).json({
-        error: 'rule-creation-failed',
-        message: error.message
-      });
-    }
-  });
+    },
+  );
 
   /**
    * GET /overlay/rules
@@ -337,23 +370,22 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
 
       res.json({
         success: true,
-        rules: rules.map(rule => ({
+        rules: rules.map((rule) => ({
           ruleId: rule.ruleId,
           name: rule.name,
           enabled: rule.enabled,
           overlayTopics: rule.overlayTopics,
           executionStats: rule.executionStats,
           lastTriggeredAt: rule.lastTriggeredAt,
-          updatedAt: rule.updatedAt
+          updatedAt: rule.updatedAt,
         })),
-        count: rules.length
+        count: rules.length,
       });
-
     } catch (error) {
       console.error('[AGENT-MARKETPLACE] Rule listing failed:', error);
       res.status(500).json({
         error: 'rule-listing-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -362,29 +394,33 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
    * POST /overlay/rules/:id/trigger
    * Manual trigger with overlay transaction
    */
-  router.post('/rules/:id/trigger', requireServices, rateLimit('rule-trigger'), async (req: Request, res: Response) => {
-    try {
-      const ruleId = req.params.id;
-      const triggerEvent = req.body.triggerEvent || { type: 'manual', timestamp: Date.now() };
+  router.post(
+    '/rules/:id/trigger',
+    requireServices,
+    rateLimit('rule-trigger'),
+    async (req: Request, res: Response) => {
+      try {
+        const ruleId = req.params.id;
+        const triggerEvent = req.body.triggerEvent || { type: 'manual', timestamp: Date.now() };
 
-      const jobIds = await services!.ruleEngine.triggerRule(ruleId, triggerEvent);
+        const jobIds = await services!.ruleEngine.triggerRule(ruleId, triggerEvent);
 
-      res.json({
-        success: true,
-        ruleId,
-        triggerEvent,
-        createdJobs: jobIds,
-        message: `Rule triggered successfully, created ${jobIds.length} jobs`
-      });
-
-    } catch (error) {
-      console.error('[AGENT-MARKETPLACE] Rule trigger failed:', error);
-      res.status(500).json({
-        error: 'rule-trigger-failed',
-        message: error.message
-      });
-    }
-  });
+        res.json({
+          success: true,
+          ruleId,
+          triggerEvent,
+          createdJobs: jobIds,
+          message: `Rule triggered successfully, created ${jobIds.length} jobs`,
+        });
+      } catch (error) {
+        console.error('[AGENT-MARKETPLACE] Rule trigger failed:', error);
+        res.status(500).json({
+          error: 'rule-trigger-failed',
+          message: error.message,
+        });
+      }
+    },
+  );
 
   // ==================== Job Coordination ====================
 
@@ -397,7 +433,7 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
       const filters = {
         state: req.query.state as string,
         ruleId: req.query.ruleId as string,
-        agentId: req.query.agentId as string
+        agentId: req.query.agentId as string,
       };
 
       const jobs = await services!.ruleEngine.listJobs(filters);
@@ -405,7 +441,7 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
       res.json({
         success: true,
         filters,
-        jobs: jobs.map(job => ({
+        jobs: jobs.map((job) => ({
           jobId: job.jobId,
           ruleId: job.ruleId,
           targetId: job.targetId,
@@ -414,16 +450,15 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
           attempts: job.attempts,
           coordinationData: job.coordinationData,
           createdAt: job.createdAt,
-          updatedAt: job.updatedAt
+          updatedAt: job.updatedAt,
         })),
-        count: jobs.length
+        count: jobs.length,
       });
-
     } catch (error) {
       console.error('[AGENT-MARKETPLACE] Job listing failed:', error);
       res.status(500).json({
         error: 'job-listing-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -438,13 +473,13 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
 
       const [job, executions] = await Promise.all([
         services!.ruleEngine.getJob(jobId),
-        services!.executionService.getJobExecution(jobId)
+        services!.executionService.getJobExecution(jobId),
       ]);
 
       if (!job) {
         return res.status(404).json({
           error: 'job-not-found',
-          message: 'Job not found'
+          message: 'Job not found',
         });
       }
 
@@ -454,33 +489,30 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
           jobId: job.jobId,
           ruleId: job.ruleId,
           state: job.state,
-          lineageData: job.lineageData
+          lineageData: job.lineageData,
         },
-        executions: executions.map(exec => ({
+        executions: executions.map((exec) => ({
           agentId: exec.agentId,
           executionTime: exec.executionTime,
           success: exec.success,
-          artifacts: exec.artifacts
+          artifacts: exec.artifacts,
         })),
         lineageGraph: {
           // In production, this would call BRC-64 service to get full lineage
-          nodes: [
-            { id: jobId, type: 'job', data: { ruleId: job.ruleId, state: job.state } }
-          ],
+          nodes: [{ id: jobId, type: 'job', data: { ruleId: job.ruleId, state: job.state } }],
           edges: executions.map((exec, i) => ({
             from: jobId,
             to: exec.agentId,
             type: 'execution',
-            data: { success: exec.success, artifacts: exec.artifacts.length }
-          }))
-        }
+            data: { success: exec.success, artifacts: exec.artifacts.length },
+          })),
+        },
       });
-
     } catch (error) {
       console.error('[AGENT-MARKETPLACE] Lineage query failed:', error);
       res.status(500).json({
         error: 'lineage-query-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -489,43 +521,48 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
    * POST /overlay/jobs/:id/evidence
    * Store evidence via BRC-26
    */
-  router.post('/jobs/:id/evidence', requireServices, rateLimit('evidence-store'), async (req: Request, res: Response) => {
-    try {
-      const jobId = req.params.id;
-      const { agentId, artifacts, executionTime, success, signature, nonce, clientFeedback } = req.body;
+  router.post(
+    '/jobs/:id/evidence',
+    requireServices,
+    rateLimit('evidence-store'),
+    async (req: Request, res: Response) => {
+      try {
+        const jobId = req.params.id;
+        const { agentId, artifacts, executionTime, success, signature, nonce, clientFeedback } =
+          req.body;
 
-      if (!agentId || !Array.isArray(artifacts)) {
-        return res.status(400).json({
-          error: 'invalid-evidence',
-          message: 'agentId and artifacts (array) are required'
+        if (!agentId || !Array.isArray(artifacts)) {
+          return res.status(400).json({
+            error: 'invalid-evidence',
+            message: 'agentId and artifacts (array) are required',
+          });
+        }
+
+        await services!.executionService.processExecutionResult(jobId, agentId, {
+          signature: signature || '',
+          nonce: nonce || '',
+          artifacts,
+          success: success !== false,
+          executionTime,
+          clientFeedback,
+        });
+
+        res.json({
+          success: true,
+          jobId,
+          agentId,
+          message: 'Evidence stored successfully',
+          artifactCount: artifacts.length,
+        });
+      } catch (error) {
+        console.error('[AGENT-MARKETPLACE] Evidence storage failed:', error);
+        res.status(500).json({
+          error: 'evidence-storage-failed',
+          message: error.message,
         });
       }
-
-      await services!.executionService.processExecutionResult(jobId, agentId, {
-        signature: signature || '',
-        nonce: nonce || '',
-        artifacts,
-        success: success !== false,
-        executionTime,
-        clientFeedback
-      });
-
-      res.json({
-        success: true,
-        jobId,
-        agentId,
-        message: 'Evidence stored successfully',
-        artifactCount: artifacts.length
-      });
-
-    } catch (error) {
-      console.error('[AGENT-MARKETPLACE] Evidence storage failed:', error);
-      res.status(500).json({
-        error: 'evidence-storage-failed',
-        message: error.message
-      });
-    }
-  });
+    },
+  );
 
   // ==================== Overlay Integration ====================
 
@@ -537,14 +574,14 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
     try {
       const [registryStats, brc31Stats] = await Promise.all([
         services!.agentRegistry.getRegistryStats(),
-        services!.executionService.getBRC31Stats()
+        services!.executionService.getBRC31Stats(),
       ]);
 
       res.json({
         success: true,
         overlayNetwork: {
           status: 'connected',
-          nodeId: 'overlay-node-' + Date.now().toString(16)
+          nodeId: 'overlay-node-' + Date.now().toString(16),
         },
         agentRegistry: registryStats,
         identityVerification: brc31Stats,
@@ -553,15 +590,14 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
           brc24: 'Lookup Services - Active',
           brc64: 'History Tracking - Active',
           brc88: 'Service Discovery - Active',
-          brc26: 'File Storage (UHRP) - Active'
-        }
+          brc26: 'File Storage (UHRP) - Active',
+        },
       });
-
     } catch (error) {
       console.error('[AGENT-MARKETPLACE] Network status query failed:', error);
       res.status(500).json({
         error: 'network-status-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -570,59 +606,65 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
    * POST /overlay/agents/coordinate
    * Initiate multi-agent workflow
    */
-  router.post('/agents/coordinate', requireServices, rateLimit('agent-coordinate'), async (req: Request, res: Response) => {
-    try {
-      const { agentIds, workflow, coordination, timeout = 60000 } = req.body;
+  router.post(
+    '/agents/coordinate',
+    requireServices,
+    rateLimit('agent-coordinate'),
+    async (req: Request, res: Response) => {
+      try {
+        const { agentIds, workflow, coordination, timeout = 60000 } = req.body;
 
-      if (!agentIds || !Array.isArray(agentIds) || agentIds.length === 0) {
-        return res.status(400).json({
-          error: 'invalid-coordination',
-          message: 'agentIds array is required and must not be empty'
+        if (!agentIds || !Array.isArray(agentIds) || agentIds.length === 0) {
+          return res.status(400).json({
+            error: 'invalid-coordination',
+            message: 'agentIds array is required and must not be empty',
+          });
+        }
+
+        // Create coordination rule
+        const rule = await services!.ruleEngine.createRule({
+          name: `Coordination-${Date.now()}`,
+          whenCondition: { type: 'manual' },
+          findStrategy: {
+            source: 'agent-registry',
+            query: { agentIds },
+          },
+          actions: [
+            {
+              action: 'overlay.coordinate',
+              workflow: workflow || 'parallel',
+              agentIds,
+              coordination,
+              timeout,
+            },
+          ],
+        });
+
+        // Trigger immediately
+        const jobIds = await services!.ruleEngine.triggerRule(rule.ruleId, {
+          type: 'coordination',
+          agentIds,
+          workflow,
+          timestamp: Date.now(),
+        });
+
+        res.json({
+          success: true,
+          coordinationId: rule.ruleId,
+          agentIds,
+          workflow: workflow || 'parallel',
+          createdJobs: jobIds,
+          message: 'Multi-agent coordination initiated',
+        });
+      } catch (error) {
+        console.error('[AGENT-MARKETPLACE] Agent coordination failed:', error);
+        res.status(500).json({
+          error: 'coordination-failed',
+          message: error.message,
         });
       }
-
-      // Create coordination rule
-      const rule = await services!.ruleEngine.createRule({
-        name: `Coordination-${Date.now()}`,
-        whenCondition: { type: 'manual' },
-        findStrategy: {
-          source: 'agent-registry',
-          query: { agentIds }
-        },
-        actions: [{
-          action: 'overlay.coordinate',
-          workflow: workflow || 'parallel',
-          agentIds,
-          coordination,
-          timeout
-        }]
-      });
-
-      // Trigger immediately
-      const jobIds = await services!.ruleEngine.triggerRule(rule.ruleId, {
-        type: 'coordination',
-        agentIds,
-        workflow,
-        timestamp: Date.now()
-      });
-
-      res.json({
-        success: true,
-        coordinationId: rule.ruleId,
-        agentIds,
-        workflow: workflow || 'parallel',
-        createdJobs: jobIds,
-        message: 'Multi-agent coordination initiated'
-      });
-
-    } catch (error) {
-      console.error('[AGENT-MARKETPLACE] Agent coordination failed:', error);
-      res.status(500).json({
-        error: 'coordination-failed',
-        message: error.message
-      });
-    }
-  });
+    },
+  );
 
   /**
    * GET /overlay/marketplace/offers
@@ -642,22 +684,21 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
           capabilities: ['data-analysis', 'report-generation'],
           region: 'US',
           reputation: 0.95,
-          availability: 'immediate'
-        }
+          availability: 'immediate',
+        },
       ];
 
       res.json({
         success: true,
         offers,
         count: offers.length,
-        message: 'Marketplace offers retrieved from overlay network'
+        message: 'Marketplace offers retrieved from overlay network',
       });
-
     } catch (error) {
       console.error('[AGENT-MARKETPLACE] Marketplace offers query failed:', error);
       res.status(500).json({
         error: 'offers-query-failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -668,71 +709,83 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
    * POST /overlay/marketplace/purchase
    * Purchase content from marketplace with webhook streaming delivery
    */
-  router.post('/marketplace/purchase', requireServices, rateLimit('marketplace-purchase'), async (req: Request, res: Response) => {
-    try {
-      const {
-        offerId,
-        versionId,
-        contentHash,
-        agentId,
-        webhookUrl,
-        paymentProof,
-        streamingOptions = {}
-      } = req.body;
+  router.post(
+    '/marketplace/purchase',
+    requireServices,
+    rateLimit('marketplace-purchase'),
+    async (req: Request, res: Response) => {
+      try {
+        const {
+          offerId,
+          versionId,
+          contentHash,
+          agentId,
+          webhookUrl,
+          paymentProof,
+          streamingOptions = {},
+        } = req.body;
 
-      // Validate required fields
-      if (!offerId || !versionId || !agentId) {
-        return res.status(400).json({
-          error: 'invalid-purchase-request',
-          message: 'offerId, versionId, and agentId are required'
-        });
-      }
-
-      // Validate webhook URL if streaming is requested
-      if (webhookUrl) {
-        try {
-          new URL(webhookUrl);
-        } catch {
+        // Validate required fields
+        if (!offerId || !versionId || !agentId) {
           return res.status(400).json({
-            error: 'invalid-webhook-url',
-            message: 'webhookUrl must be a valid HTTP/HTTPS URL'
+            error: 'invalid-purchase-request',
+            message: 'offerId, versionId, and agentId are required',
           });
         }
-      }
 
-      // Generate receipt ID for the purchase
-      const receiptId = `receipt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        // Validate webhook URL if streaming is requested
+        if (webhookUrl) {
+          try {
+            new URL(webhookUrl);
+          } catch {
+            return res.status(400).json({
+              error: 'invalid-webhook-url',
+              message: 'webhookUrl must be a valid HTTP/HTTPS URL',
+            });
+          }
+        }
 
-      console.log(`🛒 [MARKETPLACE] Processing purchase: ${offerId} for agent ${agentId}`);
+        // Generate receipt ID for the purchase
+        const receiptId = `receipt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // If webhook URL provided, set up streaming delivery
-      if (webhookUrl) {
-        console.log(`📡 [MARKETPLACE] Setting up streaming delivery to ${webhookUrl}`);
+        console.log(`🛒 [MARKETPLACE] Processing purchase: ${offerId} for agent ${agentId}`);
 
-        try {
-          await handleMarketPurchaseWithStreaming(
-            receiptId,
-            versionId,
-            webhookUrl,
-            agentId
-          );
+        // If webhook URL provided, set up streaming delivery
+        if (webhookUrl) {
+          console.log(`📡 [MARKETPLACE] Setting up streaming delivery to ${webhookUrl}`);
 
-          res.json({
-            success: true,
-            receiptId,
-            offerId,
-            versionId,
-            agentId,
-            streamingEnabled: true,
-            webhookUrl,
-            message: 'Purchase completed with streaming delivery initiated',
-            deliveryMethod: 'webhook-streaming'
-          });
+          try {
+            await handleMarketPurchaseWithStreaming(receiptId, versionId, webhookUrl, agentId);
 
-        } catch (streamingError) {
-          console.error('[MARKETPLACE] Streaming setup failed:', streamingError);
+            res.json({
+              success: true,
+              receiptId,
+              offerId,
+              versionId,
+              agentId,
+              streamingEnabled: true,
+              webhookUrl,
+              message: 'Purchase completed with streaming delivery initiated',
+              deliveryMethod: 'webhook-streaming',
+            });
+          } catch (streamingError) {
+            console.error('[MARKETPLACE] Streaming setup failed:', streamingError);
 
-          // Return success but note streaming failure
+            // Return success but note streaming failure
+            res.json({
+              success: true,
+              receiptId,
+              offerId,
+              versionId,
+              agentId,
+              streamingEnabled: false,
+              streamingError: streamingError.message,
+              message: 'Purchase completed but streaming delivery failed',
+              deliveryMethod: 'direct-download',
+            });
+          }
+        } else {
+          // Regular purchase without streaming
           res.json({
             success: true,
             receiptId,
@@ -740,154 +793,144 @@ export function agentMarketplaceRouter(): AgentMarketplaceRouter {
             versionId,
             agentId,
             streamingEnabled: false,
-            streamingError: streamingError.message,
-            message: 'Purchase completed but streaming delivery failed',
-            deliveryMethod: 'direct-download'
+            message: 'Purchase completed - content available for direct download',
+            deliveryMethod: 'direct-download',
           });
         }
-      } else {
-        // Regular purchase without streaming
-        res.json({
-          success: true,
-          receiptId,
-          offerId,
-          versionId,
-          agentId,
-          streamingEnabled: false,
-          message: 'Purchase completed - content available for direct download',
-          deliveryMethod: 'direct-download'
+      } catch (error) {
+        console.error('[MARKETPLACE] Purchase failed:', error);
+        res.status(500).json({
+          error: 'purchase-failed',
+          message: error.message,
         });
       }
-
-    } catch (error) {
-      console.error('[MARKETPLACE] Purchase failed:', error);
-      res.status(500).json({
-        error: 'purchase-failed',
-        message: error.message
-      });
-    }
-  });
+    },
+  );
 
   /**
    * POST /overlay/marketplace/streaming/setup
    * Set up streaming subscription for purchased content
    */
-  router.post('/marketplace/streaming/setup', requireServices, rateLimit('streaming-setup'), async (req: Request, res: Response) => {
-    try {
-      const {
-        receiptId,
-        webhookUrl,
-        contentHash,
-        agentId,
-        deliveryConfig = {}
-      } = req.body;
-
-      if (!receiptId || !webhookUrl || !contentHash || !agentId) {
-        return res.status(400).json({
-          error: 'invalid-streaming-request',
-          message: 'receiptId, webhookUrl, contentHash, and agentId are required'
-        });
-      }
-
-      // Validate webhook URL
+  router.post(
+    '/marketplace/streaming/setup',
+    requireServices,
+    rateLimit('streaming-setup'),
+    async (req: Request, res: Response) => {
       try {
-        new URL(webhookUrl);
-      } catch {
-        return res.status(400).json({
-          error: 'invalid-webhook-url',
-          message: 'webhookUrl must be a valid HTTP/HTTPS URL'
+        const { receiptId, webhookUrl, contentHash, agentId, deliveryConfig = {} } = req.body;
+
+        if (!receiptId || !webhookUrl || !contentHash || !agentId) {
+          return res.status(400).json({
+            error: 'invalid-streaming-request',
+            message: 'receiptId, webhookUrl, contentHash, and agentId are required',
+          });
+        }
+
+        // Validate webhook URL
+        try {
+          new URL(webhookUrl);
+        } catch {
+          return res.status(400).json({
+            error: 'invalid-webhook-url',
+            message: 'webhookUrl must be a valid HTTP/HTTPS URL',
+          });
+        }
+
+        console.log(`📡 [MARKETPLACE] Setting up streaming subscription for receipt ${receiptId}`);
+
+        const sessionId = await createStreamingSubscription(
+          receiptId,
+          webhookUrl,
+          contentHash,
+          agentId,
+        );
+
+        res.json({
+          success: true,
+          receiptId,
+          sessionId,
+          agentId,
+          webhookUrl,
+          contentHash,
+          deliveryConfig,
+          message: 'Streaming subscription created successfully',
+        });
+      } catch (error) {
+        console.error('[MARKETPLACE] Streaming setup failed:', error);
+        res.status(500).json({
+          error: 'streaming-setup-failed',
+          message: error.message,
         });
       }
-
-      console.log(`📡 [MARKETPLACE] Setting up streaming subscription for receipt ${receiptId}`);
-
-      const sessionId = await createStreamingSubscription(
-        receiptId,
-        webhookUrl,
-        contentHash,
-        agentId
-      );
-
-      res.json({
-        success: true,
-        receiptId,
-        sessionId,
-        agentId,
-        webhookUrl,
-        contentHash,
-        deliveryConfig,
-        message: 'Streaming subscription created successfully'
-      });
-
-    } catch (error) {
-      console.error('[MARKETPLACE] Streaming setup failed:', error);
-      res.status(500).json({
-        error: 'streaming-setup-failed',
-        message: error.message
-      });
-    }
-  });
+    },
+  );
 
   /**
    * POST /overlay/marketplace/content/deliver
    * Manually trigger content delivery via webhook
    */
-  router.post('/marketplace/content/deliver', requireServices, rateLimit('content-delivery'), async (req: Request, res: Response) => {
-    try {
-      const {
-        receiptId,
-        webhookUrl,
-        contentHash,
-        agentId,
-        contentData,
-        deliveryConfig = {}
-      } = req.body;
+  router.post(
+    '/marketplace/content/deliver',
+    requireServices,
+    rateLimit('content-delivery'),
+    async (req: Request, res: Response) => {
+      try {
+        const {
+          receiptId,
+          webhookUrl,
+          contentHash,
+          agentId,
+          contentData,
+          deliveryConfig = {},
+        } = req.body;
 
-      if (!receiptId || !webhookUrl || !contentHash || !agentId || !contentData) {
-        return res.status(400).json({
-          error: 'invalid-delivery-request',
-          message: 'receiptId, webhookUrl, contentHash, agentId, and contentData are required'
+        if (!receiptId || !webhookUrl || !contentHash || !agentId || !contentData) {
+          return res.status(400).json({
+            error: 'invalid-delivery-request',
+            message: 'receiptId, webhookUrl, contentHash, agentId, and contentData are required',
+          });
+        }
+
+        console.log(
+          `🚚 [MARKETPLACE] Delivering content to ${webhookUrl} for receipt ${receiptId}`,
+        );
+
+        const subscription = {
+          receiptId,
+          webhookUrl,
+          agentId,
+          contentHash,
+          deliveryConfig,
+        };
+
+        const deliveryResult = await deliverContentToWebhook(subscription, contentData);
+
+        res.json({
+          success: deliveryResult.success,
+          receiptId,
+          agentId,
+          webhookUrl,
+          bytesDelivered: deliveryResult.bytesDelivered,
+          deliveryTime: deliveryResult.deliveryTime,
+          hostUsed: deliveryResult.hostUsed,
+          error: deliveryResult.error,
+          message: deliveryResult.success
+            ? 'Content delivered successfully via webhook'
+            : 'Content delivery failed',
+        });
+      } catch (error) {
+        console.error('[MARKETPLACE] Content delivery failed:', error);
+        res.status(500).json({
+          error: 'content-delivery-failed',
+          message: error.message,
         });
       }
-
-      console.log(`🚚 [MARKETPLACE] Delivering content to ${webhookUrl} for receipt ${receiptId}`);
-
-      const subscription = {
-        receiptId,
-        webhookUrl,
-        agentId,
-        contentHash,
-        deliveryConfig
-      };
-
-      const deliveryResult = await deliverContentToWebhook(subscription, contentData);
-
-      res.json({
-        success: deliveryResult.success,
-        receiptId,
-        agentId,
-        webhookUrl,
-        bytesDelivered: deliveryResult.bytesDelivered,
-        deliveryTime: deliveryResult.deliveryTime,
-        hostUsed: deliveryResult.hostUsed,
-        error: deliveryResult.error,
-        message: deliveryResult.success
-          ? 'Content delivered successfully via webhook'
-          : 'Content delivery failed'
-      });
-
-    } catch (error) {
-      console.error('[MARKETPLACE] Content delivery failed:', error);
-      res.status(500).json({
-        error: 'content-delivery-failed',
-        message: error.message
-      });
-    }
-  });
+    },
+  );
 
   return {
     router,
-    setServices
+    setServices,
   };
 }
 
@@ -903,5 +946,5 @@ const rateLimitConfigs = {
   'agent-coordinate': { maxRequests: 5, windowMs: 60000 }, // 5 coordinations per minute
   'marketplace-purchase': { maxRequests: 20, windowMs: 60000 }, // 20 purchases per minute
   'streaming-setup': { maxRequests: 10, windowMs: 60000 }, // 10 streaming setups per minute
-  'content-delivery': { maxRequests: 50, windowMs: 60000 } // 50 content deliveries per minute
+  'content-delivery': { maxRequests: 50, windowMs: 60000 }, // 50 content deliveries per minute
 };

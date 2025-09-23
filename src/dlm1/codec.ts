@@ -62,7 +62,6 @@ function sha256HexUtf8(s: string): string {
   return createHash('sha256').update(Buffer.from(s, 'utf8')).digest('hex');
 }
 
-
 /**
  * Derive versionId:
  * - If manifest.versionId is a 64-hex, use it (lowercase).
@@ -96,7 +95,13 @@ function hdr(major: number, n: number): Uint8Array {
   if (n <= 0xff) return Uint8Array.of((major << 5) | 24, n);
   if (n <= 0xffff) return Uint8Array.of((major << 5) | 25, (n >> 8) & 0xff, n & 0xff);
   if (n <= 0xffffffff)
-    return Uint8Array.of((major << 5) | 26, (n >> 24) & 0xff, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff);
+    return Uint8Array.of(
+      (major << 5) | 26,
+      (n >> 24) & 0xff,
+      (n >> 16) & 0xff,
+      (n >> 8) & 0xff,
+      n & 0xff,
+    );
   throw new Error('unsupported length');
 }
 function encodeText(s: string): Uint8Array {
@@ -163,12 +168,16 @@ export function decodeDLM1(buf: Uint8Array): Dlm1Anchor {
     }
     if (ai === 25) {
       need(2);
-      const hi = buf[i++], lo = buf[i++];
+      const hi = buf[i++],
+        lo = buf[i++];
       return { major, len: (hi << 8) | lo };
     }
     if (ai === 26) {
       need(4);
-      const b0 = buf[i++], b1 = buf[i++], b2 = buf[i++], b3 = buf[i++];
+      const b0 = buf[i++],
+        b1 = buf[i++],
+        b2 = buf[i++],
+        b3 = buf[i++];
       return { major, len: (b0 << 24) | (b1 << 16) | (b2 << 8) | b3 };
     }
     throw new Error('len too large');
@@ -246,7 +255,10 @@ export function deriveManifestIds(manifest: any): { versionId: string; manifestH
   const manifestHash = sha256Hex(canonicalizeManifest(manifest)).toLowerCase();
   const explicit = manifest?.versionId;
   if (typeof explicit === 'string' && /^[0-9a-fA-F]{64}$/.test(explicit)) {
-    if (explicit.toLowerCase() !== manifestHash) throw new Error('versionId-mismatch: provided versionId does not match canonical manifest hash');
+    if (explicit.toLowerCase() !== manifestHash)
+      throw new Error(
+        'versionId-mismatch: provided versionId does not match canonical manifest hash',
+      );
     return { versionId: explicit.toLowerCase(), manifestHash };
   }
   return { versionId: manifestHash, manifestHash };
@@ -260,7 +272,11 @@ export function extractParents(manifest: any): string[] {
     .map((x: string) => x.toLowerCase());
 }
 
-export function buildDlm1AnchorFromManifest(manifest: any): { cbor: Uint8Array; versionId: string; parents: string[] } {
+export function buildDlm1AnchorFromManifest(manifest: any): {
+  cbor: Uint8Array;
+  versionId: string;
+  parents: string[];
+} {
   const { versionId } = deriveManifestIds(manifest);
   const parents = extractParents(manifest);
   const cbor = encodeDLM1({ mh: versionId, p: parents });

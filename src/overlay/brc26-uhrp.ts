@@ -1,10 +1,11 @@
 // BRC-26: Universal Hash Resolution Protocol
 // Implements content availability advertisement for file storage on overlay networks
 
-import { EventEmitter } from 'events';
 import { createHash } from 'crypto';
+import { EventEmitter } from 'events';
 import { promises as fs } from 'fs';
 import path from 'path';
+
 import { walletService } from '../../ui/src/lib/wallet';
 
 export interface UHRPAdvertisement {
@@ -74,11 +75,7 @@ class BRC26UHRPService extends EventEmitter {
   private advertisements = new Map<string, UHRPAdvertisement>();
   private hostedContent = new Map<string, UHRPContent>();
 
-  constructor(
-    database: DatabaseAdapter,
-    storageBasePath: string,
-    baseUrl: string
-  ) {
+  constructor(database: DatabaseAdapter, storageBasePath: string, baseUrl: string) {
     super();
     this.database = database;
     this.storageBasePath = storageBasePath;
@@ -200,9 +197,12 @@ class BRC26UHRPService extends EventEmitter {
    */
   private async loadExistingContent(): Promise<void> {
     try {
-      const content = await this.database.query(`
+      const content = await this.database.query(
+        `
         SELECT * FROM uhrp_content WHERE expires_at > $1
-      `, [Date.now()]);
+      `,
+        [Date.now()],
+      );
 
       for (const item of content) {
         this.hostedContent.set(item.content_hash, {
@@ -215,7 +215,7 @@ class BRC26UHRPService extends EventEmitter {
           downloadCount: item.download_count,
           localPath: item.local_path,
           isPublic: item.is_public,
-          metadata: item.metadata_json ? JSON.parse(item.metadata_json) : undefined
+          metadata: item.metadata_json ? JSON.parse(item.metadata_json) : undefined,
         });
       }
 
@@ -241,7 +241,7 @@ class BRC26UHRPService extends EventEmitter {
         tags?: string[];
         author?: string;
       };
-    } = {}
+    } = {},
   ): Promise<UHRPContent> {
     try {
       // Calculate content hash
@@ -272,31 +272,34 @@ class BRC26UHRPService extends EventEmitter {
         contentType,
         size: fileBuffer.length,
         uploadedAt: Date.now(),
-        expiresAt: Date.now() + (expiryHours * 60 * 60 * 1000),
+        expiresAt: Date.now() + expiryHours * 60 * 60 * 1000,
         downloadCount: 0,
         localPath: storagePath,
         isPublic: options.isPublic !== false,
-        metadata: options.metadata
+        metadata: options.metadata,
       };
 
       // Store in database
-      await this.database.execute(`
+      await this.database.execute(
+        `
         INSERT INTO uhrp_content
         (content_hash, filename, content_type, size_bytes, uploaded_at, expires_at,
          download_count, local_path, is_public, metadata_json)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      `, [
-        content.hash,
-        content.filename,
-        content.contentType,
-        content.size,
-        content.uploadedAt,
-        content.expiresAt,
-        content.downloadCount,
-        content.localPath,
-        content.isPublic,
-        content.metadata ? JSON.stringify(content.metadata) : null
-      ]);
+      `,
+        [
+          content.hash,
+          content.filename,
+          content.contentType,
+          content.size,
+          content.uploadedAt,
+          content.expiresAt,
+          content.downloadCount,
+          content.localPath,
+          content.isPublic,
+          content.metadata ? JSON.stringify(content.metadata) : null,
+        ],
+      );
 
       // Store in memory
       this.hostedContent.set(contentHash, content);
@@ -310,7 +313,6 @@ class BRC26UHRPService extends EventEmitter {
       console.log(`[UHRP] Stored file: ${filename} (${contentHash})`);
 
       return content;
-
     } catch (error) {
       console.error('[UHRP] Failed to store file:', error);
       throw new Error(`Failed to store file: ${error.message}`);
@@ -337,7 +339,7 @@ class BRC26UHRPService extends EventEmitter {
         contentLength: content.size,
         signature: '',
         advertisedAt: Date.now(),
-        isActive: true
+        isActive: true,
       };
 
       // Create signature over advertisement fields
@@ -356,7 +358,6 @@ class BRC26UHRPService extends EventEmitter {
       console.log(`[UHRP] Created advertisement for ${content.hash}`);
 
       return advertisement;
-
     } catch (error) {
       throw new Error(`Failed to create advertisement: ${error.message}`);
     }
@@ -413,7 +414,7 @@ class BRC26UHRPService extends EventEmitter {
 
       const results = await this.database.query(sql, params);
 
-      return results.map(row => ({
+      return results.map((row) => ({
         hash: row.content_hash,
         filename: row.filename,
         contentType: row.content_type,
@@ -423,9 +424,8 @@ class BRC26UHRPService extends EventEmitter {
         downloadCount: row.download_count,
         localPath: row.local_path,
         isPublic: row.is_public,
-        metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined
+        metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined,
       }));
-
     } catch (error) {
       console.error('[UHRP] Failed to query content:', error);
       return [];
@@ -445,13 +445,16 @@ class BRC26UHRPService extends EventEmitter {
       const localContent = this.hostedContent.get(contentHash);
 
       // Query advertisements from database (including from other hosts)
-      const advertisements = await this.database.query(`
+      const advertisements = await this.database.query(
+        `
         SELECT * FROM uhrp_advertisements
         WHERE content_hash = $1 AND is_active = TRUE AND expiry_time > $2
         ORDER BY advertised_at DESC
-      `, [contentHash, Date.now()]);
+      `,
+        [contentHash, Date.now()],
+      );
 
-      const uhrlAdverts: UHRPAdvertisement[] = advertisements.map(row => ({
+      const uhrlAdverts: UHRPAdvertisement[] = advertisements.map((row) => ({
         publicKey: row.public_key,
         address: row.address,
         contentHash: row.content_hash,
@@ -461,19 +464,18 @@ class BRC26UHRPService extends EventEmitter {
         signature: row.signature,
         utxoId: row.utxo_id,
         advertisedAt: parseInt(row.advertised_at),
-        isActive: row.is_active
+        isActive: row.is_active,
       }));
 
       // Get available hosts
-      const hostPublicKeys = [...new Set(uhrlAdverts.map(ad => ad.publicKey))];
+      const hostPublicKeys = [...new Set(uhrlAdverts.map((ad) => ad.publicKey))];
       const hosts = await this.getHostsByPublicKeys(hostPublicKeys);
 
       return {
         content: localContent,
         advertisements: uhrlAdverts,
-        availableHosts: hosts
+        availableHosts: hosts,
       };
-
     } catch (error) {
       console.error('[UHRP] Failed to resolve content:', error);
       return { advertisements: [], availableHosts: [] };
@@ -483,7 +485,10 @@ class BRC26UHRPService extends EventEmitter {
   /**
    * Download content from remote host
    */
-  async downloadContent(contentHash: string, hostUrl?: string): Promise<{
+  async downloadContent(
+    contentHash: string,
+    hostUrl?: string,
+  ): Promise<{
     success: boolean;
     content?: UHRPContent;
     buffer?: Buffer;
@@ -506,8 +511,8 @@ class BRC26UHRPService extends EventEmitter {
 
       // Sort by host reputation
       const sortedAds = advertisements.sort((a, b) => {
-        const hostA = resolution.availableHosts.find(h => h.publicKey === a.publicKey);
-        const hostB = resolution.availableHosts.find(h => h.publicKey === b.publicKey);
+        const hostA = resolution.availableHosts.find((h) => h.publicKey === a.publicKey);
+        const hostB = resolution.availableHosts.find((h) => h.publicKey === b.publicKey);
         return (hostB?.reputation || 0) - (hostA?.reputation || 0);
       });
 
@@ -539,11 +544,10 @@ class BRC26UHRPService extends EventEmitter {
           const filename = `downloaded_${contentHash}`;
           const content = await this.storeFile(buffer, filename, 'application/octet-stream', {
             isPublic: false,
-            expiryHours: 24 // Cache for 24 hours
+            expiryHours: 24, // Cache for 24 hours
           });
 
           return { success: true, content, buffer };
-
         } catch (error) {
           console.warn(`[UHRP] Download failed from ${ad.url}:`, error.message);
           await this.recordDownload(contentHash, ad.publicKey, ad.url, false, 0, error.message);
@@ -551,7 +555,6 @@ class BRC26UHRPService extends EventEmitter {
       }
 
       return { success: false, error: 'Failed to download from all available hosts' };
-
     } catch (error) {
       console.error('[UHRP] Download failed:', error);
       return { success: false, error: error.message };
@@ -567,11 +570,14 @@ class BRC26UHRPService extends EventEmitter {
       if (!content) return null;
 
       // Increment download count
-      await this.database.execute(`
+      await this.database.execute(
+        `
         UPDATE uhrp_content
         SET download_count = download_count + 1
         WHERE content_hash = $1
-      `, [contentHash]);
+      `,
+        [contentHash],
+      );
 
       return await fs.readFile(content.localPath);
     } catch (error) {
@@ -591,7 +597,8 @@ class BRC26UHRPService extends EventEmitter {
   }> {
     try {
       const [contentStats, adStats, hostStats, downloadStats] = await Promise.all([
-        this.database.queryOne(`
+        this.database.queryOne(
+          `
           SELECT
             COUNT(*) as total,
             COUNT(*) FILTER (WHERE is_public = TRUE) as public,
@@ -599,15 +606,20 @@ class BRC26UHRPService extends EventEmitter {
             SUM(size_bytes) as total_size
           FROM uhrp_content
           WHERE expires_at > $1
-        `, [Date.now()]),
+        `,
+          [Date.now()],
+        ),
 
-        this.database.queryOne(`
+        this.database.queryOne(
+          `
           SELECT
             COUNT(*) as total,
             COUNT(*) FILTER (WHERE public_key = $1) as own,
             COUNT(*) FILTER (WHERE is_active = TRUE AND expiry_time > $2) as active
           FROM uhrp_advertisements
-        `, [this.myPublicKey || '', Date.now()]),
+        `,
+          [this.myPublicKey || '', Date.now()],
+        ),
 
         this.database.queryOne(`
           SELECT
@@ -623,7 +635,7 @@ class BRC26UHRPService extends EventEmitter {
             COUNT(*) FILTER (WHERE success = TRUE) as successful,
             COUNT(*) FILTER (WHERE success = FALSE) as failed
           FROM uhrp_downloads
-        `)
+        `),
       ]);
 
       return {
@@ -631,23 +643,23 @@ class BRC26UHRPService extends EventEmitter {
           total: parseInt(contentStats?.total || '0'),
           public: parseInt(contentStats?.public || '0'),
           private: parseInt(contentStats?.private || '0'),
-          totalSize: parseInt(contentStats?.total_size || '0')
+          totalSize: parseInt(contentStats?.total_size || '0'),
         },
         advertisements: {
           own: parseInt(adStats?.own || '0'),
           total: parseInt(adStats?.total || '0'),
-          active: parseInt(adStats?.active || '0')
+          active: parseInt(adStats?.active || '0'),
         },
         hosts: {
           total: parseInt(hostStats?.total || '0'),
           active: parseInt(hostStats?.active || '0'),
-          averageReputation: parseFloat(hostStats?.avg_reputation || '0')
+          averageReputation: parseFloat(hostStats?.avg_reputation || '0'),
         },
         downloads: {
           total: parseInt(downloadStats?.total || '0'),
           successful: parseInt(downloadStats?.successful || '0'),
-          failed: parseInt(downloadStats?.failed || '0')
-        }
+          failed: parseInt(downloadStats?.failed || '0'),
+        },
       };
     } catch (error) {
       console.error('[UHRP] Failed to get stats:', error);
@@ -655,7 +667,7 @@ class BRC26UHRPService extends EventEmitter {
         localContent: { total: 0, public: 0, private: 0, totalSize: 0 },
         advertisements: { own: 0, total: 0, active: 0 },
         hosts: { total: 0, active: 0, averageReputation: 0 },
-        downloads: { total: 0, successful: 0, failed: 0 }
+        downloads: { total: 0, successful: 0, failed: 0 },
       };
     }
   }
@@ -682,7 +694,8 @@ class BRC26UHRPService extends EventEmitter {
   }
 
   private async storeAdvertisement(ad: UHRPAdvertisement): Promise<void> {
-    await this.database.execute(`
+    await this.database.execute(
+      `
       INSERT INTO uhrp_advertisements
       (public_key, address, content_hash, url, expiry_time, content_length,
        signature, utxo_id, advertised_at, is_active)
@@ -695,31 +708,36 @@ class BRC26UHRPService extends EventEmitter {
         utxo_id = EXCLUDED.utxo_id,
         advertised_at = EXCLUDED.advertised_at,
         is_active = EXCLUDED.is_active
-    `, [
-      ad.publicKey,
-      ad.address,
-      ad.contentHash,
-      ad.url,
-      ad.expiryTime,
-      ad.contentLength,
-      ad.signature,
-      ad.utxoId,
-      ad.advertisedAt,
-      ad.isActive
-    ]);
+    `,
+      [
+        ad.publicKey,
+        ad.address,
+        ad.contentHash,
+        ad.url,
+        ad.expiryTime,
+        ad.contentLength,
+        ad.signature,
+        ad.utxoId,
+        ad.advertisedAt,
+        ad.isActive,
+      ],
+    );
   }
 
   private async getHostsByPublicKeys(publicKeys: string[]): Promise<UHRPHost[]> {
     if (publicKeys.length === 0) return [];
 
     const placeholders = publicKeys.map((_, i) => `$${i + 1}`).join(',');
-    const hosts = await this.database.query(`
+    const hosts = await this.database.query(
+      `
       SELECT * FROM uhrp_hosts
       WHERE public_key IN (${placeholders}) AND is_active = TRUE
       ORDER BY reputation DESC
-    `, publicKeys);
+    `,
+      publicKeys,
+    );
 
-    return hosts.map(row => ({
+    return hosts.map((row) => ({
       publicKey: row.public_key,
       address: row.address,
       baseUrl: row.base_url,
@@ -727,7 +745,7 @@ class BRC26UHRPService extends EventEmitter {
       uptime: parseFloat(row.uptime),
       lastSeen: parseInt(row.last_seen),
       contentCount: row.content_count,
-      isActive: row.is_active
+      isActive: row.is_active,
     }));
   }
 
@@ -737,21 +755,24 @@ class BRC26UHRPService extends EventEmitter {
     downloadUrl: string,
     success: boolean,
     downloadTimeMs: number = 0,
-    errorMessage?: string
+    errorMessage?: string,
   ): Promise<void> {
-    await this.database.execute(`
+    await this.database.execute(
+      `
       INSERT INTO uhrp_downloads
       (content_hash, host_public_key, download_url, downloaded_at, success, error_message, download_time_ms)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
-    `, [
-      contentHash,
-      hostPublicKey,
-      downloadUrl,
-      Date.now(),
-      success,
-      errorMessage || null,
-      downloadTimeMs
-    ]);
+    `,
+      [
+        contentHash,
+        hostPublicKey,
+        downloadUrl,
+        Date.now(),
+        success,
+        errorMessage || null,
+        downloadTimeMs,
+      ],
+    );
   }
 
   /**
@@ -762,17 +783,23 @@ class BRC26UHRPService extends EventEmitter {
       const now = Date.now();
 
       // Mark expired advertisements as inactive
-      const adResult = await this.database.execute(`
+      const adResult = await this.database.execute(
+        `
         UPDATE uhrp_advertisements
         SET is_active = FALSE
         WHERE expiry_time < $1 AND is_active = TRUE
-      `, [now]);
+      `,
+        [now],
+      );
 
       // Remove expired content files
-      const expiredContent = await this.database.query(`
+      const expiredContent = await this.database.query(
+        `
         SELECT content_hash, local_path FROM uhrp_content
         WHERE expires_at < $1
-      `, [now]);
+      `,
+        [now],
+      );
 
       let contentRemoved = 0;
       for (const content of expiredContent) {
@@ -786,15 +813,17 @@ class BRC26UHRPService extends EventEmitter {
       }
 
       // Remove expired content records
-      await this.database.execute(`
+      await this.database.execute(
+        `
         DELETE FROM uhrp_content WHERE expires_at < $1
-      `, [now]);
+      `,
+        [now],
+      );
 
       return {
         contentRemoved,
-        advertisementsExpired: 0 // Would need to track this in production
+        advertisementsExpired: 0, // Would need to track this in production
       };
-
     } catch (error) {
       console.error('[UHRP] Cleanup failed:', error);
       return { contentRemoved: 0, advertisementsExpired: 0 };

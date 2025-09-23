@@ -5,6 +5,7 @@
  */
 
 import type { BRC31 } from '../brc';
+
 import { verifyIdentitySignature, buildPreimage } from './signer';
 
 export type IdentityVerifyResult =
@@ -18,9 +19,7 @@ export function verifyIdentityHeaders(
   try {
     // Accept case-insensitive header names (Node's req.headers)
     const hk = (k: string) =>
-      (headers as any)[k] ??
-      (headers as any)[k.toLowerCase()] ??
-      (headers as any)[k.toUpperCase()];
+      (headers as any)[k] ?? (headers as any)[k.toLowerCase()] ?? (headers as any)[k.toUpperCase()];
 
     const identityKey = String(hk('X-Identity-Key') || '');
     const nonce = String(hk('X-Nonce') || '');

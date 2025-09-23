@@ -2,8 +2,10 @@
 // Implements standardized transaction submission with topic-based UTXO tracking
 
 import { EventEmitter } from 'events';
-import { DatabaseAdapter } from './brc26-uhrp';
+
 import { walletService } from '../../ui/src/lib/wallet';
+
+import type { DatabaseAdapter } from './brc26-uhrp';
 
 export interface BRC22Transaction {
   rawTx: string;
@@ -63,63 +65,31 @@ class BRC22SubmitService extends EventEmitter {
   }
 
   /**
-   * Set up database tables for BRC-22 UTXO tracking
+   * Database tables are now created in the main schema at /src/db/postgresql-schema-complete.sql
+   * This method is kept for compatibility but no longer creates tables
    */
   private async setupDatabase(): Promise<void> {
-    await this.database.execute(`
-      CREATE TABLE IF NOT EXISTS brc22_utxos (
-        id SERIAL PRIMARY KEY,
-        utxo_id TEXT UNIQUE NOT NULL, -- txid:vout format
-        topic TEXT NOT NULL,
-        txid TEXT NOT NULL,
-        vout INTEGER NOT NULL,
-        output_script TEXT NOT NULL,
-        satoshis BIGINT NOT NULL,
-        admitted_at BIGINT NOT NULL,
-        spent_at BIGINT,
-        spent_by_txid TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(topic, txid, vout)
-      )
-    `);
-
-    await this.database.execute(`
-      CREATE TABLE IF NOT EXISTS brc22_transactions (
-        id SERIAL PRIMARY KEY,
-        txid TEXT UNIQUE NOT NULL,
-        raw_tx TEXT NOT NULL,
-        topics_json TEXT NOT NULL,
-        inputs_json TEXT,
-        mapi_responses_json TEXT,
-        proof TEXT,
-        processed_at BIGINT NOT NULL,
-        status TEXT DEFAULT 'success',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await this.database.execute(`
-      CREATE INDEX IF NOT EXISTS idx_brc22_utxos_topic ON brc22_utxos(topic);
-      CREATE INDEX IF NOT EXISTS idx_brc22_utxos_spent ON brc22_utxos(spent_at);
-      CREATE INDEX IF NOT EXISTS idx_brc22_utxos_txid_vout ON brc22_utxos(txid, vout);
-      CREATE INDEX IF NOT EXISTS idx_brc22_transactions_processed ON brc22_transactions(processed_at);
-    `);
+    // Tables are now created centrally in the main database schema
+    // BRC-22 tables: brc22_utxos, brc22_transactions
+    console.log('BRC-22 database tables managed by central schema');
   }
 
   /**
    * Set up default topic managers for common Gitdata use cases
    */
   private setupDefaultTopicManagers(): void {
-    // D01A Manifest topic manager
+    // D01A Asset topic manager
     this.addTopicManager({
-      topicName: 'gitdata.d01a.manifest',
+      topicName: 'gitdata.d01a.asset',
       admittanceLogic: (tx, outputIndex) => {
-        // Admit outputs that contain D01A manifest data
-        return this.isD01AManifestOutput(tx, outputIndex);
+        // Admit outputs that contain D01A asset data
+        return this.isD01AAssetOutput(tx, outputIndex);
       },
       onOutputAdmitted: (txid, vout, outputScript, satoshis) => {
+        this.emit('asset-utxo-admitted', { txid, vout, outputScript, satoshis });
+        // Backward compatibility
         this.emit('manifest-utxo-admitted', { txid, vout, outputScript, satoshis });
-      }
+      },
     });
 
     // Payment receipts topic manager
@@ -130,7 +100,7 @@ class BRC22SubmitService extends EventEmitter {
       },
       onOutputAdmitted: (txid, vout, outputScript, satoshis) => {
         this.emit('payment-utxo-admitted', { txid, vout, outputScript, satoshis });
-      }
+      },
     });
 
     // Agent registry topic manager
@@ -141,7 +111,7 @@ class BRC22SubmitService extends EventEmitter {
       },
       onOutputAdmitted: (txid, vout, outputScript, satoshis) => {
         this.emit('agent-utxo-admitted', { txid, vout, outputScript, satoshis });
-      }
+      },
     });
 
     // Lineage tracking topic manager
@@ -152,7 +122,7 @@ class BRC22SubmitService extends EventEmitter {
       },
       onOutputAdmitted: (txid, vout, outputScript, satoshis) => {
         this.emit('lineage-utxo-admitted', { txid, vout, outputScript, satoshis });
-      }
+      },
     });
   }
 
@@ -175,7 +145,10 @@ class BRC22SubmitService extends EventEmitter {
   /**
    * Process a BRC-22 transaction submission
    */
-  async processSubmission(transaction: BRC22Transaction, senderIdentity?: string): Promise<BRC22Response> {
+  async processSubmission(
+    transaction: BRC22Transaction,
+    senderIdentity?: string,
+  ): Promise<BRC22Response> {
     try {
       // 1. Verify BRC-31 identity (simplified - in production you'd do full verification)
       if (!senderIdentity && !walletService.isConnected()) {
@@ -183,17 +156,17 @@ class BRC22SubmitService extends EventEmitter {
           status: 'error',
           error: {
             code: 'ERR_IDENTITY_REQUIRED',
-            description: 'BRC-31 identity verification required for transaction submission'
-          }
+            description: 'BRC-31 identity verification required for transaction submission',
+          },
         };
       }
 
       // 2. Check if we host any of the requested topics
-      const hostedTopics = transaction.topics.filter(topic => this.topicManagers.has(topic));
+      const hostedTopics = transaction.topics.filter((topic) => this.topicManagers.has(topic));
       if (hostedTopics.length === 0) {
         return {
           status: 'success',
-          topics: {}
+          topics: {},
         };
       }
 
@@ -204,8 +177,8 @@ class BRC22SubmitService extends EventEmitter {
           status: 'error',
           error: {
             code: 'ERR_INVALID_TRANSACTION',
-            description: 'Transaction envelope verification failed'
-          }
+            description: 'Transaction envelope verification failed',
+          },
         };
       }
 
@@ -241,22 +214,21 @@ class BRC22SubmitService extends EventEmitter {
       this.emit('transaction-processed', {
         txid,
         topics: admittedOutputs,
-        transaction
+        transaction,
       });
 
       return {
         status: 'success',
-        topics: admittedOutputs
+        topics: admittedOutputs,
       };
-
     } catch (error) {
       console.error('BRC-22 transaction processing failed:', error);
       return {
         status: 'error',
         error: {
           code: 'ERR_PROCESSING_FAILED',
-          description: error.message
-        }
+          description: error.message,
+        },
       };
     }
   }
@@ -267,7 +239,7 @@ class BRC22SubmitService extends EventEmitter {
   private async processSpentInputs(
     transaction: BRC22Transaction,
     topic: string,
-    manager: TopicManager
+    manager: TopicManager,
   ): Promise<void> {
     const inputs = this.parseTransactionInputs(transaction.rawTx);
 
@@ -277,7 +249,12 @@ class BRC22SubmitService extends EventEmitter {
 
       if (trackedUTXOs?.has(utxoId)) {
         // Mark UTXO as spent
-        await this.markUTXOSpent(topic, input.txid, input.vout, this.calculateTxid(transaction.rawTx));
+        await this.markUTXOSpent(
+          topic,
+          input.txid,
+          input.vout,
+          this.calculateTxid(transaction.rawTx),
+        );
 
         // Call manager's spent input logic
         if (manager.spentInputLogic) {
@@ -303,24 +280,20 @@ class BRC22SubmitService extends EventEmitter {
     txid: string,
     vout: number,
     output: { script: string; satoshis: number },
-    manager: TopicManager
+    manager: TopicManager,
   ): Promise<void> {
     const utxoId = `${txid}:${vout}`;
 
     // Store in database
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       INSERT OR REPLACE INTO brc22_utxos
       (utxo_id, topic, txid, vout, output_script, satoshis, admitted_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      utxoId,
-      topic,
-      txid,
-      vout,
-      output.script,
-      output.satoshis,
-      Date.now()
-    );
+    `,
+      )
+      .run(utxoId, topic, txid, vout, output.script, output.satoshis, Date.now());
 
     // Add to tracked UTXOs
     this.trackedUTXOs.get(topic)?.add(utxoId);
@@ -334,37 +307,53 @@ class BRC22SubmitService extends EventEmitter {
   /**
    * Mark UTXO as spent
    */
-  private async markUTXOSpent(topic: string, txid: string, vout: number, spentByTxid: string): Promise<void> {
-    this.database.prepare(`
+  private async markUTXOSpent(
+    topic: string,
+    txid: string,
+    vout: number,
+    spentByTxid: string,
+  ): Promise<void> {
+    this.database
+      .prepare(
+        `
       UPDATE brc22_utxos
       SET spent_at = ?, spent_by_txid = ?
       WHERE topic = ? AND txid = ? AND vout = ?
-    `).run(Date.now(), spentByTxid, topic, txid, vout);
+    `,
+      )
+      .run(Date.now(), spentByTxid, topic, txid, vout);
   }
 
   /**
    * Store transaction record
    */
   private async storeTransactionRecord(transaction: BRC22Transaction, txid: string): Promise<void> {
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       INSERT OR REPLACE INTO brc22_transactions
       (txid, raw_tx, topics_json, inputs_json, mapi_responses_json, proof, processed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      txid,
-      transaction.rawTx,
-      JSON.stringify(transaction.topics),
-      JSON.stringify(transaction.inputs || {}),
-      JSON.stringify(transaction.mapiResponses || []),
-      transaction.proof || null,
-      Date.now()
-    );
+    `,
+      )
+      .run(
+        txid,
+        transaction.rawTx,
+        JSON.stringify(transaction.topics),
+        JSON.stringify(transaction.inputs || {}),
+        JSON.stringify(transaction.mapiResponses || []),
+        transaction.proof || null,
+        Date.now(),
+      );
   }
 
   /**
    * Get UTXOs for a topic
    */
-  getTopicUTXOs(topic: string, includeSpent: boolean = false): Array<{
+  getTopicUTXOs(
+    topic: string,
+    includeSpent: boolean = false,
+  ): Array<{
     utxoId: string;
     txid: string;
     vout: number;
@@ -380,16 +369,19 @@ class BRC22SubmitService extends EventEmitter {
       ORDER BY admitted_at DESC
     `;
 
-    return this.database.prepare(sql).all(topic).map(row => ({
-      utxoId: row.utxo_id,
-      txid: row.txid,
-      vout: row.vout,
-      outputScript: row.output_script,
-      satoshis: row.satoshis,
-      admittedAt: row.admitted_at,
-      spentAt: row.spent_at || undefined,
-      spentByTxid: row.spent_by_txid || undefined
-    }));
+    return this.database
+      .prepare(sql)
+      .all(topic)
+      .map((row) => ({
+        utxoId: row.utxo_id,
+        txid: row.txid,
+        vout: row.vout,
+        outputScript: row.output_script,
+        satoshis: row.satoshis,
+        admittedAt: row.admitted_at,
+        spentAt: row.spent_at || undefined,
+        spentByTxid: row.spent_by_txid || undefined,
+      }));
   }
 
   /**
@@ -402,48 +394,72 @@ class BRC22SubmitService extends EventEmitter {
     const topicStats: Record<string, { active: number; spent: number; total: number }> = {};
 
     for (const [topic] of this.topicManagers) {
-      const active = this.database.prepare(`
+      const active =
+        this.database
+          .prepare(
+            `
         SELECT COUNT(*) as count FROM brc22_utxos
         WHERE topic = ? AND spent_at IS NULL
-      `).get(topic)?.count || 0;
+      `,
+          )
+          .get(topic)?.count || 0;
 
-      const spent = this.database.prepare(`
+      const spent =
+        this.database
+          .prepare(
+            `
         SELECT COUNT(*) as count FROM brc22_utxos
         WHERE topic = ? AND spent_at IS NOT NULL
-      `).get(topic)?.count || 0;
+      `,
+          )
+          .get(topic)?.count || 0;
 
       topicStats[topic] = {
         active,
         spent,
-        total: active + spent
+        total: active + spent,
       };
     }
 
-    const totalTransactions = this.database.prepare(`
+    const totalTransactions =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc22_transactions
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const recentTransactions = this.database.prepare(`
+    const recentTransactions =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM brc22_transactions
       WHERE processed_at > ?
-    `).get(Date.now() - 3600000)?.count || 0; // Last hour
+    `,
+        )
+        .get(Date.now() - 3600000)?.count || 0; // Last hour
 
     return {
       topics: topicStats,
-      transactions: { total: totalTransactions, recent: recentTransactions }
+      transactions: { total: totalTransactions, recent: recentTransactions },
     };
   }
 
   // Topic-specific admittance logic helpers
 
-  private isD01AManifestOutput(transaction: BRC22Transaction, outputIndex: number): boolean {
-    // Check if output contains D01A manifest data
+  private isD01AAssetOutput(transaction: BRC22Transaction, outputIndex: number): boolean {
+    // Check if output contains D01A asset data
     const outputs = this.parseTransactionOutputs(transaction.rawTx);
     const output = outputs[outputIndex];
     if (!output) return false;
 
-    // Look for D01A manifest markers in output script
-    return output.script.includes('d01a') || output.script.includes('manifest');
+    // Look for D01A asset markers in output script (including legacy manifest for backward compatibility)
+    return (
+      output.script.includes('d01a') ||
+      output.script.includes('asset') ||
+      output.script.includes('manifest')
+    );
   }
 
   private isPaymentReceiptOutput(transaction: BRC22Transaction, outputIndex: number): boolean {
@@ -489,7 +505,7 @@ class BRC22SubmitService extends EventEmitter {
     // For now, return mock outputs
     return [
       { script: '76a914' + '0'.repeat(40) + '88ac', satoshis: 1000 },
-      { script: '76a914' + '1'.repeat(40) + '88ac', satoshis: 2000 }
+      { script: '76a914' + '1'.repeat(40) + '88ac', satoshis: 2000 },
     ];
   }
 
@@ -498,7 +514,7 @@ class BRC22SubmitService extends EventEmitter {
     // For now, return mock inputs
     return [
       { txid: 'abc123', vout: 0 },
-      { txid: 'def456', vout: 1 }
+      { txid: 'def456', vout: 1 },
     ];
   }
 
@@ -510,7 +526,8 @@ class BRC22SubmitService extends EventEmitter {
     }
 
     // Check minimum transaction size
-    if (transaction.rawTx.length < 20) { // Minimum viable transaction
+    if (transaction.rawTx.length < 20) {
+      // Minimum viable transaction
       return false;
     }
 

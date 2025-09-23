@@ -1,6 +1,8 @@
+import crypto from 'crypto';
+
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import crypto from 'crypto';
+
 import { getManifest, getPrice, insertReceipt, getReceipt } from '../db';
 
 // Read dynamically to support test environment variables
@@ -11,7 +13,9 @@ function getReceiptTtlSec(): number {
   return Number(process.env.RECEIPT_TTL_SEC || 1800); // 30 minutes
 }
 
-function isHex64(s: string): boolean { return /^[0-9a-fA-F]{64}$/.test(s); }
+function isHex64(s: string): boolean {
+  return /^[0-9a-fA-F]{64}$/.test(s);
+}
 
 function randomId(prefix: string) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;

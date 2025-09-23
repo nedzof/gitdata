@@ -18,7 +18,7 @@
     await lifecycle.cleanupExpiredContent();
 */
 
- //import { StorageDriver, StorageTier, StorageObject } from './index';
+//import { StorageDriver, StorageTier, StorageObject } from './index';
 import { isTestEnvironment } from '../db/index.js';
 
 export interface LifecycleConfig {
@@ -76,7 +76,7 @@ export class StorageLifecycleManager {
       orphanCleanupEnabled: process.env.ORPHAN_CLEANUP === 'true',
       maxObjectsPerBatch: Number(process.env.LIFECYCLE_BATCH_SIZE || 100),
       tieringIntervalHours: Number(process.env.TIERING_INTERVAL_HOURS || 6),
-      ...config
+      ...config,
     };
   }
 
@@ -99,7 +99,9 @@ export class StorageLifecycleManager {
         await this.logTieringEvent(decision, 'success');
         moved++;
 
-        console.log(`Moved ${decision.contentHash} from ${decision.fromTier} to ${decision.toTier}: ${decision.reason}`);
+        console.log(
+          `Moved ${decision.contentHash} from ${decision.fromTier} to ${decision.toTier}: ${decision.reason}`,
+        );
       } catch (error) {
         await this.logTieringEvent(decision, 'error', error);
         console.error(`Failed to tier ${decision.contentHash}:`, error);
@@ -127,7 +129,7 @@ export class StorageLifecycleManager {
     for (const obj of expiredObjects) {
       try {
         // Verify object is truly orphaned before deletion
-        if (this.config.orphanCleanupEnabled && await this.isOrphanedObject(obj.contentHash)) {
+        if (this.config.orphanCleanupEnabled && (await this.isOrphanedObject(obj.contentHash))) {
           await this.storage.deleteObject(obj.contentHash, obj.tier);
           await this.logDeletionEvent(obj, 'expired-orphaned');
           deleted++;
@@ -197,7 +199,7 @@ export class StorageLifecycleManager {
         accessCount7d: row.access_7d || 0,
         accessCount30d: row.access_30d || 0,
         totalSize: row.total_bytes || 0,
-        createdAt: new Date(row.created_at)
+        createdAt: new Date(row.created_at),
       });
     }
 
@@ -210,7 +212,8 @@ export class StorageLifecycleManager {
 
     for (const metric of metrics) {
       const ageInDays = (now.getTime() - metric.createdAt.getTime()) / (1000 * 60 * 60 * 24);
-      const daysSinceAccess = (now.getTime() - metric.lastAccessed.getTime()) / (1000 * 60 * 60 * 24);
+      const daysSinceAccess =
+        (now.getTime() - metric.lastAccessed.getTime()) / (1000 * 60 * 60 * 24);
 
       let targetTier: StorageTier | null = null;
       let reason = '';
@@ -219,8 +222,10 @@ export class StorageLifecycleManager {
 
       // Hot → Warm tier logic
       if (metric.currentTier === 'hot') {
-        if (ageInDays > this.config.hotToWarmAfterDays &&
-            metric.accessCount24h < this.config.hotMinAccessesPerDay) {
+        if (
+          ageInDays > this.config.hotToWarmAfterDays &&
+          metric.accessCount24h < this.config.hotMinAccessesPerDay
+        ) {
           targetTier = 'warm';
           reason = `Age ${ageInDays.toFixed(1)}d > ${this.config.hotToWarmAfterDays}d, low access (${metric.accessCount24h}/day)`;
           priority = Math.floor(ageInDays);
@@ -230,8 +235,10 @@ export class StorageLifecycleManager {
 
       // Warm → Cold tier logic
       if (metric.currentTier === 'warm') {
-        if (ageInDays > this.config.warmToColdAfterDays &&
-            metric.accessCount7d < this.config.warmMinAccessesPerWeek) {
+        if (
+          ageInDays > this.config.warmToColdAfterDays &&
+          metric.accessCount7d < this.config.warmMinAccessesPerWeek
+        ) {
           targetTier = 'cold';
           reason = `Age ${ageInDays.toFixed(1)}d > ${this.config.warmToColdAfterDays}d, very low access (${metric.accessCount7d}/week)`;
           priority = Math.floor(ageInDays / 2);
@@ -240,7 +247,10 @@ export class StorageLifecycleManager {
       }
 
       // Cold → Warm promotion (high access)
-      if (metric.currentTier === 'cold' && metric.accessCount7d >= this.config.warmMinAccessesPerWeek) {
+      if (
+        metric.currentTier === 'cold' &&
+        metric.accessCount7d >= this.config.warmMinAccessesPerWeek
+      ) {
         targetTier = 'warm';
         reason = `High access pattern detected (${metric.accessCount7d}/week)`;
         priority = 100 + metric.accessCount7d; // High priority for promotions
@@ -248,7 +258,10 @@ export class StorageLifecycleManager {
       }
 
       // Warm → Hot promotion (very high access)
-      if (metric.currentTier === 'warm' && metric.accessCount24h >= this.config.hotMinAccessesPerDay) {
+      if (
+        metric.currentTier === 'warm' &&
+        metric.accessCount24h >= this.config.hotMinAccessesPerDay
+      ) {
         targetTier = 'hot';
         reason = `Very high access pattern detected (${metric.accessCount24h}/day)`;
         priority = 150 + metric.accessCount24h; // Highest priority for hot promotions
@@ -262,7 +275,7 @@ export class StorageLifecycleManager {
           toTier: targetTier,
           reason,
           priority,
-          estimatedSavings
+          estimatedSavings,
         });
       }
     }
@@ -274,7 +287,9 @@ export class StorageLifecycleManager {
     await this.storage.moveObject(decision.contentHash, decision.fromTier, decision.toTier);
   }
 
-  private async findExpiredObjects(cutoffDate: Date): Promise<{ contentHash: string; tier: StorageTier }[]> {
+  private async findExpiredObjects(
+    cutoffDate: Date,
+  ): Promise<{ contentHash: string; tier: StorageTier }[]> {
     const expiredObjects: { contentHash: string; tier: StorageTier }[] = [];
 
     // Check each tier for old objects
@@ -286,7 +301,7 @@ export class StorageLifecycleManager {
           if (obj.lastModified && obj.lastModified < cutoffDate) {
             expiredObjects.push({
               contentHash: obj.contentHash,
-              tier
+              tier,
             });
           }
         }
@@ -305,54 +320,60 @@ export class StorageLifecycleManager {
     const pgClient = getPostgreSQLClient();
     const result = await pgClient.query(
       `SELECT COUNT(*) as count FROM assets WHERE content_hash = $1`,
-      [contentHash]
+      [contentHash],
     );
     manifestCount = result.rows[0] as { count: number };
 
     return manifestCount.count === 0;
   }
 
-  private async logTieringEvent(decision: TieringDecision, status: 'success' | 'error', error?: any): Promise<void> {
+  private async logTieringEvent(
+    decision: TieringDecision,
+    status: 'success' | 'error',
+    error?: any,
+  ): Promise<void> {
     try {
       const { getPostgreSQLClient } = await import('../db/postgresql');
       const pgClient = getPostgreSQLClient();
-      await pgClient.query(`
+      await pgClient.query(
+        `
         INSERT INTO storage_events (
           event_type, content_hash, from_tier, to_tier,
           reason, status, error_message, estimated_savings, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      `, [
-        'tiering',
-        decision.contentHash,
-        decision.fromTier,
-        decision.toTier,
-        decision.reason,
-        status,
-        error ? String(error) : null,
-        decision.estimatedSavings || 0,
-        Date.now()
-      ]);
+      `,
+        [
+          'tiering',
+          decision.contentHash,
+          decision.fromTier,
+          decision.toTier,
+          decision.reason,
+          status,
+          error ? String(error) : null,
+          decision.estimatedSavings || 0,
+          Date.now(),
+        ],
+      );
     } catch {
       // Ignore logging errors
     }
   }
 
-  private async logDeletionEvent(obj: { contentHash: string; tier: StorageTier }, reason: string): Promise<void> {
+  private async logDeletionEvent(
+    obj: { contentHash: string; tier: StorageTier },
+    reason: string,
+  ): Promise<void> {
     try {
       const { getPostgreSQLClient } = await import('../db/postgresql');
       const pgClient = getPostgreSQLClient();
-      await pgClient.query(`
+      await pgClient.query(
+        `
         INSERT INTO storage_events (
           event_type, content_hash, from_tier, reason, status, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6)
-      `, [
-        'deletion',
-        obj.contentHash,
-        obj.tier,
-        reason,
-        'success',
-        Date.now()
-      ]);
+      `,
+        ['deletion', obj.contentHash, obj.tier, reason, 'success', Date.now()],
+      );
     } catch {
       // Ignore logging errors
     }
@@ -366,7 +387,7 @@ export class StorageLifecycleManager {
     const tierBreakdown: Record<StorageTier, { objectCount: number; totalSize: number }> = {
       hot: { objectCount: 0, totalSize: 0 },
       warm: { objectCount: 0, totalSize: 0 },
-      cold: { objectCount: 0, totalSize: 0 }
+      cold: { objectCount: 0, totalSize: 0 },
     };
 
     // Collect current tier statistics
@@ -375,7 +396,7 @@ export class StorageLifecycleManager {
         const objects = await this.storage.listObjects(tier);
         tierBreakdown[tier] = {
           objectCount: objects.length,
-          totalSize: objects.reduce((sum, obj) => sum + (obj.size || 0), 0)
+          totalSize: objects.reduce((sum, obj) => sum + (obj.size || 0), 0),
         };
       } catch (error) {
         console.warn(`Failed to get stats for ${tier} tier:`, error);
@@ -386,28 +407,34 @@ export class StorageLifecycleManager {
     const { getPostgreSQLClient } = await import('../db/postgresql');
     const pgClient = getPostgreSQLClient();
 
-    const recentResult = await pgClient.query(`
+    const recentResult = await pgClient.query(
+      `
       SELECT COUNT(*) as count
       FROM storage_events
       WHERE event_type = 'tiering'
         AND status = 'success'
         AND created_at > $1
-    `, [Date.now() - 24 * 60 * 60 * 1000]);
+    `,
+      [Date.now() - 24 * 60 * 60 * 1000],
+    );
     const recentMoves = recentResult.rows[0] as { count: number };
 
-    const savingsResult = await pgClient.query(`
+    const savingsResult = await pgClient.query(
+      `
       SELECT COALESCE(SUM(estimated_savings), 0) as savings
       FROM storage_events
       WHERE event_type = 'tiering'
         AND status = 'success'
         AND created_at > $1
-    `, [Date.now() - 30 * 24 * 60 * 60 * 1000]);
+    `,
+      [Date.now() - 30 * 24 * 60 * 60 * 1000],
+    );
     const monthlySavings = savingsResult.rows[0] as { savings: number };
 
     return {
       tierBreakdown,
       recentMoves: recentMoves.count,
-      estimatedMonthlySavings: monthlySavings.savings
+      estimatedMonthlySavings: monthlySavings.savings,
     };
   }
 }
@@ -454,9 +481,15 @@ export async function createStorageEventsMigration(db?: Database.Database): Prom
         )
       `);
 
-      await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_storage_events_content_hash ON storage_events(content_hash)`);
-      await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_storage_events_created_at ON storage_events(created_at)`);
-      await pgClient.query(`CREATE INDEX IF NOT EXISTS idx_storage_events_type_status ON storage_events(event_type, status)`);
+      await pgClient.query(
+        `CREATE INDEX IF NOT EXISTS idx_storage_events_content_hash ON storage_events(content_hash)`,
+      );
+      await pgClient.query(
+        `CREATE INDEX IF NOT EXISTS idx_storage_events_created_at ON storage_events(created_at)`,
+      );
+      await pgClient.query(
+        `CREATE INDEX IF NOT EXISTS idx_storage_events_type_status ON storage_events(event_type, status)`,
+      );
     }
   } catch (error) {
     console.warn('Failed to create storage_events table:', error);

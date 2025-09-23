@@ -1,10 +1,18 @@
 // BSV Overlay Manager
 // Manages overlay integration with the existing gitdata system
 
-import { BSVOverlayService, D01AData, OverlayMessage } from './bsv-overlay-service';
-import { getOverlayConfig, D01A_TOPICS, TopicGenerator, TopicSubscriptionManager } from './overlay-config';
 import { EventEmitter } from 'events';
-import Database from 'better-sqlite3';
+
+import type Database from 'better-sqlite3';
+
+import type { D01AData } from './bsv-overlay-service';
+import { BSVOverlayService, OverlayMessage } from './bsv-overlay-service';
+import {
+  getOverlayConfig,
+  D01A_TOPICS,
+  TopicGenerator,
+  TopicSubscriptionManager,
+} from './overlay-config';
 
 export interface OverlayManagerConfig {
   environment: 'development' | 'staging' | 'production';
@@ -65,55 +73,9 @@ class OverlayManager extends EventEmitter {
    * Set up database tables for overlay data
    */
   private setupDatabaseTables(): void {
-    // Table for tracking overlay messages
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS overlay_messages (
-        message_id TEXT PRIMARY KEY,
-        topic TEXT NOT NULL,
-        message_type TEXT NOT NULL,
-        sender TEXT,
-        data_json TEXT NOT NULL,
-        signature TEXT,
-        public_key TEXT,
-        received_at INTEGER NOT NULL,
-        processed BOOLEAN DEFAULT FALSE,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
-      )
-    `);
-
-    // Table for tracking overlay subscriptions
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS overlay_subscriptions (
-        topic TEXT PRIMARY KEY,
-        classification TEXT NOT NULL,
-        subscribed_at INTEGER NOT NULL,
-        last_activity INTEGER NOT NULL,
-        message_count INTEGER DEFAULT 0,
-        auto_subscribe BOOLEAN DEFAULT FALSE,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
-      )
-    `);
-
-    // Table for overlay peer information
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS overlay_peers (
-        peer_id TEXT PRIMARY KEY,
-        connected_at INTEGER NOT NULL,
-        last_seen INTEGER NOT NULL,
-        message_count INTEGER DEFAULT 0,
-        topics_json TEXT,
-        metadata_json TEXT,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
-      )
-    `);
-
-    // Indexes for performance
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS idx_overlay_messages_topic ON overlay_messages(topic);
-      CREATE INDEX IF NOT EXISTS idx_overlay_messages_received_at ON overlay_messages(received_at);
-      CREATE INDEX IF NOT EXISTS idx_overlay_messages_processed ON overlay_messages(processed);
-      CREATE INDEX IF NOT EXISTS idx_overlay_subscriptions_classification ON overlay_subscriptions(classification);
-    `);
+    // Database tables are now created in the main schema at /src/db/postgresql-schema-complete.sql
+    // Overlay management tables: overlay_messages, overlay_subscriptions, overlay_peers
+    console.log('Overlay management database tables managed by central schema');
   }
 
   /**
@@ -175,21 +137,24 @@ class OverlayManager extends EventEmitter {
       await this.overlayService.subscribeToTopic(topic);
 
       // Record subscription in database
-      this.database.prepare(`
+      this.database
+        .prepare(
+          `
         INSERT OR REPLACE INTO overlay_subscriptions
         (topic, classification, subscribed_at, last_activity, auto_subscribe)
         VALUES (?, ?, ?, ?, ?)
-      `).run(
-        topic,
-        'public', // TODO: Determine classification from topic
-        Date.now(),
-        Date.now(),
-        autoSubscribe
-      );
+      `,
+        )
+        .run(
+          topic,
+          'public', // TODO: Determine classification from topic
+          Date.now(),
+          Date.now(),
+          autoSubscribe,
+        );
 
       this.subscriptionManager.addSubscription(topic);
       this.emit('subscribed', topic);
-
     } catch (error) {
       throw new Error(`Failed to subscribe to topic ${topic}: ${error.message}`);
     }
@@ -207,42 +172,48 @@ class OverlayManager extends EventEmitter {
 
       this.subscriptionManager.removeSubscription(topic);
       this.emit('unsubscribed', topic);
-
     } catch (error) {
       throw new Error(`Failed to unsubscribe from topic ${topic}: ${error.message}`);
     }
   }
 
   /**
-   * Publish D01A manifest to overlay network
+   * Publish D01A asset to overlay network
    */
-  async publishManifest(manifest: any): Promise<string> {
-    const d01aData: D01AData = { manifest };
-    const topic = TopicGenerator.datasetTopic(manifest.datasetId, manifest.policy?.classification || 'public');
+  async publishAsset(asset: any): Promise<string> {
+    const d01aData: D01AData = { asset };
+    const topic = TopicGenerator.datasetTopic(
+      asset.datasetId,
+      asset.policy?.classification || 'public',
+    );
 
     try {
       const messageId = await this.overlayService.publishD01AData(topic, d01aData);
 
       // Store publication record
-      this.database.prepare(`
+      this.database
+        .prepare(
+          `
         INSERT INTO overlay_messages
         (message_id, topic, message_type, data_json, received_at, processed)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
-        messageId,
-        topic,
-        'publish',
-        JSON.stringify(d01aData),
-        Date.now(),
-        true
-      );
+      `,
+        )
+        .run(messageId, topic, 'publish', JSON.stringify(d01aData), Date.now(), true);
 
-      this.emit('manifest-published', { topic, manifest, messageId });
+      this.emit('asset-published', { topic, asset, messageId });
       return messageId;
-
     } catch (error) {
-      throw new Error(`Failed to publish manifest: ${error.message}`);
+      throw new Error(`Failed to publish asset: ${error.message}`);
     }
+  }
+
+  /**
+   * @deprecated Use publishAsset instead
+   * Backward compatibility method for publishManifest
+   */
+  async publishManifest(manifest: any): Promise<string> {
+    return this.publishAsset(manifest);
   }
 
   /**
@@ -263,12 +234,12 @@ class OverlayManager extends EventEmitter {
         searchTopics.push(TopicGenerator.datasetTopic('*', query.classification));
       }
 
-      const searchPromises = searchTopics.map(topic =>
+      const searchPromises = searchTopics.map((topic) =>
         this.overlayService.requestData(topic, {
           type: 'search',
           query,
-          timestamp: Date.now()
-        })
+          timestamp: Date.now(),
+        }),
       );
 
       await Promise.all(searchPromises);
@@ -276,7 +247,6 @@ class OverlayManager extends EventEmitter {
       // Return cached results (overlay responses will be handled by event handlers)
       // In a real implementation, you'd wait for responses or use a callback pattern
       return this.getCachedSearchResults(query);
-
     } catch (error) {
       throw new Error(`Failed to search overlay data: ${error.message}`);
     }
@@ -289,18 +259,22 @@ class OverlayManager extends EventEmitter {
     try {
       // Store message in database
       const messageId = this.generateMessageId(event);
-      this.database.prepare(`
+      this.database
+        .prepare(
+          `
         INSERT OR REPLACE INTO overlay_messages
         (message_id, topic, message_type, sender, data_json, received_at)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
-        messageId,
-        event.topic,
-        'data',
-        event.sender,
-        JSON.stringify(event.data),
-        event.timestamp
-      );
+      `,
+        )
+        .run(
+          messageId,
+          event.topic,
+          'data',
+          event.sender,
+          JSON.stringify(event.data),
+          event.timestamp,
+        );
 
       // Update subscription activity
       this.subscriptionManager.updateActivity(event.topic);
@@ -309,7 +283,6 @@ class OverlayManager extends EventEmitter {
       this.processTopicData(event.topic, event.data, event.sender);
 
       this.emit('data-received', event);
-
     } catch (error) {
       console.error('Failed to handle incoming overlay data:', error);
     }
@@ -334,7 +307,6 @@ class OverlayManager extends EventEmitter {
       }
 
       this.emit('data-request', event);
-
     } catch (error) {
       console.error('Failed to handle data request:', error);
     }
@@ -356,12 +328,11 @@ class OverlayManager extends EventEmitter {
             type: 'search_response',
             originalQuery: query,
             results,
-            timestamp: Date.now()
+            timestamp: Date.now(),
           },
-          event.sender
+          event.sender,
         );
       }
-
     } catch (error) {
       console.error('Failed to handle search request:', error);
     }
@@ -401,7 +372,6 @@ class OverlayManager extends EventEmitter {
       }
 
       return this.database.prepare(sql).all(...params);
-
     } catch (error) {
       console.error('Failed to search local data:', error);
       return [];
@@ -412,8 +382,8 @@ class OverlayManager extends EventEmitter {
    * Process data based on topic type
    */
   private processTopicData(topic: string, data: any, sender: string): void {
-    if (topic.includes('.manifest')) {
-      this.processManifestData(data, sender);
+    if (topic.includes('.asset') || topic.includes('.manifest')) {
+      this.processAssetData(data, sender);
     } else if (topic.includes('.search.results')) {
       this.processSearchResults(data, sender);
     } else if (topic.includes('.agent.')) {
@@ -424,18 +394,18 @@ class OverlayManager extends EventEmitter {
   }
 
   /**
-   * Process incoming manifest data
+   * Process incoming asset data
    */
-  private processManifestData(data: any, sender: string): void {
+  private processAssetData(data: any, sender: string): void {
     try {
-      if (data.manifest) {
-        // Store manifest in local database for discovery
-        // Implementation would depend on your existing manifest schema
-        console.log('Received manifest from overlay:', data.manifest.datasetId);
-        this.emit('manifest-received', { manifest: data.manifest, sender });
+      if (data.asset || data.manifest) {
+        const asset = data.asset || data.manifest; // Support both for backward compatibility
+        // Store asset in local database for discovery
+        console.log('Received asset from overlay:', asset.datasetId);
+        this.emit('asset-received', { asset, sender });
       }
     } catch (error) {
-      console.error('Failed to process manifest data:', error);
+      console.error('Failed to process asset data:', error);
     }
   }
 
@@ -483,11 +453,15 @@ class OverlayManager extends EventEmitter {
    * Handle peer connected
    */
   private handlePeerConnected(peerId: string): void {
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       INSERT OR REPLACE INTO overlay_peers
       (peer_id, connected_at, last_seen, message_count)
       VALUES (?, ?, ?, 0)
-    `).run(peerId, Date.now(), Date.now());
+    `,
+      )
+      .run(peerId, Date.now(), Date.now());
 
     this.emit('peer-connected', peerId);
   }
@@ -496,9 +470,13 @@ class OverlayManager extends EventEmitter {
    * Handle peer disconnected
    */
   private handlePeerDisconnected(peerId: string): void {
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       UPDATE overlay_peers SET last_seen = ? WHERE peer_id = ?
-    `).run(Date.now(), peerId);
+    `,
+      )
+      .run(Date.now(), peerId);
 
     this.emit('peer-disconnected', peerId);
   }
@@ -509,18 +487,21 @@ class OverlayManager extends EventEmitter {
   private getCachedSearchResults(query: any): any[] {
     try {
       // Return recent search results from database
-      const results = this.database.prepare(`
+      const results = this.database
+        .prepare(
+          `
         SELECT data_json FROM overlay_messages
         WHERE topic = ? AND message_type = 'data'
         AND received_at > ?
         ORDER BY received_at DESC
         LIMIT 50
-      `).all(D01A_TOPICS.SEARCH_RESULTS, Date.now() - 300000); // Last 5 minutes
+      `,
+        )
+        .all(D01A_TOPICS.SEARCH_RESULTS, Date.now() - 300000); // Last 5 minutes
 
-      return results.map(row => JSON.parse(row.data_json)).filter(data =>
-        data.type === 'search_response'
-      );
-
+      return results
+        .map((row) => JSON.parse(row.data_json))
+        .filter((data) => data.type === 'search_response');
     } catch (error) {
       console.error('Failed to get cached search results:', error);
       return [];
@@ -546,29 +527,49 @@ class OverlayManager extends EventEmitter {
     const overlayStats = this.overlayService.getStats();
     const subscriptionStats = this.subscriptionManager.getStats();
 
-    const totalMessages = this.database.prepare(`
+    const totalMessages =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM overlay_messages
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const recentMessages = this.database.prepare(`
+    const recentMessages =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM overlay_messages
       WHERE received_at > ?
-    `).get(Date.now() - 3600000)?.count || 0; // Last hour
+    `,
+        )
+        .get(Date.now() - 3600000)?.count || 0; // Last hour
 
-    const totalPeers = this.database.prepare(`
+    const totalPeers =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM overlay_peers
-    `).get()?.count || 0;
+    `,
+        )
+        .get()?.count || 0;
 
-    const activePeers = this.database.prepare(`
+    const activePeers =
+      this.database
+        .prepare(
+          `
       SELECT COUNT(*) as count FROM overlay_peers
       WHERE last_seen > ?
-    `).get(Date.now() - 300000)?.count || 0; // Last 5 minutes
+    `,
+        )
+        .get(Date.now() - 300000)?.count || 0; // Last 5 minutes
 
     return {
       overlay: overlayStats,
       subscriptions: subscriptionStats,
       messages: { total: totalMessages, recent: recentMessages },
-      peers: { total: totalPeers, active: activePeers }
+      peers: { total: totalPeers, active: activePeers },
     };
   }
 

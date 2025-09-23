@@ -23,7 +23,8 @@
 
 import type { Router, Request, Response } from 'express';
 import { Router as makeRouter } from 'express';
- //import { createHash } from 'crypto';
+
+//import { createHash } from 'crypto';
 import { getParents, getManifest, isTestEnvironment, getDatabase } from '../db';
 
 // ---------------- Env / Config ----------------
@@ -34,26 +35,45 @@ const PRODUCER_ID_KEY = (process.env.MODEL_PRODUCER_IDENTITY_KEY || '').trim();
 
 // ---------------- Utils ----------------
 
-function nowSec() { return Math.floor(Date.now() / 1000); }
+function nowSec() {
+  return Math.floor(Date.now() / 1000);
+}
 function sha256hex(buf: Buffer | string) {
   const b = typeof buf === 'string' ? Buffer.from(buf, 'utf8') : buf;
   return createHash('sha256').update(b).digest('hex');
 }
-function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
-function safeId(prefix: string) { return `${prefix}_${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`; }
+function json(res: Response, code: number, body: any) {
+  return res.status(code).json(body);
+}
+function safeId(prefix: string) {
+  return `${prefix}_${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`;
+}
 
-async function httpJson(method: 'GET'|'POST', url: string, body?: any, timeoutMs = 10000): Promise<any> {
+async function httpJson(
+  method: 'GET' | 'POST',
+  url: string,
+  body?: any,
+  timeoutMs = 10000,
+): Promise<any> {
   const ctl = new AbortController();
   const tm = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const r = await fetch(url, {
       method,
       signal: ctl.signal as any,
-      headers: { accept: 'application/json', ...(body ? { 'content-type':'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined
+      headers: {
+        accept: 'application/json',
+        ...(body ? { 'content-type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
     });
     const txt = await r.text();
-    let js: any; try { js = JSON.parse(txt); } catch { js = { raw: txt }; }
+    let js: any;
+    try {
+      js = JSON.parse(txt);
+    } catch {
+      js = { raw: txt };
+    }
     if (!r.ok) throw new Error(`${r.status} ${JSON.stringify(js)}`);
     return js;
   } finally {
@@ -66,7 +86,9 @@ async function httpJson(method: 'GET'|'POST', url: string, body?: any, timeoutMs
 export async function runModelsMigrations(db?: Database.Database) {
   if (isTestEnvironment() || db) {
     const database = db || getDatabase();
-    database.prepare(`
+    database
+      .prepare(
+        `
       CREATE TABLE IF NOT EXISTS models (
         model_version_id TEXT PRIMARY KEY,
         model_hash TEXT NOT NULL UNIQUE,
@@ -76,7 +98,9 @@ export async function runModelsMigrations(db?: Database.Database) {
         size_bytes INTEGER,
         created_at INTEGER NOT NULL
       )
-    `).run();
+    `,
+      )
+      .run();
     database.prepare(`CREATE INDEX IF NOT EXISTS idx_models_hash ON models(model_hash)`).run();
     database.prepare(`CREATE INDEX IF NOT EXISTS idx_models_created ON models(created_at)`).run();
   } else {
@@ -116,7 +140,8 @@ async function upsertModel(db: any, r: Partial<ModelRow>): Promise<string> {
 
   const { getPostgreSQLClient } = await import('../db/postgresql');
   const pgClient = getPostgreSQLClient();
-  await pgClient.query(`
+  await pgClient.query(
+    `
     INSERT INTO models(model_version_id, model_hash, training_index_version_id, framework, tags_json, size_bytes, created_at)
     VALUES($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT(model_hash) DO UPDATE SET
@@ -124,15 +149,17 @@ async function upsertModel(db: any, r: Partial<ModelRow>): Promise<string> {
       framework = COALESCE(EXCLUDED.framework, models.framework),
       tags_json = COALESCE(EXCLUDED.tags_json, models.tags_json),
       size_bytes = COALESCE(EXCLUDED.size_bytes, models.size_bytes)
-  `, [
-    id,
-    r.model_hash!,
-    r.training_index_version_id || null,
-    r.framework || null,
-    r.tags_json || null,
-    r.size_bytes || null,
-    r.created_at || now
-  ]);
+  `,
+    [
+      id,
+      r.model_hash!,
+      r.training_index_version_id || null,
+      r.framework || null,
+      r.tags_json || null,
+      r.size_bytes || null,
+      r.created_at || now,
+    ],
+  );
   return id;
 }
 
@@ -141,21 +168,15 @@ async function getModel(db: any, id: string): Promise<ModelRow | undefined> {
   const pgClient = getPostgreSQLClient();
 
   // Try by model_version_id first
-  let result = await pgClient.query(
-    `SELECT * FROM models WHERE model_version_id = $1`,
-    [id]
-  );
+  let result = await pgClient.query(`SELECT * FROM models WHERE model_version_id = $1`, [id]);
   if (result.rows.length > 0) return result.rows[0] as any;
 
   // Try by model_hash
-  result = await pgClient.query(
-    `SELECT * FROM models WHERE model_hash = $1`,
-    [id]
-  );
-  return result.rows[0] as any || undefined;
+  result = await pgClient.query(`SELECT * FROM models WHERE model_hash = $1`, [id]);
+  return (result.rows[0] as any) || undefined;
 }
 
-async function searchModels(db: any, q?: string, limit=20, offset=0): Promise<ModelRow[]> {
+async function searchModels(db: any, q?: string, limit = 20, offset = 0): Promise<ModelRow[]> {
   const { getPostgreSQLClient } = await import('../db/postgresql');
   const pgClient = getPostgreSQLClient();
 
@@ -181,8 +202,8 @@ async function searchModels(db: any, q?: string, limit=20, offset=0): Promise<Mo
 // ---------------- Manifest builders (synthetic) ----------------
 
 type TrainingIndexParams = {
-  parents?: string[];            // array of versionIds
-  rollupHash?: string;           // optional merkle root of external list
+  parents?: string[]; // array of versionIds
+  rollupHash?: string; // optional merkle root of external list
   split?: { train?: string[]; val?: string[]; test?: string[] }; // informational
 };
 
@@ -195,19 +216,24 @@ function buildTrainingIndexManifest(p: TrainingIndexParams) {
       stats: {
         trainCount: p.split?.train?.length || null,
         valCount: p.split?.val?.length || null,
-        testCount: p.split?.test?.length || null
-      }
+        testCount: p.split?.test?.length || null,
+      },
     },
     lineage: { parents: Array.isArray(p.parents) ? p.parents : [] },
     provenance: {
       createdAt: new Date().toISOString(),
-      producer: PRODUCER_ID_KEY ? { identityKey: PRODUCER_ID_KEY } : undefined
+      producer: PRODUCER_ID_KEY ? { identityKey: PRODUCER_ID_KEY } : undefined,
     },
-    policy: { classification: 'public' }
+    policy: { classification: 'public' },
   };
 }
 
-function buildModelArtifactManifest(modelHash: string, framework?: string, sizeBytes?: number, trainingIndexVersionId?: string) {
+function buildModelArtifactManifest(
+  modelHash: string,
+  framework?: string,
+  sizeBytes?: number,
+  trainingIndexVersionId?: string,
+) {
   return {
     type: 'modelArtifact',
     description: 'Anchored model artifact',
@@ -215,24 +241,41 @@ function buildModelArtifactManifest(modelHash: string, framework?: string, sizeB
     lineage: { parents: trainingIndexVersionId ? [trainingIndexVersionId] : [] },
     provenance: {
       createdAt: new Date().toISOString(),
-      producer: PRODUCER_ID_KEY ? { identityKey: PRODUCER_ID_KEY } : undefined
+      producer: PRODUCER_ID_KEY ? { identityKey: PRODUCER_ID_KEY } : undefined,
     },
-    policy: { classification: 'public' }
+    policy: { classification: 'public' },
   };
 }
 
 // ---------------- Anchor flows ----------------
 
-async function anchorSynthetic(modelHash: string, tr?: TrainingIndexParams, opts?: { framework?: string; sizeBytes?: number }) {
+async function anchorSynthetic(
+  modelHash: string,
+  tr?: TrainingIndexParams,
+  opts?: { framework?: string; sizeBytes?: number },
+) {
   const tid = tr && (tr.parents?.length || tr.rollupHash) ? `ti_${modelHash.slice(0, 16)}` : null;
   const mid = `md_${modelHash.slice(0, 24)}`;
   const trainingManifest = tid ? buildTrainingIndexManifest(tr!) : null;
-  const modelManifest = buildModelArtifactManifest(modelHash, opts?.framework, opts?.sizeBytes, tid || undefined);
+  const modelManifest = buildModelArtifactManifest(
+    modelHash,
+    opts?.framework,
+    opts?.sizeBytes,
+    tid || undefined,
+  );
   // No network calls; return synthetic ids + manifests for evidence/logs
-  return { trainingIndexVersionId: tid, modelVersionId: mid, manifests: { training: trainingManifest, model: modelManifest } };
+  return {
+    trainingIndexVersionId: tid,
+    modelVersionId: mid,
+    manifests: { training: trainingManifest, model: modelManifest },
+  };
 }
 
-async function anchorAdvanced(modelHash: string, tr?: TrainingIndexParams, opts?: { framework?: string; sizeBytes?: number }) {
+async function anchorAdvanced(
+  modelHash: string,
+  tr?: TrainingIndexParams,
+  opts?: { framework?: string; sizeBytes?: number },
+) {
   // Calls /submit/dlm1 then /submit (OP_RETURN builder + rawTx receiver) — shape based on your advanced flow
   // 1) Optional: trainingIndex
   let trainingIndexVersionId: string | null = null;
@@ -249,15 +292,27 @@ async function anchorAdvanced(modelHash: string, tr?: TrainingIndexParams, opts?
   }
 
   // 2) modelArtifact
-  const modelManifest = buildModelArtifactManifest(modelHash, opts?.framework, opts?.sizeBytes, trainingIndexVersionId || undefined);
+  const modelManifest = buildModelArtifactManifest(
+    modelHash,
+    opts?.framework,
+    opts?.sizeBytes,
+    trainingIndexVersionId || undefined,
+  );
   const mBuild = await httpJson('POST', `${SELF}/submit/dlm1`, { manifest: modelManifest });
   const mScriptHex = mBuild.opReturnScriptHex || mBuild.outputs?.[0]?.scriptHex;
   if (!mScriptHex || !mBuild.versionId) throw new Error('builder-missing (modelArtifact)');
   const mRawTx = buildRawTxWithOpReturn(mScriptHex);
-  const mSubmit = await httpJson('POST', `${SELF}/submit`, { rawTx: mRawTx, manifest: modelManifest });
+  const mSubmit = await httpJson('POST', `${SELF}/submit`, {
+    rawTx: mRawTx,
+    manifest: modelManifest,
+  });
   const modelVersionId = mBuild.versionId || mSubmit.versionId;
 
-  return { trainingIndexVersionId, modelVersionId, manifests: { training: tr ? buildTrainingIndexManifest(tr) : null, model: modelManifest } };
+  return {
+    trainingIndexVersionId,
+    modelVersionId,
+    manifests: { training: tr ? buildTrainingIndexManifest(tr) : null, model: modelManifest },
+  };
 }
 
 // Minimal OP_RETURN rawTx constructor (dev only)
@@ -269,29 +324,49 @@ function varInt(n: number): Uint8Array {
 function fromHex(hex: string): Uint8Array {
   if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length % 2 !== 0) throw new Error('invalid hex');
   const out = new Uint8Array(hex.length / 2);
-  for (let i=0; i<out.length; i++) out[i] = parseInt(hex.slice(i*2, i*2+2), 16);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   return out;
 }
-function toHex(b: Uint8Array): string { return Array.from(b).map(x=>x.toString(16).padStart(2,'0')).join(''); }
+function toHex(b: Uint8Array): string {
+  return Array.from(b)
+    .map((x) => x.toString(16).padStart(2, '0'))
+    .join('');
+}
 function concatBytes(arr: Uint8Array[]): Uint8Array {
-  const len = arr.reduce((n,a)=>n+a.length,0);
+  const len = arr.reduce((n, a) => n + a.length, 0);
   const out = new Uint8Array(len);
-  let o=0; for (const a of arr) { out.set(a,o); o+=a.length; }
+  let o = 0;
+  for (const a of arr) {
+    out.set(a, o);
+    o += a.length;
+  }
   return out;
 }
 function buildRawTxWithOpReturn(scriptHex: string): string {
-  const version = Uint8Array.of(1,0,0,0);
+  const version = Uint8Array.of(1, 0, 0, 0);
   const vinCount = varInt(1);
   const prevTxid = new Uint8Array(32);
-  const prevVout = Uint8Array.of(0xff,0xff,0xff,0xff);
+  const prevVout = Uint8Array.of(0xff, 0xff, 0xff, 0xff);
   const scriptSigLen = varInt(0);
-  const sequence = Uint8Array.of(0xff,0xff,0xff,0xff);
+  const sequence = Uint8Array.of(0xff, 0xff, 0xff, 0xff);
   const voutCount = varInt(1);
   const value0 = new Uint8Array(8); // zero
   const script = fromHex(scriptHex);
   const scriptLen = varInt(script.length);
   const locktime = new Uint8Array(4);
-  const tx = concatBytes([version, vinCount, prevTxid, prevVout, scriptSigLen, sequence, voutCount, value0, scriptLen, script, locktime]);
+  const tx = concatBytes([
+    version,
+    vinCount,
+    prevTxid,
+    prevVout,
+    scriptSigLen,
+    sequence,
+    voutCount,
+    value0,
+    scriptLen,
+    script,
+    locktime,
+  ]);
   return toHex(tx);
 }
 
@@ -326,7 +401,7 @@ function buildLineageTree(db: Database.Database, versionId: string): any[] {
           contentHash: manifest.content_hash || null,
           name: manifest.title || manifestData.name || null,
           description: manifestData.description || null,
-          createdAt: manifest.created_at || null
+          createdAt: manifest.created_at || null,
         });
       } catch (e) {
         // Fallback if manifest JSON is invalid
@@ -336,7 +411,7 @@ function buildLineageTree(db: Database.Database, versionId: string): any[] {
           contentHash: manifest.content_hash || null,
           name: manifest.title || null,
           description: null,
-          createdAt: manifest.created_at || null
+          createdAt: manifest.created_at || null,
         });
       }
     }
@@ -345,8 +420,8 @@ function buildLineageTree(db: Database.Database, versionId: string): any[] {
   traverseLineage(versionId);
 
   // Remove duplicates while preserving order
-  const uniqueLineage = lineageChain.filter((item, index, arr) =>
-    arr.findIndex(other => other.versionId === item.versionId) === index
+  const uniqueLineage = lineageChain.filter(
+    (item, index, arr) => arr.findIndex((other) => other.versionId === item.versionId) === index,
   );
 
   return uniqueLineage;
@@ -371,9 +446,15 @@ export function modelsRouter(db: Database.Database): Router {
 
       let result: { trainingIndexVersionId: string | null; modelVersionId: string; manifests: any };
       if (MODEL_ANCHOR_MODE === 'advanced') {
-        result = await anchorAdvanced(modelHash, trainingIndex || undefined, { framework, sizeBytes });
+        result = await anchorAdvanced(modelHash, trainingIndex || undefined, {
+          framework,
+          sizeBytes,
+        });
       } else {
-        result = await anchorSynthetic(modelHash, trainingIndex || undefined, { framework, sizeBytes });
+        result = await anchorSynthetic(modelHash, trainingIndex || undefined, {
+          framework,
+          sizeBytes,
+        });
       }
 
       const modelVersionId = upsertModel(db, {
@@ -382,7 +463,7 @@ export function modelsRouter(db: Database.Database): Router {
         training_index_version_id: result.trainingIndexVersionId || null,
         framework: framework || null,
         tags_json: tags ? JSON.stringify(tags) : null,
-        size_bytes: typeof sizeBytes === 'number' ? sizeBytes : null
+        size_bytes: typeof sizeBytes === 'number' ? sizeBytes : null,
       });
 
       return json(res, 200, {
@@ -390,7 +471,7 @@ export function modelsRouter(db: Database.Database): Router {
         modelVersionId,
         trainingIndexVersionId: result.trainingIndexVersionId || null,
         mode: MODEL_ANCHOR_MODE,
-        evidence: { manifests: result.manifests }
+        evidence: { manifests: result.manifests },
       });
     } catch (e: any) {
       return json(res, 500, { error: 'connect-failed', message: String(e?.message || e) });
@@ -403,14 +484,14 @@ export function modelsRouter(db: Database.Database): Router {
     const limit = req.query.limit ? Number(req.query.limit) : 20;
     const offset = req.query.offset ? Number(req.query.offset) : 0;
     const rows = searchModels(db, q, limit, offset);
-    const items = rows.map(r => ({
+    const items = rows.map((r) => ({
       modelVersionId: r.model_version_id,
       modelHash: r.model_hash,
       trainingIndexVersionId: r.training_index_version_id || null,
       framework: r.framework || null,
       sizeBytes: r.size_bytes || null,
       tags: r.tags_json ? safeParse(r.tags_json, []) : [],
-      createdAt: r.created_at
+      createdAt: r.created_at,
     }));
     return json(res, 200, { items });
   });
@@ -427,7 +508,7 @@ export function modelsRouter(db: Database.Database): Router {
       framework: r.framework || null,
       sizeBytes: r.size_bytes || null,
       tags: r.tags_json ? safeParse(r.tags_json, []) : [],
-      createdAt: r.created_at
+      createdAt: r.created_at,
     });
   });
 
@@ -466,7 +547,7 @@ export function modelsRouter(db: Database.Database): Router {
           const pgClient = getPostgreSQLClient();
           const result = await pgClient.query(
             `SELECT * FROM policies WHERE policy_id = $1 AND enabled = 1`,
-            [policyId]
+            [policyId],
           );
           const policyRow = result.rows[0] as any;
           if (!policyRow) {
@@ -482,23 +563,25 @@ export function modelsRouter(db: Database.Database): Router {
             policy: { classification: 'public', license: 'MIT' },
             provenance: {
               producer: { identityKey: 'model-producer' },
-              createdAt: new Date(r.created_at * 1000).toISOString()
+              createdAt: new Date(r.created_at * 1000).toISOString(),
             },
             content: {
-              mimeType: r.framework === 'PyTorch' ? 'application/x-pytorch' : 'application/x-tensorflow',
-              contentHash: r.model_hash
+              mimeType:
+                r.framework === 'PyTorch' ? 'application/x-pytorch' : 'application/x-tensorflow',
+              contentHash: r.model_hash,
             },
             stats: { rowCount: 1000000, nullPercentage: 0.1 },
-            featureSetId: r.framework === 'PyTorch' ? 'pytorch-features-v1' : 'tensorflow-features-v1',
+            featureSetId:
+              r.framework === 'PyTorch' ? 'pytorch-features-v1' : 'tensorflow-features-v1',
             splitTag: 'train',
             piiFlags: [],
-            geoOrigin: 'US'
+            geoOrigin: 'US',
           };
 
           // Create model lineage
           const lineage = [
             { versionId: 'training_dataset_v1', type: 'dataset' },
-            { versionId: r.model_version_id, type: 'model' }
+            { versionId: r.model_version_id, type: 'model' },
           ];
 
           const decision = await evaluatePolicy(r.model_version_id, policy, manifest, lineage);
@@ -510,9 +593,8 @@ export function modelsRouter(db: Database.Database): Router {
             warnings: decision.warnings,
             evidence: decision.evidence,
             modelVersionId: r.model_version_id,
-            modelHash: r.model_hash
+            modelHash: r.model_hash,
           });
-
         } catch (e: any) {
           return json(res, 500, { error: 'policy-evaluation-failed', message: e.message });
         }
@@ -530,6 +612,10 @@ export function modelsRouter(db: Database.Database): Router {
   return router;
 }
 
-function safeParse<T=any>(s: string, fallback: T): T {
-  try { return JSON.parse(s); } catch { return fallback; }
+function safeParse<T = any>(s: string, fallback: T): T {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return fallback;
+  }
 }

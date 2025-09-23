@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+
 import {
   upsertDeclaration,
   upsertManifest,
@@ -8,8 +9,8 @@ import {
   upsertProducer,
 } from '../db';
 import { deriveManifestIds, extractParents } from '../dlm1/codec';
-import { findFirstOpReturn } from '../utils/opreturn';
 import { decodeDLM1 } from '../dlm1/codec';
+import { findFirstOpReturn } from '../utils/opreturn';
 
 export async function ingestSubmission(opts: {
   db: Database.Database;
@@ -25,10 +26,12 @@ export async function ingestSubmission(opts: {
   const parents = extractParents(manifest);
 
   // 2) Producer mapping (datasetId + identityKey)
-  const datasetId: string | undefined = typeof manifest?.datasetId === 'string' ? manifest.datasetId : undefined;
-  const identityKey: string | undefined = typeof manifest?.provenance?.producer?.identityKey === 'string'
-    ? String(manifest.provenance.producer.identityKey).toLowerCase()
-    : undefined;
+  const datasetId: string | undefined =
+    typeof manifest?.datasetId === 'string' ? manifest.datasetId : undefined;
+  const identityKey: string | undefined =
+    typeof manifest?.provenance?.producer?.identityKey === 'string'
+      ? String(manifest.provenance.producer.identityKey).toLowerCase()
+      : undefined;
 
   let producerId: string | undefined = undefined;
   if (identityKey) {
@@ -52,7 +55,8 @@ export async function ingestSubmission(opts: {
       const tagHex = Buffer.from('DLM1', 'ascii').toString('hex');
       let cborHex: string | null = null;
       if (opret.pushesAscii[0] === 'DLM1' && opret.pushesHex[1]) cborHex = opret.pushesHex[1];
-      else if (opret.pushesHex[0].startsWith(tagHex)) cborHex = opret.pushesHex[0].slice(tagHex.length);
+      else if (opret.pushesHex[0].startsWith(tagHex))
+        cborHex = opret.pushesHex[0].slice(tagHex.length);
 
       if (cborHex && cborHex.length > 0) {
         const decoded = decodeDLM1(Buffer.from(cborHex, 'hex'));

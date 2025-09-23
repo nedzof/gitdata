@@ -1,13 +1,18 @@
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
+
 import { getManifest, setPrice, upsertPriceRule, deletePriceRule, getBestUnitPrice } from '../db';
 import { requireIdentity } from '../middleware/identity';
 
 const PRICE_DEFAULT_SATS = Number(process.env.PRICE_DEFAULT_SATS || 5000);
 const PRICE_QUOTE_TTL_SEC = Number(process.env.PRICE_QUOTE_TTL_SEC || 1800);
 
-function isHex64(s: string): boolean { return /^[0-9a-fA-F]{64}$/.test(s); }
-function json(res: Response, code: number, body: any) { return res.status(code).json(body); }
+function isHex64(s: string): boolean {
+  return /^[0-9a-fA-F]{64}$/.test(s);
+}
+function json(res: Response, code: number, body: any) {
+  return res.status(code).json(body);
+}
 
 export function priceRouter(): Router {
   const router = makeRouter();
@@ -17,7 +22,8 @@ export function priceRouter(): Router {
     const versionId = String(req.query.versionId || '').toLowerCase();
     const qtyParam = req.query.quantity;
     const quantity = Math.max(1, Number(qtyParam || 1));
-    if (!isHex64(versionId)) return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
+    if (!isHex64(versionId))
+      return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
 
     const man = await getManifest(versionId);
     if (!man) return json(res, 404, { error: 'not-found', hint: 'manifest missing' });
@@ -80,10 +86,14 @@ export function priceRouter(): Router {
   // Body: { versionId?, producerId?, tierFrom, satoshis }
   router.post('/price/rules', requireIdentity(), async (req: Request, res: Response) => {
     const { versionId, producerId, tierFrom, satoshis } = req.body || {};
-    if (!versionId && !producerId) return json(res, 400, { error: 'bad-request', hint: 'versionId or producerId required' });
-    if (versionId && !isHex64(String(versionId || ''))) return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
-    if (!Number.isInteger(tierFrom) || tierFrom < 1) return json(res, 400, { error: 'bad-request', hint: 'tierFrom >= 1' });
-    if (!Number.isInteger(satoshis) || satoshis <= 0) return json(res, 400, { error: 'bad-request', hint: 'satoshis > 0 integer' });
+    if (!versionId && !producerId)
+      return json(res, 400, { error: 'bad-request', hint: 'versionId or producerId required' });
+    if (versionId && !isHex64(String(versionId || '')))
+      return json(res, 400, { error: 'bad-request', hint: 'versionId=64-hex' });
+    if (!Number.isInteger(tierFrom) || tierFrom < 1)
+      return json(res, 400, { error: 'bad-request', hint: 'tierFrom >= 1' });
+    if (!Number.isInteger(satoshis) || satoshis <= 0)
+      return json(res, 400, { error: 'bad-request', hint: 'satoshis > 0 integer' });
 
     try {
       if (db) {
@@ -114,11 +124,16 @@ export function priceRouter(): Router {
     const versionId = req.query.versionId ? String(req.query.versionId).toLowerCase() : undefined;
     const producerId = req.query.producerId ? String(req.query.producerId) : undefined;
     const tierFrom = req.query.tierFrom ? Number(req.query.tierFrom) : undefined;
-    if (!versionId && !producerId) return json(res, 400, { error: 'bad-request', hint: 'versionId or producerId required' });
+    if (!versionId && !producerId)
+      return json(res, 400, { error: 'bad-request', hint: 'versionId or producerId required' });
     try {
       if (db) {
         // Use SQLite for test database (synchronous)
-        deletePriceRule(db, { version_id: versionId, producer_id: producerId, tier_from: tierFrom || null });
+        deletePriceRule(db, {
+          version_id: versionId,
+          producer_id: producerId,
+          tier_from: tierFrom || null,
+        });
       } else {
         // Use PostgreSQL for production (async)
         await deletePriceRule(versionId, producerId, tierFrom);

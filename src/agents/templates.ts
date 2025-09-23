@@ -46,7 +46,7 @@ function getNestedValue(obj: any, path: string): any {
 
 export function validateTemplateVariables(
   variables: Record<string, any>,
-  schema: TemplateSchema
+  schema: TemplateSchema,
 ): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
@@ -105,21 +105,23 @@ export function validateTemplateVariables(
 }
 
 // Overloaded function signatures
+/* eslint-disable no-redeclare */
 export function generateContract(
   template: any,
-  variables: Record<string, any>
+  variables: Record<string, any>,
 ): Promise<{ success: boolean; content?: string; error?: string; metadata?: any }>;
 export function generateContract(
   db: any,
   templateId: string,
-  variables: Record<string, any>
+  variables: Record<string, any>,
 ): Promise<{ success: boolean; content?: string; error?: string; metadata?: any }>;
 
 // Implementation that handles both cases
+/* eslint-disable no-redeclare */
 export async function generateContract(
   templateOrDb: any,
   templateIdOrVariables: string | Record<string, any>,
-  variablesOrUndefined?: Record<string, any>
+  variablesOrUndefined?: Record<string, any>,
 ): Promise<{ success: boolean; content?: string; error?: string; metadata?: any }> {
   try {
     let template: any;
@@ -187,7 +189,7 @@ export async function generateContract(
         templateType: template.template_type,
         generatedAt: systemVars.GENERATED_AT,
         variables: systemVars,
-      }
+      },
     };
   } catch (error) {
     return { success: false, error: `Template generation failed: ${error.message}` };
@@ -266,12 +268,17 @@ export const EXAMPLE_TEMPLATE_SCHEMA: TemplateSchema = {
     { name: 'QUANTITY', type: 'number', required: true },
     { name: 'TOTAL_COST', type: 'number', required: true },
     { name: 'USAGE_RIGHTS', type: 'string', required: true },
-    { name: 'START_DATE', type: 'date', required: false, default: new Date().toISOString().split('T')[0] },
-    { name: 'END_DATE', type: 'date', required: false }
+    {
+      name: 'START_DATE',
+      type: 'date',
+      required: false,
+      default: new Date().toISOString().split('T')[0],
+    },
+    { name: 'END_DATE', type: 'date', required: false },
   ],
   metadata: {
     title: 'Data Processing Agreement Template',
     description: 'Standard template for data processing agreements',
-    version: '1.0'
-  }
+    version: '1.0',
+  },
 };

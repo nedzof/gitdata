@@ -1,6 +1,8 @@
+import fs from 'fs';
+
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
-import fs from 'fs';
+
 import { snapshotMetrics } from '../metrics/registry';
 import { getHeadersSnapshot } from '../spv/headers-cache';
 
@@ -44,8 +46,8 @@ export function opsRouter(): Router {
         policy: {
           jobs: { running: 0, queued: 0, failed: 0, dead: 0 },
           agentRegistrations: { totalIPs: 0, totalRegistrations: 0 },
-          concurrency: { current: 0, max: 10 }
-        }
+          concurrency: { current: 0, max: 10 },
+        },
       });
     } catch (e: any) {
       return res.status(500).json({ error: 'metrics-failed', message: String(e?.message || e) });

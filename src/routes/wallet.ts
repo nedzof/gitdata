@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
+
 import * as db from '../db';
 
 function json(res: Response, code: number, body: any) {
@@ -49,47 +50,48 @@ export function walletRouter(): Router {
         // Get all receipts/payments from the database as a proxy for purchases
         const receipts = await db.getRecentReceipts(Number(limit), Number(offset));
 
-        purchases = await Promise.all(receipts.map(async (receipt: any) => {
-          // Get manifest data for the purchase
-          let manifest = null;
-          let assetStatus = 'active';
-          let recallInfo = null;
+        purchases = await Promise.all(
+          receipts.map(async (receipt: any) => {
+            // Get manifest data for the purchase
+            let manifest = null;
+            let assetStatus = 'active';
+            let recallInfo = null;
 
-          try {
-            manifest = await db.getManifest(receipt.version_id || receipt.contentHash);
-            // Check if asset has been recalled
-            // TODO: Implement actual recall checking logic
-            assetStatus = 'active';
-          } catch (err) {
-            console.log('Could not get manifest for', receipt.version_id || receipt.contentHash);
-          }
+            try {
+              manifest = await db.getManifest(receipt.version_id || receipt.contentHash);
+              // Check if asset has been recalled
+              // TODO: Implement actual recall checking logic
+              assetStatus = 'active';
+            } catch (err) {
+              console.log('Could not get manifest for', receipt.version_id || receipt.contentHash);
+            }
 
-          return {
-            id: receipt.receipt_id || receipt.id,
-            versionId: receipt.version_id || receipt.contentHash || 'unknown',
-            datasetId: manifest?.dataset_id || 'unknown',
-            title: manifest?.title || 'Unknown Asset',
-            producer: manifest?.provenance?.issuer || 'Unknown Producer',
-            amount: receipt.amount_satoshis || 0,
-            purchaseDate: receipt.created_at || new Date().toISOString(),
-            status: assetStatus as 'active' | 'recalled' | 'expired',
-            ...(recallInfo && {
-              recallReason: recallInfo.reason,
-              recallDate: recallInfo.date
-            })
-          };
-        }));
+            return {
+              id: receipt.receipt_id || receipt.id,
+              versionId: receipt.version_id || receipt.contentHash || 'unknown',
+              datasetId: manifest?.dataset_id || 'unknown',
+              title: manifest?.title || 'Unknown Asset',
+              producer: manifest?.provenance?.issuer || 'Unknown Producer',
+              amount: receipt.amount_satoshis || 0,
+              purchaseDate: receipt.created_at || new Date().toISOString(),
+              status: assetStatus as 'active' | 'recalled' | 'expired',
+              ...(recallInfo && {
+                recallReason: recallInfo.reason,
+                recallDate: recallInfo.date,
+              }),
+            };
+          }),
+        );
 
         // Apply filters
         if (status) {
-          purchases = purchases.filter(p => p.status === status);
+          purchases = purchases.filter((p) => p.status === status);
         }
         if (producer) {
-          purchases = purchases.filter(p =>
-            p.producer.toLowerCase().includes((producer as string).toLowerCase())
+          purchases = purchases.filter((p) =>
+            p.producer.toLowerCase().includes((producer as string).toLowerCase()),
           );
         }
-
       } catch (dbError) {
         console.log('Database query failed, returning empty purchases list:', dbError);
         purchases = [];
@@ -98,14 +100,13 @@ export function walletRouter(): Router {
       return json(res, 200, {
         purchases,
         total: purchases.length,
-        hasMore: purchases.length === Number(limit)
+        hasMore: purchases.length === Number(limit),
       });
-
     } catch (error) {
       console.error('Error fetching purchase history:', error);
       return json(res, 500, {
         error: 'Failed to fetch purchase history',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   });
@@ -121,20 +122,19 @@ export function walletRouter(): Router {
         total: 50000,
         addresses: [
           {
-            address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", // Example address
+            address: '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa', // Example address
             balance: 50000,
-            utxos: []
-          }
-        ]
+            utxos: [],
+          },
+        ],
       };
 
       return json(res, 200, balance);
-
     } catch (error) {
       console.error('Error fetching wallet balance:', error);
       return json(res, 500, {
         error: 'Failed to fetch wallet balance',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   });
@@ -163,16 +163,15 @@ export function walletRouter(): Router {
           reason: string;
           date: string;
           refundAvailable: boolean;
-        }
+        },
       };
 
       return json(res, 200, status);
-
     } catch (error) {
       console.error('Error checking asset status:', error);
       return json(res, 500, {
         error: 'Failed to check asset status',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   });
@@ -187,16 +186,15 @@ export function walletRouter(): Router {
         emailNotifications: true,
         recallAlerts: true,
         newDataAlerts: true,
-        priceChangeAlerts: false
+        priceChangeAlerts: false,
       };
 
       return json(res, 200, settings);
-
     } catch (error) {
       console.error('Error fetching notification settings:', error);
       return json(res, 500, {
         error: 'Failed to fetch notification settings',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   });
@@ -213,19 +211,18 @@ export function walletRouter(): Router {
         emailNotifications: settings.emailNotifications ?? true,
         recallAlerts: settings.recallAlerts ?? true,
         newDataAlerts: settings.newDataAlerts ?? true,
-        priceChangeAlerts: settings.priceChangeAlerts ?? false
+        priceChangeAlerts: settings.priceChangeAlerts ?? false,
       };
 
       return json(res, 200, {
         message: 'Notification settings updated successfully',
-        settings: updatedSettings
+        settings: updatedSettings,
       });
-
     } catch (error) {
       console.error('Error updating notification settings:', error);
       return json(res, 500, {
         error: 'Failed to update notification settings',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   });
@@ -244,7 +241,7 @@ export function walletRouter(): Router {
       const testPayload = {
         type: 'test',
         timestamp: new Date().toISOString(),
-        message: 'This is a test notification from Gitdata'
+        message: 'This is a test notification from Gitdata',
       };
 
       try {
@@ -254,22 +251,20 @@ export function walletRouter(): Router {
         return json(res, 200, {
           success: true,
           message: 'Webhook test successful',
-          testPayload
+          testPayload,
         });
-
       } catch (webhookError) {
         return json(res, 400, {
           success: false,
           error: 'Webhook test failed',
-          details: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+          details: webhookError instanceof Error ? webhookError.message : 'Unknown error',
         });
       }
-
     } catch (error) {
       console.error('Error testing webhook:', error);
       return json(res, 500, {
         error: 'Failed to test webhook',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   });

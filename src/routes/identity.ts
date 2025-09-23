@@ -9,12 +9,15 @@
  * - Overlay network integration
  */
 
-import { Router, Request, Response } from 'express';
-import { requireIdentity } from '../middleware/identity';
-import { PostgreSQLClient } from '../db/postgresql';
-import { generateBRC31Headers, verifyBRC31Signature } from '../brc31/signer';
-import { secp256k1 } from '@noble/curves/secp256k1';
 import crypto from 'crypto';
+
+import { secp256k1 } from '@noble/curves/secp256k1';
+import type { Request, Response } from 'express';
+import { Router } from 'express';
+
+import { generateBRC31Headers, verifyBRC31Signature } from '../brc31/signer';
+import type { PostgreSQLClient } from '../db/postgresql';
+import { requireIdentity } from '../middleware/identity';
 
 const router = Router();
 
@@ -66,21 +69,21 @@ router.post('/register', requireIdentity(true), async (req: IdentityRequest, res
     if (!registration.producerCapabilities || !Array.isArray(registration.producerCapabilities)) {
       return res.status(400).json({
         error: 'invalid_registration',
-        message: 'producerCapabilities array required'
+        message: 'producerCapabilities array required',
       });
     }
 
     if (!registration.overlayTopics || !Array.isArray(registration.overlayTopics)) {
       return res.status(400).json({
         error: 'invalid_registration',
-        message: 'overlayTopics array required'
+        message: 'overlayTopics array required',
       });
     }
 
     // Check if identity already exists
     const existingIdentity = await db.query(
       'SELECT identity_key, verification_status FROM overlay_identities WHERE identity_key = $1',
-      [identityKey]
+      [identityKey],
     );
 
     let producerId: string;
@@ -88,7 +91,8 @@ router.post('/register', requireIdentity(true), async (req: IdentityRequest, res
 
     if (existingIdentity.rows.length > 0) {
       // Update existing identity
-      await db.query(`
+      await db.query(
+        `
         UPDATE overlay_identities
         SET overlay_topics = $2,
             last_verified_at = NOW(),
@@ -96,20 +100,22 @@ router.post('/register', requireIdentity(true), async (req: IdentityRequest, res
             metadata = $3,
             is_active = true
         WHERE identity_key = $1
-      `, [
-        identityKey,
-        registration.overlayTopics,
-        JSON.stringify({
-          geographicRegion: registration.geographicRegion,
-          serviceEndpoints: registration.serviceEndpoints,
-          walletType: registration.walletType
-        })
-      ]);
+      `,
+        [
+          identityKey,
+          registration.overlayTopics,
+          JSON.stringify({
+            geographicRegion: registration.geographicRegion,
+            serviceEndpoints: registration.serviceEndpoints,
+            walletType: registration.walletType,
+          }),
+        ],
+      );
 
       // Get the producer ID
       const producerResult = await db.query(
         'SELECT producer_id FROM overlay_identities WHERE identity_key = $1',
-        [identityKey]
+        [identityKey],
       );
       producerId = producerResult.rows[0]?.producer_id;
 
@@ -118,36 +124,36 @@ router.post('/register', requireIdentity(true), async (req: IdentityRequest, res
       // Create new identity
       producerId = `prod_${crypto.randomBytes(16).toString('hex')}`;
 
-      await db.query(`
+      await db.query(
+        `
         INSERT INTO overlay_identities (
           identity_key, producer_id, overlay_topics, verification_status,
           reputation_score, registered_at, last_verified_at, last_activity_at, metadata
         ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW(), $6)
-      `, [
-        identityKey,
-        producerId,
-        registration.overlayTopics,
-        'verified',
-        100, // Initial reputation score
-        JSON.stringify({
-          geographicRegion: registration.geographicRegion,
-          serviceEndpoints: registration.serviceEndpoints,
-          walletType: registration.walletType
-        })
-      ]);
+      `,
+        [
+          identityKey,
+          producerId,
+          registration.overlayTopics,
+          'verified',
+          100, // Initial reputation score
+          JSON.stringify({
+            geographicRegion: registration.geographicRegion,
+            serviceEndpoints: registration.serviceEndpoints,
+            walletType: registration.walletType,
+          }),
+        ],
+      );
 
       // Add initial reputation entry
-      await db.query(`
+      await db.query(
+        `
         INSERT INTO identity_reputation (
           identity_key, event_type, score_change, reason, recorded_by
         ) VALUES ($1, $2, $3, $4, $5)
-      `, [
-        identityKey,
-        'registration',
-        100,
-        'Initial registration bonus',
-        'system'
-      ]);
+      `,
+        [identityKey, 'registration', 100, 'Initial registration bonus', 'system'],
+      );
     }
 
     // Register producer capabilities
@@ -157,11 +163,15 @@ router.post('/register', requireIdentity(true), async (req: IdentityRequest, res
 
       // Add new capabilities
       for (const capability of registration.producerCapabilities) {
-        const endpointUrl = registration.serviceEndpoints?.[capability as keyof typeof registration.serviceEndpoints];
-        await db.query(`
+        const endpointUrl =
+          registration.serviceEndpoints?.[capability as keyof typeof registration.serviceEndpoints];
+        await db.query(
+          `
           INSERT INTO producer_capabilities (identity_key, capability_type, endpoint_url)
           VALUES ($1, $2, $3)
-        `, [identityKey, capability, endpointUrl]);
+        `,
+          [identityKey, capability, endpointUrl],
+        );
       }
     }
 
@@ -171,13 +181,13 @@ router.post('/register', requireIdentity(true), async (req: IdentityRequest, res
     // Update with SHIP advertisement ID
     await db.query(
       'UPDATE overlay_identities SET ship_advertisement_id = $1 WHERE identity_key = $2',
-      [shipAdvertisementId, identityKey]
+      [shipAdvertisementId, identityKey],
     );
 
     // Get current reputation score
     const reputationResult = await db.query(
       'SELECT reputation_score FROM overlay_identities WHERE identity_key = $1',
-      [identityKey]
+      [identityKey],
     );
     const reputationScore = reputationResult.rows[0]?.reputation_score || 100;
 
@@ -189,14 +199,13 @@ router.post('/register', requireIdentity(true), async (req: IdentityRequest, res
       verificationStatus,
       reputationScore,
       capabilities: registration.producerCapabilities,
-      registeredAt: new Date().toISOString()
+      registeredAt: new Date().toISOString(),
     });
-
   } catch (error) {
     console.error('Identity registration error:', error);
     res.status(500).json({
       error: 'registration_failed',
-      message: 'Failed to register identity'
+      message: 'Failed to register identity',
     });
   }
 });
@@ -213,14 +222,14 @@ router.post('/wallet/connect', async (req: Request, res: Response) => {
     if (!connectRequest.walletType) {
       return res.status(400).json({
         error: 'invalid_request',
-        message: 'walletType required'
+        message: 'walletType required',
       });
     }
 
     if (!connectRequest.capabilities || !Array.isArray(connectRequest.capabilities)) {
       return res.status(400).json({
         error: 'invalid_request',
-        message: 'capabilities array required'
+        message: 'capabilities array required',
       });
     }
 
@@ -228,32 +237,34 @@ router.post('/wallet/connect', async (req: Request, res: Response) => {
     const sessionId = `wallet_${crypto.randomBytes(16).toString('hex')}`;
 
     // Create wallet session
-    await db.query(`
+    await db.query(
+      `
       INSERT INTO wallet_sessions (
         session_id, wallet_type, connection_data, capabilities,
         is_connected, connected_at, last_activity_at, expires_at
       ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW() + INTERVAL '${SESSION_TTL_HOURS} hours')
-    `, [
-      sessionId,
-      connectRequest.walletType,
-      JSON.stringify(connectRequest.connectionData || {}),
-      connectRequest.capabilities,
-      false // Will be set to true after identity verification
-    ]);
+    `,
+      [
+        sessionId,
+        connectRequest.walletType,
+        JSON.stringify(connectRequest.connectionData || {}),
+        connectRequest.capabilities,
+        false, // Will be set to true after identity verification
+      ],
+    );
 
     res.json({
       sessionId,
       walletType: connectRequest.walletType,
       capabilities: connectRequest.capabilities,
       expiresAt: new Date(Date.now() + SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString(),
-      status: 'pending_verification'
+      status: 'pending_verification',
     });
-
   } catch (error) {
     console.error('Wallet connect error:', error);
     res.status(500).json({
       error: 'connection_failed',
-      message: 'Failed to initiate wallet connection'
+      message: 'Failed to initiate wallet connection',
     });
   }
 });
@@ -269,20 +280,20 @@ router.post('/wallet/verify', async (req: Request, res: Response) => {
     if (!sessionId || !identityKey || !signature || !nonce) {
       return res.status(400).json({
         error: 'invalid_request',
-        message: 'sessionId, identityKey, signature, and nonce required'
+        message: 'sessionId, identityKey, signature, and nonce required',
       });
     }
 
     // Get wallet session
     const sessionResult = await db.query(
       'SELECT * FROM wallet_sessions WHERE session_id = $1 AND expires_at > NOW()',
-      [sessionId]
+      [sessionId],
     );
 
     if (sessionResult.rows.length === 0) {
       return res.status(404).json({
         error: 'session_not_found',
-        message: 'Wallet session not found or expired'
+        message: 'Wallet session not found or expired',
       });
     }
 
@@ -319,58 +330,66 @@ router.post('/wallet/verify', async (req: Request, res: Response) => {
     if (!isValidSignature) {
       return res.status(401).json({
         error: 'invalid_signature',
-        message: 'BRC-31 signature verification failed'
+        message: 'BRC-31 signature verification failed',
       });
     }
 
     // Update session with verified identity
-    await db.query(`
+    await db.query(
+      `
       UPDATE wallet_sessions
       SET identity_key = $1, is_connected = true, connected_at = NOW(), last_activity_at = NOW()
       WHERE session_id = $2
-    `, [identityKey, sessionId]);
+    `,
+      [identityKey, sessionId],
+    );
 
     // Log signature verification
-    await db.query(`
+    await db.query(
+      `
       INSERT INTO signature_verifications (
         identity_key, request_path, request_method, nonce, signature,
         verification_result, overlay_evidence, verified_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-    `, [
-      identityKey,
-      '/identity/wallet/verify',
-      'POST',
-      nonce,
-      signature,
-      true,
-      JSON.stringify({ sessionId, walletType: session.wallet_type })
-    ]);
+    `,
+      [
+        identityKey,
+        '/identity/wallet/verify',
+        'POST',
+        nonce,
+        signature,
+        true,
+        JSON.stringify({ sessionId, walletType: session.wallet_type }),
+      ],
+    );
 
     // Get or create identity record
     let identityRecord = await db.query(
       'SELECT * FROM overlay_identities WHERE identity_key = $1',
-      [identityKey]
+      [identityKey],
     );
 
     if (identityRecord.rows.length === 0) {
       // Create minimal identity record for wallet users
       const producerId = `prod_${crypto.randomBytes(16).toString('hex')}`;
-      await db.query(`
+      await db.query(
+        `
         INSERT INTO overlay_identities (
           identity_key, producer_id, verification_status, reputation_score,
           registered_at, last_verified_at, last_activity_at
         ) VALUES ($1, $2, $3, $4, NOW(), NOW(), NOW())
-      `, [identityKey, producerId, 'verified', 100]);
-
-      identityRecord = await db.query(
-        'SELECT * FROM overlay_identities WHERE identity_key = $1',
-        [identityKey]
+      `,
+        [identityKey, producerId, 'verified', 100],
       );
+
+      identityRecord = await db.query('SELECT * FROM overlay_identities WHERE identity_key = $1', [
+        identityKey,
+      ]);
     } else {
       // Update activity timestamp
       await db.query(
         'UPDATE overlay_identities SET last_activity_at = NOW() WHERE identity_key = $1',
-        [identityKey]
+        [identityKey],
       );
     }
 
@@ -384,17 +403,16 @@ router.post('/wallet/verify', async (req: Request, res: Response) => {
       identity: {
         producerId: identity.producer_id,
         verificationStatus: identity.verification_status,
-        reputationScore: identity.reputation_score
+        reputationScore: identity.reputation_score,
       },
       connectedAt: new Date().toISOString(),
-      status: 'connected'
+      status: 'connected',
     });
-
   } catch (error) {
     console.error('Wallet verification error:', error);
     res.status(500).json({
       error: 'verification_failed',
-      message: 'Failed to verify wallet connection'
+      message: 'Failed to verify wallet connection',
     });
   }
 });
@@ -410,23 +428,26 @@ router.get('/status/:identityKey', async (req: Request, res: Response) => {
     if (!/^[0-9a-fA-F]{66}$/.test(identityKey)) {
       return res.status(400).json({
         error: 'invalid_identity_key',
-        message: 'Identity key must be 66-character hex string'
+        message: 'Identity key must be 66-character hex string',
       });
     }
 
     // Get identity record
-    const identityResult = await db.query(`
+    const identityResult = await db.query(
+      `
       SELECT oi.*, COUNT(pc.id) as capability_count
       FROM overlay_identities oi
       LEFT JOIN producer_capabilities pc ON oi.identity_key = pc.identity_key AND pc.is_active = true
       WHERE oi.identity_key = $1
       GROUP BY oi.identity_key
-    `, [identityKey]);
+    `,
+      [identityKey],
+    );
 
     if (identityResult.rows.length === 0) {
       return res.status(404).json({
         error: 'identity_not_found',
-        message: 'Identity not registered'
+        message: 'Identity not registered',
       });
     }
 
@@ -435,22 +456,25 @@ router.get('/status/:identityKey', async (req: Request, res: Response) => {
     // Get capabilities
     const capabilitiesResult = await db.query(
       'SELECT capability_type, endpoint_url FROM producer_capabilities WHERE identity_key = $1 AND is_active = true',
-      [identityKey]
+      [identityKey],
     );
 
     // Get recent reputation changes
-    const reputationResult = await db.query(`
+    const reputationResult = await db.query(
+      `
       SELECT event_type, score_change, reason, recorded_at
       FROM identity_reputation
       WHERE identity_key = $1
       ORDER BY recorded_at DESC
       LIMIT 10
-    `, [identityKey]);
+    `,
+      [identityKey],
+    );
 
     // Get wallet sessions
     const sessionsResult = await db.query(
       'SELECT session_id, wallet_type, is_connected, connected_at, expires_at FROM wallet_sessions WHERE identity_key = $1 AND expires_at > NOW()',
-      [identityKey]
+      [identityKey],
     );
 
     res.json({
@@ -463,20 +487,19 @@ router.get('/status/:identityKey', async (req: Request, res: Response) => {
       lastVerifiedAt: identity.last_verified_at,
       lastActivityAt: identity.last_activity_at,
       isActive: identity.is_active,
-      capabilities: capabilitiesResult.rows.map(cap => ({
+      capabilities: capabilitiesResult.rows.map((cap) => ({
         type: cap.capability_type,
-        endpoint: cap.endpoint_url
+        endpoint: cap.endpoint_url,
       })),
       recentActivity: reputationResult.rows,
       walletSessions: sessionsResult.rows,
-      metadata: identity.metadata
+      metadata: identity.metadata,
     });
-
   } catch (error) {
     console.error('Identity status error:', error);
     res.status(500).json({
       error: 'status_failed',
-      message: 'Failed to get identity status'
+      message: 'Failed to get identity status',
     });
   }
 });
@@ -492,40 +515,43 @@ router.post('/reputation', requireIdentity(false), async (req: IdentityRequest, 
     if (!identityKey || !eventType || scoreChange === undefined) {
       return res.status(400).json({
         error: 'invalid_request',
-        message: 'identityKey, eventType, and scoreChange required'
+        message: 'identityKey, eventType, and scoreChange required',
       });
     }
 
     // Verify identity exists
     const identityResult = await db.query(
       'SELECT identity_key FROM overlay_identities WHERE identity_key = $1',
-      [identityKey]
+      [identityKey],
     );
 
     if (identityResult.rows.length === 0) {
       return res.status(404).json({
         error: 'identity_not_found',
-        message: 'Identity not registered'
+        message: 'Identity not registered',
       });
     }
 
     // Add reputation record
-    await db.query(`
+    await db.query(
+      `
       INSERT INTO identity_reputation (
         identity_key, event_type, score_change, reason, recorded_by
       ) VALUES ($1, $2, $3, $4, $5)
-    `, [
-      identityKey,
-      eventType,
-      scoreChange,
-      reason || `${eventType} event`,
-      req.identityKey || 'system'
-    ]);
+    `,
+      [
+        identityKey,
+        eventType,
+        scoreChange,
+        reason || `${eventType} event`,
+        req.identityKey || 'system',
+      ],
+    );
 
     // Calculate new reputation score (trigger will handle this automatically)
     const newScoreResult = await db.query(
       'SELECT reputation_score FROM overlay_identities WHERE identity_key = $1',
-      [identityKey]
+      [identityKey],
     );
 
     res.json({
@@ -533,14 +559,13 @@ router.post('/reputation', requireIdentity(false), async (req: IdentityRequest, 
       eventType,
       scoreChange,
       newReputationScore: newScoreResult.rows[0]?.reputation_score,
-      recordedAt: new Date().toISOString()
+      recordedAt: new Date().toISOString(),
     });
-
   } catch (error) {
     console.error('Reputation update error:', error);
     res.status(500).json({
       error: 'reputation_failed',
-      message: 'Failed to update reputation'
+      message: 'Failed to update reputation',
     });
   }
 });
@@ -549,31 +574,37 @@ router.post('/reputation', requireIdentity(false), async (req: IdentityRequest, 
  * GET /identity/wallet/sessions
  * Get active wallet sessions for authenticated user
  */
-router.get('/wallet/sessions', requireIdentity(true), async (req: IdentityRequest, res: Response) => {
-  try {
-    const identityKey = req.identityKey!;
+router.get(
+  '/wallet/sessions',
+  requireIdentity(true),
+  async (req: IdentityRequest, res: Response) => {
+    try {
+      const identityKey = req.identityKey!;
 
-    const sessionsResult = await db.query(`
+      const sessionsResult = await db.query(
+        `
       SELECT session_id, wallet_type, capabilities, is_connected,
              connected_at, last_activity_at, expires_at
       FROM wallet_sessions
       WHERE identity_key = $1 AND expires_at > NOW()
       ORDER BY last_activity_at DESC
-    `, [identityKey]);
+    `,
+        [identityKey],
+      );
 
-    res.json({
-      identityKey,
-      sessions: sessionsResult.rows
-    });
-
-  } catch (error) {
-    console.error('Wallet sessions error:', error);
-    res.status(500).json({
-      error: 'sessions_failed',
-      message: 'Failed to get wallet sessions'
-    });
-  }
-});
+      res.json({
+        identityKey,
+        sessions: sessionsResult.rows,
+      });
+    } catch (error) {
+      console.error('Wallet sessions error:', error);
+      res.status(500).json({
+        error: 'sessions_failed',
+        message: 'Failed to get wallet sessions',
+      });
+    }
+  },
+);
 
 /**
  * POST /identity/test-verify
@@ -586,14 +617,13 @@ router.post('/test-verify', requireIdentity(true), async (req: IdentityRequest, 
       verified: true,
       identityKey: req.identityKey,
       message: 'BRC-31 signature verification successful',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
-
   } catch (error) {
     console.error('Test verify error:', error);
     res.status(500).json({
       error: 'test_verify_failed',
-      message: 'Failed to verify test signature'
+      message: 'Failed to verify test signature',
     });
   }
 });

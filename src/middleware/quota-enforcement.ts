@@ -3,7 +3,7 @@
  * Real-time quota validation and enforcement for streaming requests
  */
 
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { Pool } from 'pg';
 
 // Database connection
@@ -29,7 +29,7 @@ export interface QuotaValidationResult {
 export async function validateQuota(
   receiptId: string,
   requestedBytes: number = 0,
-  windowType: 'hour' | 'day' | 'month' = 'hour'
+  windowType: 'hour' | 'day' | 'month' = 'hour',
 ): Promise<QuotaValidationResult> {
   try {
     // Get receipt and quota policy
@@ -45,7 +45,7 @@ export async function validateQuota(
       return {
         allowed: false,
         quotaStatus: null,
-        errorMessage: 'Receipt not found'
+        errorMessage: 'Receipt not found',
       };
     }
 
@@ -81,13 +81,16 @@ export async function validateQuota(
     `;
 
     const usageResult = await pool.query(usageQuery, [
-      receiptId, windowType, windowStart, windowEnd
+      receiptId,
+      windowType,
+      windowStart,
+      windowEnd,
     ]);
 
     const usage = usageResult.rows[0] || {
       bytes_used: 0,
       requests_used: 0,
-      burst_bytes_used: 0
+      burst_bytes_used: 0,
     };
 
     // Get quota limits for this window type
@@ -106,11 +109,11 @@ export async function validateQuota(
           bytesUsed: currentBytesUsed,
           bytesAllowed,
           requestsUsed: currentRequestsUsed,
-          requestsAllowed
+          requestsAllowed,
         },
         errorMessage: `${windowType} byte quota exceeded: ${currentBytesUsed + requestedBytes} > ${bytesAllowed}`,
         remainingBytes: Math.max(0, bytesAllowed - currentBytesUsed),
-        remainingRequests: Math.max(0, requestsAllowed - currentRequestsUsed)
+        remainingRequests: Math.max(0, requestsAllowed - currentRequestsUsed),
       };
     }
 
@@ -122,11 +125,11 @@ export async function validateQuota(
           bytesUsed: currentBytesUsed,
           bytesAllowed,
           requestsUsed: currentRequestsUsed,
-          requestsAllowed
+          requestsAllowed,
         },
         errorMessage: `${windowType} request quota exceeded: ${currentRequestsUsed + 1} > ${requestsAllowed}`,
         remainingBytes: Math.max(0, bytesAllowed - currentBytesUsed),
-        remainingRequests: Math.max(0, requestsAllowed - currentRequestsUsed)
+        remainingRequests: Math.max(0, requestsAllowed - currentRequestsUsed),
       };
     }
 
@@ -138,18 +141,17 @@ export async function validateQuota(
         bytesAllowed,
         requestsUsed: currentRequestsUsed,
         requestsAllowed,
-        utilizationPercentage: (currentBytesUsed / bytesAllowed) * 100
+        utilizationPercentage: (currentBytesUsed / bytesAllowed) * 100,
       },
       remainingBytes: bytesAllowed - currentBytesUsed,
-      remainingRequests: requestsAllowed - currentRequestsUsed
+      remainingRequests: requestsAllowed - currentRequestsUsed,
     };
-
   } catch (error) {
     console.error('Quota validation error:', error);
     return {
       allowed: false,
       quotaStatus: null,
-      errorMessage: 'Quota validation failed'
+      errorMessage: 'Quota validation failed',
     };
   }
 }
@@ -178,7 +180,7 @@ export async function validateConcurrentStreams(receiptId: string): Promise<{
         allowed: false,
         activeStreams: 0,
         maxAllowed: 0,
-        errorMessage: 'Receipt or policy not found'
+        errorMessage: 'Receipt or policy not found',
       };
     }
 
@@ -198,23 +200,22 @@ export async function validateConcurrentStreams(receiptId: string): Promise<{
         allowed: false,
         activeStreams,
         maxAllowed,
-        errorMessage: `Concurrent stream limit exceeded: ${activeStreams} >= ${maxAllowed}`
+        errorMessage: `Concurrent stream limit exceeded: ${activeStreams} >= ${maxAllowed}`,
       };
     }
 
     return {
       allowed: true,
       activeStreams,
-      maxAllowed
+      maxAllowed,
     };
-
   } catch (error) {
     console.error('Concurrent stream validation error:', error);
     return {
       allowed: false,
       activeStreams: 0,
       maxAllowed: 0,
-      errorMessage: 'Concurrent stream validation failed'
+      errorMessage: 'Concurrent stream validation failed',
     };
   }
 }
@@ -223,37 +224,38 @@ export async function validateConcurrentStreams(receiptId: string): Promise<{
  * Express middleware for quota enforcement
  * Checks quotas before allowing streaming requests
  */
-export function enforceQuotas(options: {
-  estimatedBytesField?: string;
-  windowType?: 'hour' | 'day' | 'month';
-  checkConcurrent?: boolean;
-} = {}) {
+export function enforceQuotas(
+  options: {
+    estimatedBytesField?: string;
+    windowType?: 'hour' | 'day' | 'month';
+    checkConcurrent?: boolean;
+  } = {},
+) {
   const {
     estimatedBytesField = 'estimatedBytes',
     windowType = 'hour',
-    checkConcurrent = true
+    checkConcurrent = true,
   } = options;
 
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Extract receipt ID from various possible sources
-      const receiptId = req.body?.receiptId ||
-                       req.query?.receiptId ||
-                       req.params?.receiptId ||
-                       req.headers['x-receipt-id'];
+      const receiptId =
+        req.body?.receiptId ||
+        req.query?.receiptId ||
+        req.params?.receiptId ||
+        req.headers['x-receipt-id'];
 
       if (!receiptId) {
         return res.status(400).json({
           error: 'Receipt ID required',
-          message: 'Provide receiptId in body, query, params, or X-Receipt-Id header'
+          message: 'Provide receiptId in body, query, params, or X-Receipt-Id header',
         });
       }
 
       // Get estimated bytes from request
       const estimatedBytes = parseInt(
-        req.body?.[estimatedBytesField] ||
-        req.query?.[estimatedBytesField] ||
-        '0'
+        req.body?.[estimatedBytesField] || req.query?.[estimatedBytesField] || '0',
       );
 
       // Validate quota
@@ -265,7 +267,7 @@ export function enforceQuotas(options: {
           message: quotaCheck.errorMessage,
           quotaStatus: quotaCheck.quotaStatus,
           remainingBytes: quotaCheck.remainingBytes,
-          remainingRequests: quotaCheck.remainingRequests
+          remainingRequests: quotaCheck.remainingRequests,
         });
       }
 
@@ -278,7 +280,7 @@ export function enforceQuotas(options: {
             error: 'Concurrent stream limit exceeded',
             message: concurrentCheck.errorMessage,
             activeStreams: concurrentCheck.activeStreams,
-            maxAllowed: concurrentCheck.maxAllowed
+            maxAllowed: concurrentCheck.maxAllowed,
           });
         }
 
@@ -292,12 +294,11 @@ export function enforceQuotas(options: {
       res.locals.estimatedBytes = estimatedBytes;
 
       next();
-
     } catch (error) {
       console.error('Quota enforcement middleware error:', error);
       res.status(500).json({
         error: 'Quota enforcement failed',
-        message: 'Internal server error during quota validation'
+        message: 'Internal server error during quota validation',
       });
     }
   };
@@ -309,7 +310,7 @@ export function enforceQuotas(options: {
 export const enforceStreamingQuotas = enforceQuotas({
   estimatedBytesField: 'estimatedBytes',
   windowType: 'hour',
-  checkConcurrent: true
+  checkConcurrent: true,
 });
 
 /**
@@ -318,7 +319,7 @@ export const enforceStreamingQuotas = enforceQuotas({
 export const enforceAgentStreamingQuotas = enforceQuotas({
   estimatedBytesField: 'totalContentBytes',
   windowType: 'day',
-  checkConcurrent: false
+  checkConcurrent: false,
 });
 
 /**
@@ -327,7 +328,7 @@ export const enforceAgentStreamingQuotas = enforceQuotas({
 export const enforceBurstQuotas = enforceQuotas({
   estimatedBytesField: 'requestedBytes',
   windowType: 'hour',
-  checkConcurrent: true
+  checkConcurrent: true,
 });
 
 export default {
@@ -336,5 +337,5 @@ export default {
   enforceQuotas,
   enforceStreamingQuotas,
   enforceAgentStreamingQuotas,
-  enforceBurstQuotas
+  enforceBurstQuotas,
 };

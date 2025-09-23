@@ -30,12 +30,12 @@
     DATA_TIER_DEFAULT=hot
 */
 
-import { Readable } from 'stream';
-import * as path from 'path';
-import * as fs from 'fs/promises';
-import { createReadStream, createWriteStream } from 'fs';
 import { createHash, createHmac } from 'crypto';
+import { createReadStream, createWriteStream } from 'fs';
+import * as fs from 'fs/promises';
 import * as https from 'https';
+import * as path from 'path';
+import type { Readable } from 'stream';
 import { URL } from 'url';
 
 // ------------ Types & Interfaces ------------
@@ -102,21 +102,42 @@ export abstract class StorageDriver {
   }
 
   // Core storage operations
-  abstract putObject(contentHash: string, data: Buffer | Readable, tier: StorageTier, metadata?: StorageMetadata): Promise<void>;
-  abstract getObject(contentHash: string, tier: StorageTier, range?: RangeRequest): Promise<{ data: Readable; metadata: StorageMetadata }>;
+  abstract putObject(
+    contentHash: string,
+    data: Buffer | Readable,
+    tier: StorageTier,
+    metadata?: StorageMetadata,
+  ): Promise<void>;
+  abstract getObject(
+    contentHash: string,
+    tier: StorageTier,
+    range?: RangeRequest,
+  ): Promise<{ data: Readable; metadata: StorageMetadata }>;
   abstract headObject(contentHash: string, tier: StorageTier): Promise<StorageMetadata>;
   abstract deleteObject(contentHash: string, tier: StorageTier): Promise<void>;
   abstract objectExists(contentHash: string, tier: StorageTier): Promise<boolean>;
 
   // URL generation
-  abstract getPresignedUrl(contentHash: string, tier: StorageTier, ttlSec?: number): Promise<PresignedUrl>;
+  abstract getPresignedUrl(
+    contentHash: string,
+    tier: StorageTier,
+    ttlSec?: number,
+  ): Promise<PresignedUrl>;
 
   // Health and utility
   abstract healthCheck(): Promise<{ healthy: boolean; latencyMs?: number; error?: string }>;
-  abstract listObjects(tier: StorageTier, prefix?: string, maxKeys?: number): Promise<StorageObject[]>;
+  abstract listObjects(
+    tier: StorageTier,
+    prefix?: string,
+    maxKeys?: number,
+  ): Promise<StorageObject[]>;
 
   // Tier management
-  abstract moveObject(contentHash: string, fromTier: StorageTier, toTier: StorageTier): Promise<void>;
+  abstract moveObject(
+    contentHash: string,
+    fromTier: StorageTier,
+    toTier: StorageTier,
+  ): Promise<void>;
 
   // CDN integration
   protected generateCdnUrl(contentHash: string, tier: StorageTier): string | null {
@@ -138,10 +159,14 @@ export abstract class StorageDriver {
     }
 
     switch (tier) {
-      case 'hot': return this.config.s3.buckets.hot;
-      case 'warm': return this.config.s3.buckets.warm;
-      case 'cold': return this.config.s3.buckets.cold;
-      default: throw new Error(`Unknown tier: ${tier}`);
+      case 'hot':
+        return this.config.s3.buckets.hot;
+      case 'warm':
+        return this.config.s3.buckets.warm;
+      case 'cold':
+        return this.config.s3.buckets.cold;
+      default:
+        throw new Error(`Unknown tier: ${tier}`);
     }
   }
 
@@ -158,34 +183,42 @@ function getStorageConfig(): StorageConfig {
 
   return {
     backend,
-    s3: backend === 's3' ? {
-      endpoint: process.env.S3_ENDPOINT || '',
-      region: process.env.S3_REGION || 'eu-central',
-      accessKeyId: process.env.S3_ACCESS_KEY || '',
-      secretAccessKey: process.env.S3_SECRET_KEY || '',
-      buckets: {
-        hot: process.env.S3_BUCKET_HOT || 'gitdata-hot',
-        warm: process.env.S3_BUCKET_WARM || 'gitdata-warm',
-        cold: process.env.S3_BUCKET_COLD || 'gitdata-cold',
-        backup: process.env.BACKUP_BUCKET || undefined
-      }
-    } : undefined,
+    s3:
+      backend === 's3'
+        ? {
+            endpoint: process.env.S3_ENDPOINT || '',
+            region: process.env.S3_REGION || 'eu-central',
+            accessKeyId: process.env.S3_ACCESS_KEY || '',
+            secretAccessKey: process.env.S3_SECRET_KEY || '',
+            buckets: {
+              hot: process.env.S3_BUCKET_HOT || 'gitdata-hot',
+              warm: process.env.S3_BUCKET_WARM || 'gitdata-warm',
+              cold: process.env.S3_BUCKET_COLD || 'gitdata-cold',
+              backup: process.env.BACKUP_BUCKET || undefined,
+            },
+          }
+        : undefined,
     cdn: {
       mode: (process.env.CDN_MODE || 'off') as CDNMode,
       baseUrl: process.env.CDN_BASE_URL || undefined,
-      signingKey: process.env.CDN_SIGNING_KEY || undefined
+      signingKey: process.env.CDN_SIGNING_KEY || undefined,
     },
     presignTtlSec: Number(process.env.PRESIGN_TTL_SEC || 900),
     defaultTier: (process.env.DATA_TIER_DEFAULT || 'hot') as StorageTier,
     maxRangeBytes: Number(process.env.MAX_RANGE_BYTES || 16777216), // 16MB
-    dataRoot: process.env.DATA_ROOT || './data/content'
+    dataRoot: process.env.DATA_ROOT || './data/content',
   };
 }
 
 // ------------ Filesystem Storage Driver ------------
 
 export class FilesystemStorageDriver extends StorageDriver {
-  async putObject(contentHash: string, data: Buffer | Readable, tier: StorageTier, metadata?: StorageMetadata): Promise<void> {
+  async putObject(
+    contentHash: string,
+    data: Buffer | Readable,
+    tier: StorageTier,
+    metadata?: StorageMetadata,
+  ): Promise<void> {
     const filePath = this.getFilePath(contentHash, tier);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
 
@@ -202,7 +235,11 @@ export class FilesystemStorageDriver extends StorageDriver {
     }
   }
 
-  async getObject(contentHash: string, tier: StorageTier, range?: RangeRequest): Promise<{ data: Readable; metadata: StorageMetadata }> {
+  async getObject(
+    contentHash: string,
+    tier: StorageTier,
+    range?: RangeRequest,
+  ): Promise<{ data: Readable; metadata: StorageMetadata }> {
     const filePath = this.getFilePath(contentHash, tier);
     const stats = await fs.stat(filePath);
 
@@ -218,7 +255,7 @@ export class FilesystemStorageDriver extends StorageDriver {
     const metadata: StorageMetadata = {
       contentLength: stats.size,
       tier,
-      contentType: 'application/octet-stream'
+      contentType: 'application/octet-stream',
     };
 
     return { data, metadata };
@@ -231,7 +268,7 @@ export class FilesystemStorageDriver extends StorageDriver {
     return {
       contentLength: stats.size,
       tier,
-      contentType: 'application/octet-stream'
+      contentType: 'application/octet-stream',
     };
   }
 
@@ -250,13 +287,17 @@ export class FilesystemStorageDriver extends StorageDriver {
     }
   }
 
-  async getPresignedUrl(contentHash: string, tier: StorageTier, ttlSec?: number): Promise<PresignedUrl> {
+  async getPresignedUrl(
+    contentHash: string,
+    tier: StorageTier,
+    ttlSec?: number,
+  ): Promise<PresignedUrl> {
     // For filesystem, return a direct URL (in production this would be served by nginx)
     const cdnUrl = this.generateCdnUrl(contentHash, tier);
     if (cdnUrl) {
       return {
         url: cdnUrl,
-        expiresAt: Date.now() + (ttlSec || this.config.presignTtlSec) * 1000
+        expiresAt: Date.now() + (ttlSec || this.config.presignTtlSec) * 1000,
       };
     }
 
@@ -264,7 +305,7 @@ export class FilesystemStorageDriver extends StorageDriver {
     const filePath = this.getFilePath(contentHash, tier);
     return {
       url: `file://${filePath}`,
-      expiresAt: Date.now() + (ttlSec || this.config.presignTtlSec) * 1000
+      expiresAt: Date.now() + (ttlSec || this.config.presignTtlSec) * 1000,
     };
   }
 
@@ -279,18 +320,22 @@ export class FilesystemStorageDriver extends StorageDriver {
       const latency = Date.now() - start;
       return {
         healthy: true,
-        latencyMs: Math.max(latency, 1) // Ensure at least 1ms for test compatibility
+        latencyMs: Math.max(latency, 1), // Ensure at least 1ms for test compatibility
       };
     } catch (error: any) {
       return {
         healthy: false,
         latencyMs: Date.now() - start,
-        error: error.message
+        error: error.message,
       };
     }
   }
 
-  async listObjects(tier: StorageTier, prefix?: string, maxKeys?: number): Promise<StorageObject[]> {
+  async listObjects(
+    tier: StorageTier,
+    prefix?: string,
+    maxKeys?: number,
+  ): Promise<StorageObject[]> {
     const tierPath = path.join(this.config.dataRoot || './data/content', tier);
     try {
       const objects: StorageObject[] = [];
@@ -320,7 +365,7 @@ export class FilesystemStorageDriver extends StorageDriver {
               contentHash,
               tier,
               size: stats.size,
-              lastModified: stats.mtime
+              lastModified: stats.mtime,
             });
             count++;
           }
@@ -354,7 +399,12 @@ export class FilesystemStorageDriver extends StorageDriver {
 // ------------ S3 Storage Driver ------------
 
 export class S3StorageDriver extends StorageDriver {
-  async putObject(contentHash: string, data: Buffer | Readable, tier: StorageTier, metadata?: StorageMetadata): Promise<void> {
+  async putObject(
+    contentHash: string,
+    data: Buffer | Readable,
+    tier: StorageTier,
+    metadata?: StorageMetadata,
+  ): Promise<void> {
     if (!this.config.s3) {
       throw new Error('S3 configuration missing');
     }
@@ -364,7 +414,7 @@ export class S3StorageDriver extends StorageDriver {
 
     const headers: Record<string, string> = {
       'Content-Type': metadata?.contentType || 'application/octet-stream',
-      'x-amz-storage-class': this.getS3StorageClass(tier)
+      'x-amz-storage-class': this.getS3StorageClass(tier),
     };
 
     if (metadata?.cacheControl) {
@@ -384,7 +434,11 @@ export class S3StorageDriver extends StorageDriver {
     }
   }
 
-  async getObject(contentHash: string, tier: StorageTier, range?: RangeRequest): Promise<{ data: Readable; metadata: StorageMetadata }> {
+  async getObject(
+    contentHash: string,
+    tier: StorageTier,
+    range?: RangeRequest,
+  ): Promise<{ data: Readable; metadata: StorageMetadata }> {
     if (!this.config.s3) {
       throw new Error('S3 configuration missing');
     }
@@ -406,8 +460,8 @@ export class S3StorageDriver extends StorageDriver {
       metadata: {
         contentType: response.headers['content-type'] || 'application/octet-stream',
         contentLength: parseInt(response.headers['content-length'] || '0', 10),
-        tier
-      }
+        tier,
+      },
     };
   }
 
@@ -424,7 +478,7 @@ export class S3StorageDriver extends StorageDriver {
     return {
       contentType: response.headers['content-type'] || 'application/octet-stream',
       contentLength: parseInt(response.headers['content-length'] || '0', 10),
-      tier
+      tier,
     };
   }
 
@@ -451,13 +505,17 @@ export class S3StorageDriver extends StorageDriver {
     }
   }
 
-  async getPresignedUrl(contentHash: string, tier: StorageTier, ttlSec?: number): Promise<PresignedUrl> {
+  async getPresignedUrl(
+    contentHash: string,
+    tier: StorageTier,
+    ttlSec?: number,
+  ): Promise<PresignedUrl> {
     // Check CDN first
     const cdnUrl = this.generateCdnUrl(contentHash, tier);
     if (cdnUrl) {
       return {
         url: cdnUrl,
-        expiresAt: Date.now() + (ttlSec || this.config.presignTtlSec) * 1000
+        expiresAt: Date.now() + (ttlSec || this.config.presignTtlSec) * 1000,
       };
     }
 
@@ -474,7 +532,7 @@ export class S3StorageDriver extends StorageDriver {
 
     return {
       url,
-      expiresAt: Date.now() + expiration * 1000
+      expiresAt: Date.now() + expiration * 1000,
     };
   }
 
@@ -491,18 +549,22 @@ export class S3StorageDriver extends StorageDriver {
 
       return {
         healthy: true,
-        latencyMs: Date.now() - start
+        latencyMs: Date.now() - start,
       };
     } catch (error: any) {
       return {
         healthy: false,
         latencyMs: Date.now() - start,
-        error: error.message
+        error: error.message,
       };
     }
   }
 
-  async listObjects(tier: StorageTier, prefix?: string, maxKeys?: number): Promise<StorageObject[]> {
+  async listObjects(
+    tier: StorageTier,
+    prefix?: string,
+    maxKeys?: number,
+  ): Promise<StorageObject[]> {
     if (!this.config.s3) {
       throw new Error('S3 configuration missing');
     }
@@ -528,10 +590,11 @@ export class S3StorageDriver extends StorageDriver {
     let sizeMatch;
     let modifiedMatch;
 
-    while ((keyMatch = keyRegex.exec(xmlText)) &&
-           (sizeMatch = sizeRegex.exec(xmlText)) &&
-           (modifiedMatch = modifiedRegex.exec(xmlText))) {
-
+    while (
+      (keyMatch = keyRegex.exec(xmlText)) &&
+      (sizeMatch = sizeRegex.exec(xmlText)) &&
+      (modifiedMatch = modifiedRegex.exec(xmlText))
+    ) {
       const key = keyMatch[1];
       const contentHash = key.split('/').pop() || key;
 
@@ -539,7 +602,7 @@ export class S3StorageDriver extends StorageDriver {
         contentHash,
         tier,
         size: parseInt(sizeMatch[1], 10),
-        lastModified: new Date(modifiedMatch[1])
+        lastModified: new Date(modifiedMatch[1]),
       });
     }
 
@@ -559,7 +622,7 @@ export class S3StorageDriver extends StorageDriver {
     const copySource = `${fromBucket}/${key}`;
     await this.s3Request('PUT', toBucket, key, undefined, {
       'x-amz-copy-source': copySource,
-      'x-amz-storage-class': this.getS3StorageClass(toTier)
+      'x-amz-storage-class': this.getS3StorageClass(toTier),
     });
 
     // Delete from old tier
@@ -568,14 +631,23 @@ export class S3StorageDriver extends StorageDriver {
 
   private getS3StorageClass(tier: StorageTier): string {
     switch (tier) {
-      case 'hot': return 'STANDARD';
-      case 'warm': return 'STANDARD_IA';
-      case 'cold': return 'GLACIER';
-      default: return 'STANDARD';
+      case 'hot':
+        return 'STANDARD';
+      case 'warm':
+        return 'STANDARD_IA';
+      case 'cold':
+        return 'GLACIER';
+      default:
+        return 'STANDARD';
     }
   }
 
-  private async generatePresignedUrl(method: string, bucket: string, key: string, expiration: number): Promise<string> {
+  private async generatePresignedUrl(
+    method: string,
+    bucket: string,
+    key: string,
+    expiration: number,
+  ): Promise<string> {
     if (!this.config.s3) {
       throw new Error('S3 configuration missing');
     }
@@ -588,13 +660,19 @@ export class S3StorageDriver extends StorageDriver {
       'X-Amz-Credential': credential,
       'X-Amz-Date': this.formatDateTime(now),
       'X-Amz-Expires': expiration.toString(),
-      'X-Amz-SignedHeaders': 'host'
+      'X-Amz-SignedHeaders': 'host',
     });
 
     const url = new URL(`${this.config.s3.endpoint}/${bucket}/${key}`);
     url.search = params.toString();
 
-    const canonicalRequest = this.createCanonicalRequest(method, url.pathname, params.toString(), 'host:' + url.host, 'host');
+    const canonicalRequest = this.createCanonicalRequest(
+      method,
+      url.pathname,
+      params.toString(),
+      'host:' + url.host,
+      'host',
+    );
     const stringToSign = this.createStringToSign(now, canonicalRequest);
     const signature = this.calculateSignature(stringToSign, now);
 
@@ -604,7 +682,14 @@ export class S3StorageDriver extends StorageDriver {
     return url.toString();
   }
 
-  private async s3Request(method: string, bucket: string, key: string, body?: Buffer, headers: Record<string, string> = {}, queryParams: Record<string, string> = {}): Promise<{ body: any; headers: Record<string, string>; status: number }> {
+  private async s3Request(
+    method: string,
+    bucket: string,
+    key: string,
+    body?: Buffer,
+    headers: Record<string, string> = {},
+    queryParams: Record<string, string> = {},
+  ): Promise<{ body: any; headers: Record<string, string>; status: number }> {
     if (!this.config.s3) {
       throw new Error('S3 configuration missing');
     }
@@ -613,28 +698,42 @@ export class S3StorageDriver extends StorageDriver {
     Object.entries(queryParams).forEach(([k, v]) => url.searchParams.set(k, v));
 
     const now = new Date();
-    const authHeaders = await this.createAuthHeaders(method, url, body || Buffer.alloc(0), headers, now);
+    const authHeaders = await this.createAuthHeaders(
+      method,
+      url,
+      body || Buffer.alloc(0),
+      headers,
+      now,
+    );
 
     return new Promise((resolve, reject) => {
-      const req = https.request(url, {
-        method,
-        headers: { ...headers, ...authHeaders }
-      }, (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', chunk => chunks.push(chunk));
-        res.on('end', () => {
-          const responseBody = method === 'GET' ? res : Buffer.concat(chunks);
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            resolve({
-              body: responseBody,
-              headers: res.headers as Record<string, string>,
-              status: res.statusCode
-            });
-          } else {
-            reject(new Error(`S3 request failed: ${res.statusCode} ${Buffer.concat(chunks).toString()}`));
-          }
-        });
-      });
+      const req = https.request(
+        url,
+        {
+          method,
+          headers: { ...headers, ...authHeaders },
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk) => chunks.push(chunk));
+          res.on('end', () => {
+            const responseBody = method === 'GET' ? res : Buffer.concat(chunks);
+            if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+              resolve({
+                body: responseBody,
+                headers: res.headers as Record<string, string>,
+                status: res.statusCode,
+              });
+            } else {
+              reject(
+                new Error(
+                  `S3 request failed: ${res.statusCode} ${Buffer.concat(chunks).toString()}`,
+                ),
+              );
+            }
+          });
+        },
+      );
 
       req.on('error', reject);
 
@@ -645,24 +744,34 @@ export class S3StorageDriver extends StorageDriver {
     });
   }
 
-  private async createAuthHeaders(method: string, url: URL, body: Buffer, headers: Record<string, string>, now: Date): Promise<Record<string, string>> {
+  private async createAuthHeaders(
+    method: string,
+    url: URL,
+    body: Buffer,
+    headers: Record<string, string>,
+    now: Date,
+  ): Promise<Record<string, string>> {
     if (!this.config.s3) {
       throw new Error('S3 configuration missing');
     }
 
     const bodyHash = createHash('sha256').update(body).digest('hex');
     const authHeaders = {
-      'Host': url.host,
+      Host: url.host,
       'X-Amz-Date': this.formatDateTime(now),
       'X-Amz-Content-Sha256': bodyHash,
-      ...headers
+      ...headers,
     };
 
-    const signedHeaders = Object.keys(authHeaders).map(h => h.toLowerCase()).sort().join(';');
-    const canonicalHeaders = Object.entries(authHeaders)
-      .map(([k, v]) => `${k.toLowerCase()}:${v}`)
+    const signedHeaders = Object.keys(authHeaders)
+      .map((h) => h.toLowerCase())
       .sort()
-      .join('\n') + '\n';
+      .join(';');
+    const canonicalHeaders =
+      Object.entries(authHeaders)
+        .map(([k, v]) => `${k.toLowerCase()}:${v}`)
+        .sort()
+        .join('\n') + '\n';
 
     const canonicalRequest = [
       method,
@@ -670,19 +779,26 @@ export class S3StorageDriver extends StorageDriver {
       url.search.slice(1), // Remove leading ?
       canonicalHeaders,
       signedHeaders,
-      bodyHash
+      bodyHash,
     ].join('\n');
 
     const stringToSign = this.createStringToSign(now, canonicalRequest);
     const signature = this.calculateSignature(stringToSign, now);
 
     const credential = `${this.config.s3.accessKeyId}/${this.formatDate(now)}/${this.config.s3.region}/s3/aws4_request`;
-    authHeaders['Authorization'] = `AWS4-HMAC-SHA256 Credential=${credential}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+    authHeaders['Authorization'] =
+      `AWS4-HMAC-SHA256 Credential=${credential}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
     return authHeaders;
   }
 
-  private createCanonicalRequest(method: string, path: string, query: string, headers: string, signedHeaders: string): string {
+  private createCanonicalRequest(
+    method: string,
+    path: string,
+    query: string,
+    headers: string,
+    signedHeaders: string,
+  ): string {
     return [method, path, query, headers, '', signedHeaders].join('\n');
   }
 
@@ -692,7 +808,7 @@ export class S3StorageDriver extends StorageDriver {
       'AWS4-HMAC-SHA256',
       this.formatDateTime(now),
       `${this.formatDate(now)}/${this.config.s3!.region}/s3/aws4_request`,
-      hashedRequest
+      hashedRequest,
     ].join('\n');
   }
 
@@ -701,7 +817,9 @@ export class S3StorageDriver extends StorageDriver {
       throw new Error('S3 configuration missing');
     }
 
-    const dateKey = createHmac('sha256', `AWS4${this.config.s3.secretAccessKey}`).update(this.formatDate(now)).digest();
+    const dateKey = createHmac('sha256', `AWS4${this.config.s3.secretAccessKey}`)
+      .update(this.formatDate(now))
+      .digest();
     const regionKey = createHmac('sha256', dateKey).update(this.config.s3.region).digest();
     const serviceKey = createHmac('sha256', regionKey).update('s3').digest();
     const signingKey = createHmac('sha256', serviceKey).update('aws4_request').digest();
@@ -719,7 +837,6 @@ export class S3StorageDriver extends StorageDriver {
 }
 
 // ------------ Storage Factory ------------
-
 
 export function createStorageDriver(config?: StorageConfig): StorageDriver {
   const storageConfig = config || getStorageConfig();
@@ -745,7 +862,7 @@ export async function calculateContentHash(data: Buffer | Readable): Promise<str
   } else {
     // Stream
     return new Promise((resolve, reject) => {
-      data.on('data', chunk => hash.update(chunk));
+      data.on('data', (chunk) => hash.update(chunk));
       data.on('end', () => resolve(hash.digest('hex')));
       data.on('error', reject);
     });
@@ -780,4 +897,11 @@ export function getStorageDriver(): StorageDriver {
 }
 
 // Export types for convenience
-export type { StorageDriver as StorageDriverType, StorageConfig as StorageConfigType, StorageObject as StorageObjectType, PresignedUrl as PresignedUrlType, RangeRequest as RangeRequestType, StorageMetadata as StorageMetadataType };
+export type {
+  StorageDriver as StorageDriverType,
+  StorageConfig as StorageConfigType,
+  StorageObject as StorageObjectType,
+  PresignedUrl as PresignedUrlType,
+  RangeRequest as RangeRequestType,
+  StorageMetadata as StorageMetadataType,
+};

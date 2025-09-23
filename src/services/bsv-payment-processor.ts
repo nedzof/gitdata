@@ -3,9 +3,10 @@
  * Handles BSV native payments, SPV verification, and transaction management
  */
 
-import { Pool } from 'pg';
 import crypto from 'crypto';
 import { EventEmitter } from 'events';
+
+import type { Pool } from 'pg';
 
 export interface BSVTransaction {
   txid: string;
@@ -56,7 +57,7 @@ export class BSVPaymentProcessor extends EventEmitter {
     config: {
       minConfirmations?: number;
       network?: string;
-    } = {}
+    } = {},
   ) {
     super();
     this.database = database;
@@ -70,7 +71,7 @@ export class BSVPaymentProcessor extends EventEmitter {
   async processPayment(
     rawTx: string,
     expectedAmount: number,
-    payoutScript: string
+    payoutScript: string,
   ): Promise<PaymentVerificationResult> {
     try {
       console.log(`💰 Processing BSV payment transaction...`);
@@ -82,11 +83,7 @@ export class BSVPaymentProcessor extends EventEmitter {
       await this.storeTransaction(transaction);
 
       // Verify the payment
-      const verification = await this.verifyPayment(
-        transaction,
-        expectedAmount,
-        payoutScript
-      );
+      const verification = await this.verifyPayment(transaction, expectedAmount, payoutScript);
 
       if (verification.isValid) {
         console.log(`✅ BSV payment verified: ${transaction.txid}`);
@@ -105,7 +102,7 @@ export class BSVPaymentProcessor extends EventEmitter {
         confirmations: 0,
         outputs: [],
         totalAmount: 0,
-        reason: 'Payment processing error: ' + error.message
+        reason: 'Payment processing error: ' + error.message,
       };
     }
   }
@@ -115,7 +112,8 @@ export class BSVPaymentProcessor extends EventEmitter {
    */
   private parseTransaction(rawTx: string): BSVTransaction {
     // Simplified transaction parsing - in production would use proper BSV library
-    const txid = crypto.createHash('sha256')
+    const txid = crypto
+      .createHash('sha256')
       .update(crypto.createHash('sha256').update(Buffer.from(rawTx, 'hex')))
       .digest('hex');
 
@@ -128,10 +126,10 @@ export class BSVPaymentProcessor extends EventEmitter {
         {
           vout: 0,
           scriptPubKey: '76a914' + '00'.repeat(20) + '88ac',
-          satoshis: 5000
-        }
+          satoshis: 5000,
+        },
       ],
-      confirmations: 0
+      confirmations: 0,
     };
 
     return transaction;
@@ -141,7 +139,8 @@ export class BSVPaymentProcessor extends EventEmitter {
    * Store transaction in the database
    */
   private async storeTransaction(transaction: BSVTransaction): Promise<void> {
-    await this.database.query(`
+    await this.database.query(
+      `
       INSERT INTO bsv_transactions (
         txid, raw_tx, block_height, confirmations, status, created_at
       ) VALUES ($1, $2, $3, $4, $5, NOW())
@@ -149,13 +148,15 @@ export class BSVPaymentProcessor extends EventEmitter {
         confirmations = EXCLUDED.confirmations,
         status = EXCLUDED.status,
         updated_at = NOW()
-    `, [
-      transaction.txid,
-      transaction.rawTx,
-      transaction.blockHeight || null,
-      transaction.confirmations,
-      'pending'
-    ]);
+    `,
+      [
+        transaction.txid,
+        transaction.rawTx,
+        transaction.blockHeight || null,
+        transaction.confirmations,
+        'pending',
+      ],
+    );
   }
 
   /**
@@ -164,11 +165,11 @@ export class BSVPaymentProcessor extends EventEmitter {
   private async verifyPayment(
     transaction: BSVTransaction,
     expectedAmount: number,
-    payoutScript: string
+    payoutScript: string,
   ): Promise<PaymentVerificationResult> {
     // Check if transaction has sufficient outputs to expected script
-    const matchingOutputs = transaction.outputs.filter(output =>
-      output.scriptPubKey === payoutScript
+    const matchingOutputs = transaction.outputs.filter(
+      (output) => output.scriptPubKey === payoutScript,
     );
 
     if (matchingOutputs.length === 0) {
@@ -178,7 +179,7 @@ export class BSVPaymentProcessor extends EventEmitter {
         confirmations: transaction.confirmations,
         outputs: transaction.outputs,
         totalAmount: 0,
-        reason: 'No outputs match expected payout script'
+        reason: 'No outputs match expected payout script',
       };
     }
 
@@ -191,7 +192,7 @@ export class BSVPaymentProcessor extends EventEmitter {
         confirmations: transaction.confirmations,
         outputs: transaction.outputs,
         totalAmount,
-        reason: `Insufficient amount: expected ${expectedAmount}, got ${totalAmount}`
+        reason: `Insufficient amount: expected ${expectedAmount}, got ${totalAmount}`,
       };
     }
 
@@ -203,7 +204,7 @@ export class BSVPaymentProcessor extends EventEmitter {
         confirmations: transaction.confirmations,
         outputs: transaction.outputs,
         totalAmount,
-        reason: `Insufficient confirmations: ${transaction.confirmations}/${this.minConfirmations}`
+        reason: `Insufficient confirmations: ${transaction.confirmations}/${this.minConfirmations}`,
       };
     }
 
@@ -212,7 +213,7 @@ export class BSVPaymentProcessor extends EventEmitter {
       txid: transaction.txid,
       confirmations: transaction.confirmations,
       outputs: transaction.outputs,
-      totalAmount
+      totalAmount,
     };
   }
 
@@ -224,11 +225,19 @@ export class BSVPaymentProcessor extends EventEmitter {
       console.log(`🔍 Verifying SPV proof for transaction: ${txid}`);
 
       // Store SPV proof
-      await this.database.query(`
+      await this.database.query(
+        `
         UPDATE bsv_transactions
         SET merkle_proof = $2, block_header = $3, block_height = $4
         WHERE txid = $1
-      `, [txid, Buffer.from(proof.merkleProof, 'hex'), Buffer.from(proof.blockHeader, 'hex'), proof.blockHeight]);
+      `,
+        [
+          txid,
+          Buffer.from(proof.merkleProof, 'hex'),
+          Buffer.from(proof.blockHeader, 'hex'),
+          proof.blockHeight,
+        ],
+      );
 
       // In a real implementation, this would:
       // 1. Verify the Merkle proof against the block header
@@ -246,17 +255,24 @@ export class BSVPaymentProcessor extends EventEmitter {
   /**
    * Update transaction confirmation count
    */
-  async updateConfirmations(txid: string, confirmations: number, blockHeight?: number): Promise<void> {
-    await this.database.query(`
+  async updateConfirmations(
+    txid: string,
+    confirmations: number,
+    blockHeight?: number,
+  ): Promise<void> {
+    await this.database.query(
+      `
       UPDATE bsv_transactions
       SET confirmations = $2, block_height = $3, status = $4, updated_at = NOW()
       WHERE txid = $1
-    `, [
-      txid,
-      confirmations,
-      blockHeight || null,
-      confirmations >= this.minConfirmations ? 'confirmed' : 'pending'
-    ]);
+    `,
+      [
+        txid,
+        confirmations,
+        blockHeight || null,
+        confirmations >= this.minConfirmations ? 'confirmed' : 'pending',
+      ],
+    );
 
     // Emit confirmation update event
     this.emit('confirmation-update', { txid, confirmations, blockHeight });
@@ -266,11 +282,14 @@ export class BSVPaymentProcessor extends EventEmitter {
    * Get transaction status and details
    */
   async getTransactionStatus(txid: string): Promise<BSVTransaction | null> {
-    const result = await this.database.query(`
+    const result = await this.database.query(
+      `
       SELECT txid, raw_tx, block_height, confirmations, status, created_at
       FROM bsv_transactions
       WHERE txid = $1
-    `, [txid]);
+    `,
+      [txid],
+    );
 
     if (result.rows.length === 0) {
       return null;
@@ -283,7 +302,7 @@ export class BSVPaymentProcessor extends EventEmitter {
       inputs: [],
       outputs: [],
       blockHeight: row.block_height,
-      confirmations: row.confirmations
+      confirmations: row.confirmations,
     };
   }
 
@@ -294,7 +313,7 @@ export class BSVPaymentProcessor extends EventEmitter {
     totalAmount: number,
     producerScript: string,
     platformFeePercentage: number = 0.05,
-    agentCommissionPercentage: number = 0.02
+    agentCommissionPercentage: number = 0.02,
   ): BSVOutput[] {
     const platformFee = Math.floor(totalAmount * platformFeePercentage);
     const agentCommission = Math.floor(totalAmount * agentCommissionPercentage);
@@ -307,7 +326,7 @@ export class BSVPaymentProcessor extends EventEmitter {
       outputs.push({
         vout: outputs.length,
         scriptPubKey: producerScript,
-        satoshis: producerAmount
+        satoshis: producerAmount,
       });
     }
 
@@ -317,7 +336,7 @@ export class BSVPaymentProcessor extends EventEmitter {
       outputs.push({
         vout: outputs.length,
         scriptPubKey: platformScript,
-        satoshis: platformFee
+        satoshis: platformFee,
       });
     }
 
@@ -327,7 +346,7 @@ export class BSVPaymentProcessor extends EventEmitter {
       outputs.push({
         vout: outputs.length,
         scriptPubKey: agentScript,
-        satoshis: agentCommission
+        satoshis: agentCommission,
       });
     }
 
@@ -349,12 +368,15 @@ export class BSVPaymentProcessor extends EventEmitter {
     // Mock implementation with periodic checks
     setInterval(async () => {
       try {
-        const result = await this.database.query(`
+        const result = await this.database.query(
+          `
           SELECT txid, confirmations
           FROM bsv_transactions
           WHERE status = 'pending'
           AND confirmations < $1
-        `, [this.minConfirmations]);
+        `,
+          [this.minConfirmations],
+        );
 
         for (const row of result.rows) {
           // Simulate confirmation increase
@@ -371,9 +393,12 @@ export class BSVPaymentProcessor extends EventEmitter {
    * Get payment statistics
    */
   async getPaymentStatistics(timeframe: 'day' | 'week' | 'month' = 'day'): Promise<any> {
-    const timeCondition = timeframe === 'day' ? 'interval \'1 day\'' :
-                         timeframe === 'week' ? 'interval \'7 days\'' :
-                         'interval \'30 days\'';
+    const timeCondition =
+      timeframe === 'day'
+        ? "interval '1 day'"
+        : timeframe === 'week'
+          ? "interval '7 days'"
+          : "interval '30 days'";
 
     const result = await this.database.query(`
       SELECT

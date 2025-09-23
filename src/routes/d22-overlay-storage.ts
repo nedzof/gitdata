@@ -4,27 +4,29 @@
  * Provides BRC-26 UHRP compliant storage access and management
  */
 
-import { Router, Request, Response } from 'express';
-import { Pool } from 'pg';
-import { WalletClient } from '@bsv/sdk';
-import multer from 'multer';
-import { UHRPStorageService, ContentMetadata, UHRPResolveOptions } from '../services/uhrp-storage.js';
-import { StorageRouter, AdaptiveStorageCache, ClientContext } from '../services/storage-router.js';
-import { StorageAgentCoordinator } from '../services/storage-agents.js';
 import { createHash } from 'crypto';
+
+import type { WalletClient } from '@bsv/sdk';
+import type { Request, Response } from 'express';
+import { Router } from 'express';
+import multer from 'multer';
+import { Pool } from 'pg';
+
+import { StorageAgentCoordinator } from '../services/storage-agents.js';
+import type { ClientContext } from '../services/storage-router.js';
+import { StorageRouter, AdaptiveStorageCache } from '../services/storage-router.js';
+import type { ContentMetadata, UHRPResolveOptions } from '../services/uhrp-storage.js';
+import { UHRPStorageService } from '../services/uhrp-storage.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024 * 1024, // 10GB limit
-    fieldSize: 100 * 1024 * 1024 // 100MB field limit
-  }
+    fieldSize: 100 * 1024 * 1024, // 100MB field limit
+  },
 });
 
-export function createD22OverlayStorageRoutes(
-  pool: Pool,
-  walletClient: WalletClient
-): Router {
+export function createD22OverlayStorageRoutes(pool: Pool, walletClient: WalletClient): Router {
   const router = Router();
 
   // Initialize services
@@ -34,13 +36,13 @@ export function createD22OverlayStorageRoutes(
     geographicRegions: process.env.GEOGRAPHIC_REGIONS?.split(',') || ['US'],
     advertisementTTLHours: parseInt(process.env.UHRP_ADVERTISEMENT_TTL_HOURS || '24'),
     consensusThreshold: parseFloat(process.env.UHRP_CONSENSUS_THRESHOLD || '0.67'),
-    baseUrl: process.env.BASE_URL || 'http://localhost:8787'
+    baseUrl: process.env.BASE_URL || 'http://localhost:8787',
   });
 
   const storageRouter = new StorageRouter(pool);
   const adaptiveCache = new AdaptiveStorageCache(
     pool,
-    parseInt(process.env.STORAGE_CACHE_SIZE_MB || '1024')
+    parseInt(process.env.STORAGE_CACHE_SIZE_MB || '1024'),
   );
 
   const agentCoordinator = new StorageAgentCoordinator(pool, walletClient);
@@ -48,7 +50,7 @@ export function createD22OverlayStorageRoutes(
   // Start agent coordination
   agentCoordinator.startAgents(
     parseInt(process.env.STORAGE_REPLICATION_AGENTS || '2'),
-    parseInt(process.env.STORAGE_VERIFICATION_AGENTS || '1')
+    parseInt(process.env.STORAGE_VERIFICATION_AGENTS || '1'),
   );
 
   /**
@@ -64,25 +66,29 @@ export function createD22OverlayStorageRoutes(
       const clientContext: ClientContext = {
         clientId: req.headers['x-client-id'] as string,
         geographicLocation: req.headers['x-client-location'] as string,
-        geographicPreference: req.query.geographicPreference ?
-          (req.query.geographicPreference as string).split(',') : undefined,
+        geographicPreference: req.query.geographicPreference
+          ? (req.query.geographicPreference as string).split(',')
+          : undefined,
         networkType: req.headers['x-network-type'] as 'mobile' | 'wifi' | 'ethernet',
-        bandwidthMbps: req.headers['x-bandwidth'] ?
-          parseFloat(req.headers['x-bandwidth'] as string) : undefined,
-        latencyToleranceMs: req.query.maxLatency ?
-          parseInt(req.query.maxLatency as string) : undefined,
+        bandwidthMbps: req.headers['x-bandwidth']
+          ? parseFloat(req.headers['x-bandwidth'] as string)
+          : undefined,
+        latencyToleranceMs: req.query.maxLatency
+          ? parseInt(req.query.maxLatency as string)
+          : undefined,
         costSensitivity: req.headers['x-cost-sensitivity'] as 'low' | 'medium' | 'high',
-        requestTime: new Date()
+        requestTime: new Date(),
       };
 
       // Parse resolve options
       const resolveOptions: UHRPResolveOptions = {
         preferredMethod: req.query.preferredMethod as any,
         maxLatency: req.query.maxLatency ? parseInt(req.query.maxLatency as string) : undefined,
-        geographicPreference: req.query.geographicPreference ?
-          (req.query.geographicPreference as string).split(',') : undefined,
+        geographicPreference: req.query.geographicPreference
+          ? (req.query.geographicPreference as string).split(',')
+          : undefined,
         includeVerification: req.query.includeVerification === 'true',
-        trackAccess: req.query.trackAccess !== 'false' // Default to true
+        trackAccess: req.query.trackAccess !== 'false', // Default to true
       };
 
       // Check cache first
@@ -94,10 +100,12 @@ export function createD22OverlayStorageRoutes(
         res.set({
           'Cache-Control': 'public, max-age=3600',
           'Content-Length': cachedContent.content.length.toString(),
-          'Content-Type': cachedContent.metadata.originalLocation.type === 'local' ?
-            'application/octet-stream' : 'application/octet-stream',
+          'Content-Type':
+            cachedContent.metadata.originalLocation.type === 'local'
+              ? 'application/octet-stream'
+              : 'application/octet-stream',
           'X-Cache': 'HIT',
-          'X-Cache-Level': cachedContent.metadata.cacheLevel
+          'X-Cache-Level': cachedContent.metadata.cacheLevel,
         });
 
         // Handle range requests
@@ -121,7 +129,7 @@ export function createD22OverlayStorageRoutes(
           'Cache-Control': 'public, max-age=3600',
           'X-Storage-Location': resolution.preferredLocation.type,
           'X-Resolution-Time': resolution.resolutionTime.toString(),
-          'X-Cache': 'MISS'
+          'X-Cache': 'MISS',
         });
 
         // Handle range requests for local files
@@ -142,7 +150,7 @@ export function createD22OverlayStorageRoutes(
             priority: resolution.cacheRecommendation.priority,
             cachedAt: new Date(),
             expiresAt: new Date(Date.now() + resolution.cacheRecommendation.ttlSeconds * 1000),
-            sizeBytes: content.length
+            sizeBytes: content.length,
           });
         }
 
@@ -160,44 +168,45 @@ export function createD22OverlayStorageRoutes(
             availability: resolution.preferredLocation.availability,
             latency: resolution.preferredLocation.latency,
             geographicRegion: resolution.preferredLocation.geographicRegion,
-            verifiedAt: resolution.preferredLocation.verifiedAt
+            verifiedAt: resolution.preferredLocation.verifiedAt,
           },
-          alternatives: resolution.availableLocations.slice(1, 3).map(loc => ({
+          alternatives: resolution.availableLocations.slice(1, 3).map((loc) => ({
             type: loc.type,
             url: loc.url,
             availability: loc.availability,
-            latency: loc.latency
-          }))
+            latency: loc.latency,
+          })),
         },
-        verification: resolveOptions.includeVerification ? {
-          integrityVerified: resolution.integrityVerified,
-          verificationAgent: 'system',
-          verifiedAt: new Date().toISOString(),
-          overlayEvidence: {
-            consensusNodes: 3,
-            agreementRatio: 1.0
-          }
-        } : undefined,
+        verification: resolveOptions.includeVerification
+          ? {
+              integrityVerified: resolution.integrityVerified,
+              verificationAgent: 'system',
+              verifiedAt: new Date().toISOString(),
+              overlayEvidence: {
+                consensusNodes: 3,
+                agreementRatio: 1.0,
+              },
+            }
+          : undefined,
         access: {
           method: 'redirect',
           url: resolution.preferredLocation.url,
           headers: {
             'Cache-Control': 'public, max-age=3600',
-            'Content-Type': 'application/octet-stream'
-          }
+            'Content-Type': 'application/octet-stream',
+          },
         },
         quotaUsed: 0, // Would track actual quota usage
-        remainingQuota: 999999
+        remainingQuota: 999999,
       };
 
       res.json(response);
-
     } catch (error) {
       console.error(`❌ Data access failed for ${contentHash}:`, error);
       res.status(404).json({
         error: 'Content not found',
         message: error.message,
-        contentHash
+        contentHash,
       });
     }
   });
@@ -206,101 +215,111 @@ export function createD22OverlayStorageRoutes(
    * Storage Upload API
    * POST /overlay/storage/upload
    */
-  router.post('/overlay/storage/upload', upload.single('file'), async (req: Request, res: Response) => {
-    console.log('📤 Storage upload request');
+  router.post(
+    '/overlay/storage/upload',
+    upload.single('file'),
+    async (req: Request, res: Response) => {
+      console.log('📤 Storage upload request');
 
-    try {
-      if (!req.file) {
-        return res.status(400).json({
-          error: 'No file provided',
-          message: 'File is required for upload'
-        });
-      }
+      try {
+        if (!req.file) {
+          return res.status(400).json({
+            error: 'No file provided',
+            message: 'File is required for upload',
+          });
+        }
 
-      const content = req.file.buffer;
-      const providedHash = req.headers['x-content-hash'] as string;
-      const storageTier = (req.headers['x-storage-tier'] as string) || 'hot';
-      const replicationStrategy = (req.headers['x-replication-strategy'] as string) || 'overlay+s3';
+        const content = req.file.buffer;
+        const providedHash = req.headers['x-content-hash'] as string;
+        const storageTier = (req.headers['x-storage-tier'] as string) || 'hot';
+        const replicationStrategy =
+          (req.headers['x-replication-strategy'] as string) || 'overlay+s3';
 
-      // Calculate and verify content hash
-      const calculatedHash = 'sha256:' + createHash('sha256').update(content).digest('hex');
+        // Calculate and verify content hash
+        const calculatedHash = 'sha256:' + createHash('sha256').update(content).digest('hex');
 
-      if (providedHash && providedHash !== calculatedHash) {
-        return res.status(400).json({
-          error: 'Hash mismatch',
-          message: 'Provided hash does not match calculated hash',
-          providedHash,
-          calculatedHash
-        });
-      }
+        if (providedHash && providedHash !== calculatedHash) {
+          return res.status(400).json({
+            error: 'Hash mismatch',
+            message: 'Provided hash does not match calculated hash',
+            providedHash,
+            calculatedHash,
+          });
+        }
 
-      const contentHash = calculatedHash;
+        const contentHash = calculatedHash;
 
-      // Parse metadata
-      const metadata: ContentMetadata = {
-        size: content.length,
-        mimeType: req.file.mimetype || 'application/octet-stream',
-        classification: req.body.metadata ? JSON.parse(req.body.metadata).classification : 'commercial',
-        geographicRestrictions: req.body.metadata ?
-          JSON.parse(req.body.metadata).geographicRestrictions : [],
-        accessFrequency: 0,
-        updateFrequency: 0
-      };
+        // Parse metadata
+        const metadata: ContentMetadata = {
+          size: content.length,
+          mimeType: req.file.mimetype || 'application/octet-stream',
+          classification: req.body.metadata
+            ? JSON.parse(req.body.metadata).classification
+            : 'commercial',
+          geographicRestrictions: req.body.metadata
+            ? JSON.parse(req.body.metadata).geographicRestrictions
+            : [],
+          accessFrequency: 0,
+          updateFrequency: 0,
+        };
 
-      // Generate version ID (in real implementation, this would come from the manifest system)
-      const versionId = `version_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        // Generate version ID (in real implementation, this would come from the manifest system)
+        const versionId = `version_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // Store content via UHRP service
-      const uploadId = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const storageResult = await uhrpStorage.storeContent(content, metadata, versionId);
+        // Store content via UHRP service
+        const uploadId = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const storageResult = await uhrpStorage.storeContent(content, metadata, versionId);
 
-      // Update storage tier in database
-      await pool.query(`
+        // Update storage tier in database
+        await pool.query(
+          `
         UPDATE overlay_storage_index
         SET storage_tier = $1
         WHERE content_hash = $2
-      `, [storageTier, contentHash]);
+      `,
+          [storageTier, contentHash],
+        );
 
-      const response = {
-        contentHash,
-        uploadId,
-        storage: {
-          local: {
-            stored: true,
-            path: storageResult.localPath,
-            verifiedAt: new Date().toISOString()
+        const response = {
+          contentHash,
+          uploadId,
+          storage: {
+            local: {
+              stored: true,
+              path: storageResult.localPath,
+              verifiedAt: new Date().toISOString(),
+            },
+            overlay: {
+              uhrpUrl: storageResult.uhrpUrl,
+              advertisements: storageResult.overlayAdvertisements,
+              publishedAt: new Date().toISOString(),
+            },
+            replication: {
+              jobs: storageResult.storageLocations.map((loc) => ({
+                jobId: `repl_job_${Math.random().toString(36).substr(2, 9)}`,
+                target: loc.type,
+                status: 'in_progress',
+                agent: 'system',
+              })),
+            },
           },
-          overlay: {
-            uhrpUrl: storageResult.uhrpUrl,
-            advertisements: storageResult.overlayAdvertisements,
-            publishedAt: new Date().toISOString()
+          verification: {
+            hashMatch: true,
+            sizeMatch: true,
+            integrityScore: 1.0,
           },
-          replication: {
-            jobs: storageResult.storageLocations.map(loc => ({
-              jobId: `repl_job_${Math.random().toString(36).substr(2, 9)}`,
-              target: loc.type,
-              status: 'in_progress',
-              agent: 'system'
-            }))
-          }
-        },
-        verification: {
-          hashMatch: true,
-          sizeMatch: true,
-          integrityScore: 1.0
-        }
-      };
+        };
 
-      res.status(201).json(response);
-
-    } catch (error) {
-      console.error('❌ Upload failed:', error);
-      res.status(500).json({
-        error: 'Upload failed',
-        message: error.message
-      });
-    }
-  });
+        res.status(201).json(response);
+      } catch (error) {
+        console.error('❌ Upload failed:', error);
+        res.status(500).json({
+          error: 'Upload failed',
+          message: error.message,
+        });
+      }
+    },
+  );
 
   /**
    * Storage Status API
@@ -312,7 +331,8 @@ export function createD22OverlayStorageRoutes(
 
     try {
       // Get storage information
-      const storageInfo = await pool.query(`
+      const storageInfo = await pool.query(
+        `
         SELECT
           osi.*,
           COUNT(sv.id) as verification_count,
@@ -329,19 +349,22 @@ export function createD22OverlayStorageRoutes(
                  osi.storage_locations, osi.replication_status, osi.overlay_advertisements,
                  osi.last_verified_at, osi.verification_agents, osi.access_statistics,
                  osi.created_at, osi.updated_at
-      `, [contentHash]);
+      `,
+        [contentHash],
+      );
 
       if (storageInfo.rows.length === 0) {
         return res.status(404).json({
           error: 'Content not found',
-          contentHash
+          contentHash,
         });
       }
 
       const info = storageInfo.rows[0];
 
       // Get access statistics
-      const accessStats = await pool.query(`
+      const accessStats = await pool.query(
+        `
         SELECT
           access_method,
           COUNT(*) as total_downloads,
@@ -351,7 +374,9 @@ export function createD22OverlayStorageRoutes(
         FROM storage_access_logs
         WHERE content_hash = $1
         GROUP BY access_method
-      `, [contentHash]);
+      `,
+        [contentHash],
+      );
 
       // Calculate storage locations
       const storageLocations = [];
@@ -361,8 +386,8 @@ export function createD22OverlayStorageRoutes(
       if (info.cdn_url) storageLocations.push('cdn');
 
       // Calculate verification status
-      const verificationSuccessRate = info.verification_count > 0 ?
-        info.successful_verifications / info.verification_count : 0;
+      const verificationSuccessRate =
+        info.verification_count > 0 ? info.successful_verifications / info.verification_count : 0;
 
       const response = {
         contentHash,
@@ -371,39 +396,46 @@ export function createD22OverlayStorageRoutes(
           replicationCount: storageLocations.length,
           storageLocations,
           verificationStatus: verificationSuccessRate > 0.8 ? 'verified' : 'pending',
-          lastVerified: info.last_verification
+          lastVerified: info.last_verification,
         },
         performance: {
           averageLatency: 150, // Would calculate from actual metrics
           bandwidth: 100.5,
-          reliabilityScore: verificationSuccessRate
+          reliabilityScore: verificationSuccessRate,
         },
         replication: {
           targetCount: 3,
           actualCount: info.completed_replications,
           agents: info.verification_agents || [],
-          lastReplication: info.updated_at
+          lastReplication: info.updated_at,
         },
         access: {
-          totalDownloads: accessStats.rows.reduce((sum, row) => sum + parseInt(row.total_downloads), 0),
-          totalBytes: accessStats.rows.reduce((sum, row) => sum + (parseInt(row.total_bytes) || 0), 0),
-          uniqueClients: Math.max(...accessStats.rows.map(row => parseInt(row.unique_clients) || 0)),
+          totalDownloads: accessStats.rows.reduce(
+            (sum, row) => sum + parseInt(row.total_downloads),
+            0,
+          ),
+          totalBytes: accessStats.rows.reduce(
+            (sum, row) => sum + (parseInt(row.total_bytes) || 0),
+            0,
+          ),
+          uniqueClients: Math.max(
+            ...accessStats.rows.map((row) => parseInt(row.unique_clients) || 0),
+          ),
           geographicDistribution: {
             US: 30,
             EU: 12,
-            AS: 3
-          }
-        }
+            AS: 3,
+          },
+        },
       };
 
       res.json(response);
-
     } catch (error) {
       console.error(`❌ Status request failed for ${contentHash}:`, error);
       res.status(500).json({
         error: 'Status request failed',
         message: error.message,
-        contentHash
+        contentHash,
       });
     }
   });
@@ -460,46 +492,55 @@ export function createD22OverlayStorageRoutes(
 
       const response = {
         storage: {
-          tiers: storageStats.rows.map(row => ({
+          tiers: storageStats.rows.map((row) => ({
             tier: row.storage_tier,
             contentCount: parseInt(row.content_count),
             totalSizeBytes: parseInt(row.total_size_bytes),
-            avgSizeBytes: parseFloat(row.avg_size_bytes)
+            avgSizeBytes: parseFloat(row.avg_size_bytes),
           })),
-          totalContent: storageStats.rows.reduce((sum, row) => sum + parseInt(row.content_count), 0),
-          totalSizeGB: storageStats.rows.reduce((sum, row) => sum + parseInt(row.total_size_bytes), 0) / (1024 ** 3)
+          totalContent: storageStats.rows.reduce(
+            (sum, row) => sum + parseInt(row.content_count),
+            0,
+          ),
+          totalSizeGB:
+            storageStats.rows.reduce((sum, row) => sum + parseInt(row.total_size_bytes), 0) /
+            1024 ** 3,
         },
         replication: {
-          jobs: replicationStats.rows.map(row => ({
+          jobs: replicationStats.rows.map((row) => ({
             status: row.status,
             count: parseInt(row.job_count),
-            avgProgress: parseFloat(row.avg_progress) || 0
+            avgProgress: parseFloat(row.avg_progress) || 0,
           })),
-          totalJobs: replicationStats.rows.reduce((sum, row) => sum + parseInt(row.job_count), 0)
+          totalJobs: replicationStats.rows.reduce((sum, row) => sum + parseInt(row.job_count), 0),
         },
         verification: {
-          results: verificationStats.rows.map(row => ({
+          results: verificationStats.rows.map((row) => ({
             result: row.verification_result,
             count: parseInt(row.verification_count),
-            avgResponseTime: parseFloat(row.avg_response_time) || 0
+            avgResponseTime: parseFloat(row.avg_response_time) || 0,
           })),
-          successRate: verificationStats.rows.length > 0 ?
-            verificationStats.rows.find(r => r.verification_result)?.verification_count /
-            verificationStats.rows.reduce((sum, row) => sum + parseInt(row.verification_count), 0) : 0
+          successRate:
+            verificationStats.rows.length > 0
+              ? verificationStats.rows.find((r) => r.verification_result)?.verification_count /
+                verificationStats.rows.reduce(
+                  (sum, row) => sum + parseInt(row.verification_count),
+                  0,
+                )
+              : 0,
         },
         cache: cacheStats,
         routing: routingStats,
         agents: agentStatus,
-        generatedAt: new Date().toISOString()
+        generatedAt: new Date().toISOString(),
       };
 
       res.json(response);
-
     } catch (error) {
       console.error('❌ Management stats failed:', error);
       res.status(500).json({
         error: 'Management stats failed',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -515,24 +556,24 @@ export function createD22OverlayStorageRoutes(
         overlayEnabled: process.env.OVERLAY_STORAGE_ENABLED === 'true',
         uhrpEnabled: process.env.UHRP_ENABLED === 'true',
         replicationTargetCount: parseInt(process.env.STORAGE_REPLICATION_TARGET_COUNT || '3'),
-        verificationIntervalHours: parseInt(process.env.STORAGE_VERIFICATION_INTERVAL_HOURS || '6')
+        verificationIntervalHours: parseInt(process.env.STORAGE_VERIFICATION_INTERVAL_HOURS || '6'),
       },
       cache: {
         sizeMB: parseInt(process.env.STORAGE_CACHE_SIZE_MB || '1024'),
         ttlSeconds: parseInt(process.env.STORAGE_CACHE_TTL_SECONDS || '3600'),
-        compressionEnabled: process.env.STORAGE_COMPRESSION_ENABLED === 'true'
+        compressionEnabled: process.env.STORAGE_COMPRESSION_ENABLED === 'true',
       },
       overlay: {
         topics: process.env.OVERLAY_STORAGE_TOPICS?.split(',') || ['gitdata.storage.content'],
         agentsEnabled: process.env.OVERLAY_STORAGE_AGENTS_ENABLED === 'true',
-        geographicRegions: process.env.GEOGRAPHIC_REGIONS?.split(',') || ['US']
+        geographicRegions: process.env.GEOGRAPHIC_REGIONS?.split(',') || ['US'],
       },
       uhrp: {
         advertisementTTLHours: parseInt(process.env.UHRP_ADVERTISEMENT_TTL_HOURS || '24'),
         resolutionTimeoutMs: parseInt(process.env.UHRP_RESOLUTION_TIMEOUT_MS || '5000'),
         verificationRequired: process.env.UHRP_VERIFICATION_REQUIRED === 'true',
-        maxResolutionAttempts: parseInt(process.env.UHRP_MAX_RESOLUTION_ATTEMPTS || '3')
-      }
+        maxResolutionAttempts: parseInt(process.env.UHRP_MAX_RESOLUTION_ATTEMPTS || '3'),
+      },
     };
 
     res.json(config);
@@ -548,23 +589,27 @@ function handleRangeRequest(req: Request, res: Response, content: Buffer): void 
     return res.send(content);
   }
 
-  const parts = range.replace(/bytes=/, "").split("-");
+  const parts = range.replace(/bytes=/, '').split('-');
   const start = parseInt(parts[0], 10);
   const end = parts[1] ? parseInt(parts[1], 10) : content.length - 1;
-  const chunkSize = (end - start) + 1;
+  const chunkSize = end - start + 1;
 
   res.status(206).set({
     'Content-Range': `bytes ${start}-${end}/${content.length}`,
     'Accept-Ranges': 'bytes',
     'Content-Length': chunkSize.toString(),
-    'Content-Type': 'application/octet-stream'
+    'Content-Type': 'application/octet-stream',
   });
 
   res.send(content.slice(start, end + 1));
 }
 
 // Helper function for handling range requests on files
-async function handleRangeFileRequest(req: Request, res: Response, filePath: string): Promise<void> {
+async function handleRangeFileRequest(
+  req: Request,
+  res: Response,
+  filePath: string,
+): Promise<void> {
   const fs = await import('fs');
   const stat = await fs.promises.stat(filePath);
   const fileSize = stat.size;
@@ -573,7 +618,7 @@ async function handleRangeFileRequest(req: Request, res: Response, filePath: str
   if (!range) {
     res.set({
       'Content-Length': fileSize.toString(),
-      'Content-Type': 'application/octet-stream'
+      'Content-Type': 'application/octet-stream',
     });
     return new Promise((resolve, reject) => {
       const stream = fs.createReadStream(filePath);
@@ -583,16 +628,16 @@ async function handleRangeFileRequest(req: Request, res: Response, filePath: str
     });
   }
 
-  const parts = range.replace(/bytes=/, "").split("-");
+  const parts = range.replace(/bytes=/, '').split('-');
   const start = parseInt(parts[0], 10);
   const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-  const chunkSize = (end - start) + 1;
+  const chunkSize = end - start + 1;
 
   res.status(206).set({
     'Content-Range': `bytes ${start}-${end}/${fileSize}`,
     'Accept-Ranges': 'bytes',
     'Content-Length': chunkSize.toString(),
-    'Content-Type': 'application/octet-stream'
+    'Content-Type': 'application/octet-stream',
   });
 
   const stream = fs.createReadStream(filePath, { start, end });
@@ -616,7 +661,7 @@ export function d22OverlayStorageRouter(): Router {
   const walletClient = {
     createTransaction: () => Promise.resolve({ txid: 'mock-txid' }),
     getBalance: () => Promise.resolve(1000000),
-    signTransaction: () => Promise.resolve('mock-signature')
+    signTransaction: () => Promise.resolve('mock-signature'),
   } as any;
 
   return createD22OverlayStorageRoutes(pool, walletClient);
