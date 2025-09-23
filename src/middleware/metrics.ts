@@ -32,3 +32,6 @@ export function metricsRoute(route: RouteKey) {
     next();
   };
 }
+
+// Alias for server.ts compatibility
+export const metricsMiddleware = () => metricsRoute('other');

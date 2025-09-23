@@ -23,7 +23,7 @@ import { overlayBrcRouter } from './routes/overlay-brc';
 import { listingsRouter } from './routes/listings';
 import { openlineageRouter } from './routes/openlineage';
 import { submitBuilderRouter } from './routes/submit-builder';
-import { submitReceiverRouter } from './routes/submit-receiver';
+import { submitReceiverRouterWrapper } from './routes/submit-receiver';
 import { producersRegisterRouter } from './routes/producers-register';
 import { d22OverlayStorageRouter } from './routes/d22-overlay-storage';
 import { d06PaymentProcessingRouter } from './routes/d06-payment-processing';
@@ -33,7 +33,7 @@ import { d07StreamingQuotasRouter } from './routes/d07-streaming-quotas';
 import { agentMarketplaceRouter } from './routes/agent-marketplace';
 import { producerRouter } from './routes/producer';
 import { streamingMarketRouter } from './routes/streaming-market';
-import { auditMiddleware } from './middleware/audit';
+import { auditLogger } from './middleware/audit';
 import { metricsMiddleware } from './middleware/metrics';
 import { limitsMiddleware } from './middleware/limits';
 
@@ -62,8 +62,11 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Serve static files from UI build directory
+app.use(express.static('./ui/build'));
+
 // Request logging and metrics
-app.use(auditMiddleware());
+app.use(auditLogger());
 app.use(metricsMiddleware());
 app.use(limitsMiddleware());
 
@@ -83,7 +86,7 @@ app.use('/v1', metricsRouter());
 // Producer and identity management
 app.use('/v1', producersRouter());
 app.use('/v1', producersRegisterRouter());
-app.use('/v1', identityRouter());
+// app.use('/v1', identityRouter()); // Temporarily disabled
 
 // Payment processing
 app.use('/v1', paymentsRouter());
@@ -101,10 +104,10 @@ app.use('/v1', templatesRouter());
 app.use('/v1', walletRouter());
 
 // Overlay network integration
-app.use('/v1', overlayRouter());
-app.use('/v1', overlayBrcRouter());
+app.use('/v1', overlayRouter().router);
+app.use('/v1', overlayBrcRouter().router);
 app.use('/v1', submitBuilderRouter());
-app.use('/v1', submitReceiverRouter());
+app.use('/v1', submitReceiverRouterWrapper());
 
 // Data lineage and provenance
 app.use('/v1', openlineageRouter());
@@ -116,7 +119,7 @@ app.use('/v1', streamingMarketRouter());
 app.use('/v1', producerRouter());
 
 // Agent marketplace
-app.use('/v1', agentMarketplaceRouter());
+app.use('/v1', agentMarketplaceRouter().router);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -137,13 +140,19 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
-// 404 handler
-app.use('*', (req: express.Request, res: express.Response) => {
-  res.status(404).json({
-    success: false,
-    error: 'Not found',
-    message: `Route ${req.method} ${req.originalUrl} not found`
-  });
+// Catch-all handler - serve index.html for SPA routes
+app.get('*', (req: express.Request, res: express.Response) => {
+  // If it's an API route that doesn't exist, return 404 JSON
+  if (req.path.startsWith('/api') || req.path.startsWith('/v1')) {
+    return res.status(404).json({
+      success: false,
+      error: 'Not found',
+      message: `Route ${req.method} ${req.originalUrl} not found`
+    });
+  }
+
+  // For all other routes, serve the SPA
+  res.sendFile('./ui/build/index.html', { root: '.' });
 });
 
 // Graceful shutdown handling

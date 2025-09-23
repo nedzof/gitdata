@@ -5,7 +5,7 @@
 
 import { Pool } from 'pg';
 import crypto from 'crypto';
-import fetch from 'node-fetch';
+// Using built-in fetch (Node.js 18+)
 
 const pool = new Pool({
   host: process.env.PG_HOST || 'localhost',

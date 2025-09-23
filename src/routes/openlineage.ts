@@ -237,3 +237,6 @@ router.get('/health', async (req, res) => {
 });
 
 export default router;
+
+// Named export for server.ts compatibility
+export const openlineageRouter = () => router;

@@ -351,3 +351,6 @@ router.get('/streams/:streamId/live-stats', async (req, res) => {
 });
 
 export default router;
+
+// Named export for server.ts compatibility
+export const streamingMarketRouter = () => router;

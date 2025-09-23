@@ -54,3 +54,6 @@ export function opsRouter(): Router {
 
   return router;
 }
+
+// Alias for server.ts compatibility
+export const metricsRouter = opsRouter;

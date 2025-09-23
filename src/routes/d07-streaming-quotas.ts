@@ -772,3 +772,6 @@ router.post('/report-host', async (req, res) => {
 });
 
 export default router;
+
+// Named export for server.ts compatibility
+export const d07StreamingQuotasRouter = () => router;

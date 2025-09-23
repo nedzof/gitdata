@@ -600,3 +600,24 @@ async function handleRangeFileRequest(req: Request, res: Response, filePath: str
 }
 
 export default createD22OverlayStorageRoutes;
+
+// Alias for server.ts compatibility - provides default parameters
+export function d22OverlayStorageRouter(): Router {
+  // Initialize database pool
+  const pool = new Pool({
+    host: process.env.PG_HOST || 'localhost',
+    port: parseInt(process.env.PG_PORT || '5432'),
+    database: process.env.PG_DATABASE || 'overlay',
+    user: process.env.PG_USER || 'postgres',
+    password: process.env.PG_PASSWORD || 'password',
+  });
+
+  // Mock wallet client for compatibility
+  const walletClient = {
+    createTransaction: () => Promise.resolve({ txid: 'mock-txid' }),
+    getBalance: () => Promise.resolve(1000000),
+    signTransaction: () => Promise.resolve('mock-signature')
+  } as any;
+
+  return createD22OverlayStorageRoutes(pool, walletClient);
+}

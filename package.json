@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "start": "tsx src/server-simple.ts",
+    "start": "tsx src/server.ts",
     "dev": "tsx src/mock/overlay-mock-extended.ts",
     "agent:example": "tsx examples/agent-webhook.ts",
     "lint": "eslint --ext .ts src",

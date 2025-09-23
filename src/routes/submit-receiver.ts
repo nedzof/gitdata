@@ -206,3 +206,18 @@ export function submitReceiverRouter(db: Database.Database, opts: {
 
   return router;
 }
+
+// Wrapper for server.ts compatibility - provides default parameters
+export function submitReceiverRouterWrapper(): Router {
+  // Initialize SQLite database (fallback for compatibility)
+  const db = new Database(':memory:');
+
+  // Default options
+  const opts = {
+    headersFile: process.env.HEADERS_FILE || 'data/headers/headers-mainnet.json',
+    minConfs: parseInt(process.env.MIN_CONFIRMATIONS || '6'),
+    bodyMaxSize: parseInt(process.env.BODY_MAX_SIZE || '10485760') // 10MB
+  };
+
+  return submitReceiverRouter(db, opts);
+}

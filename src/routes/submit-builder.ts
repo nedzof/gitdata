@@ -220,3 +220,6 @@ export function submitDlm1Router(opts?: { manifestSchemaPath?: string }): Router
 
   return router;
 }
+
+// Alias for server.ts compatibility
+export const submitBuilderRouter = submitDlm1Router;

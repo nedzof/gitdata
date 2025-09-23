@@ -63,3 +63,6 @@ export function rateLimit(routeKey: string) {
     }
   };
 }
+
+// Alias for server.ts compatibility
+export const limitsMiddleware = () => rateLimit('general');

@@ -221,3 +221,6 @@ router.post('/credentials', async (req, res) => {
 });
 
 export default router;
+
+// Named export for server.ts compatibility
+export const producerRouter = () => router;

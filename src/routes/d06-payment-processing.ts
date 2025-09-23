@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import { requireIdentity } from '../middleware/identity';
 import { BRCPaymentIntegrationService, ensureBRC22Tables } from '../services/brc-payment-integration';
 import { BSVPaymentProcessor } from '../services/bsv-payment-processor';
+import { getPostgreSQLClient } from '../db/postgresql';
 
 interface PaymentRequest {
   versionId: string;
@@ -72,8 +73,17 @@ function isValidVersionId(versionId: string): boolean {
   return /^[0-9a-fA-F]{64}$/.test(versionId);
 }
 
-export function d06PaymentProcessingRouter(database: Pool): Router {
+export function d06PaymentProcessingRouter(): Router {
   const router = makeRouter();
+
+  // Initialize database connection
+  const database = new Pool({
+    host: process.env.PG_HOST || 'localhost',
+    port: parseInt(process.env.PG_PORT || '5432'),
+    database: process.env.PG_DATABASE || 'overlay',
+    user: process.env.PG_USER || 'postgres',
+    password: process.env.PG_PASSWORD || 'password',
+  });
 
   // Initialize services
   const brcIntegration = new BRCPaymentIntegrationService(database, {

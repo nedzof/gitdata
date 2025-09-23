@@ -599,3 +599,6 @@ router.post('/test-verify', requireIdentity(true), async (req: IdentityRequest, 
 });
 
 export default router;
+
+// Alias for server.ts compatibility
+export const identityRouter = () => router;

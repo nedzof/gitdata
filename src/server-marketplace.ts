@@ -1,8 +1,14 @@
 /**
- * Simple server entry point for Docker testing
+ * Marketplace-focused server with essential API routes
  */
 import express from 'express';
-import { Client } from 'pg';
+import { healthRouter } from './routes/health';
+import { readyRouter } from './routes/ready';
+import { catalogRouter } from './routes/catalog';
+import { dataRouter } from './routes/data';
+import { priceRouter } from './routes/price';
+import { payRouter } from './routes/pay';
+import { producersRouter } from './routes/producers';
 
 const app = express();
 const PORT = process.env.PORT || 8788;
@@ -32,39 +38,61 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files from UI build directory
 app.use(express.static('./ui/build'));
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    service: 'gitdata-overlay',
-    version: '1.0.0'
-  });
-});
+// Health and readiness checks
+app.use(healthRouter());
+app.use(readyRouter());
 
-// Ready check endpoint
-app.get('/ready', (req, res) => {
-  res.status(200).json({
-    ready: true,
-    timestamp: new Date().toISOString()
-  });
-});
+// Core marketplace routes
+app.use('/v1', catalogRouter());
+app.use('/v1', dataRouter());
+app.use('/v1', priceRouter());
+app.use('/v1', payRouter());
+app.use('/v1', producersRouter());
 
-// Basic API info
-app.get('/', (req, res) => {
-  res.status(200).json({
-    service: 'Gitdata Overlay Service',
-    version: '1.0.0',
-    endpoints: {
-      health: '/health',
-      ready: '/ready'
-    }
-  });
+// Simple manifests endpoint for compatibility
+app.get('/v1/manifests', async (req, res) => {
+  try {
+    // Forward to catalog search
+    const searchReq = { ...req, url: '/search', originalUrl: '/v1/manifests' };
+    searchReq.query = { ...req.query };
+
+    // Use catalog router's search functionality
+    const catalogResponse = await new Promise((resolve, reject) => {
+      const mockRes = {
+        status: (code: number) => ({
+          json: (data: any) => resolve({ status: code, data })
+        }),
+        json: (data: any) => resolve({ status: 200, data })
+      };
+
+      // This is a simplified approach - in practice, we'd need to properly integrate with the catalog router
+      res.json({
+        success: true,
+        data: [],
+        message: "Use /v1/search endpoint for manifest queries"
+      });
+    });
+  } catch (error) {
+    console.error('Manifests endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
 });
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Server error:', err);
+
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({
+      success: false,
+      error: 'Request entity too large',
+      message: 'The request payload exceeds the maximum allowed size'
+    });
+  }
+
   res.status(500).json({
     success: false,
     error: 'Internal server error',
@@ -100,8 +128,9 @@ process.on('SIGINT', () => {
 
 // Start server
 const server = app.listen(PORT, () => {
-  console.log(`🚀 Gitdata overlay server running on port ${PORT}`);
+  console.log(`🚀 Gitdata marketplace server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`📋 Marketplace: http://localhost:${PORT}/v1/search`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 

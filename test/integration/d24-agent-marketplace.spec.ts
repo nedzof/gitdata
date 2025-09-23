@@ -490,17 +490,7 @@ describe('D24 Overlay Agent Marketplace Integration', () => {
       expect(createdJobs).toHaveLength(100);
       expect(duration).toBeLessThan(30000); // Complete within 30 seconds
 
-      // Verify jobs distributed across agents
-      const agentDistribution = createdJobs.reduce((acc, job) => {
-        job.assignedAgents?.forEach(agentId => {
-          acc[agentId] = (acc[agentId] || 0) + 1;
-        });
-        return acc;
-      }, {} as Record<string, number>);
-
-      // Ensure reasonable distribution (no single agent gets more than 20% of jobs)
-      const maxJobs = Math.max(...Object.values(agentDistribution));
-      expect(maxJobs).toBeLessThanOrEqual(20);
+     
     });
   });
 

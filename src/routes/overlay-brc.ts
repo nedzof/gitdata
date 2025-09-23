@@ -793,3 +793,6 @@ function getTopicDescription(topicKey: string): string {
 
   return descriptions[topicKey] || 'Custom overlay topic';
 }
+
+// Alias for server.ts compatibility
+export const overlayBrcRouter = enhancedOverlayRouter;
