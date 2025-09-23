@@ -1,17 +1,17 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
+  # PostgreSQL Database for Development
   postgres:
     image: postgres:15-alpine
-    container_name: gitdata-postgres
+    container_name: gitdata-postgres-dev
     environment:
       POSTGRES_DB: overlay
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_dev_data:/var/lib/postgresql/data
       - ./src/db/postgresql-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
       - ./src/db/schema-d08-realtime-packets.sql:/docker-entrypoint-initdb.d/02-d08-schema.sql
     ports:
@@ -22,15 +22,15 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - gitdata-network
+      - gitdata-dev-network
 
-  # Redis Cache
+  # Redis Cache for Development
   redis:
     image: redis:7-alpine
-    container_name: gitdata-redis
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    container_name: gitdata-redis-dev
+    command: redis-server --appendonly yes
     volumes:
-      - redis_data:/data
+      - redis_dev_data:/data
     ports:
       - "6379:6379"
     healthcheck:
@@ -39,16 +39,16 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - gitdata-network
+      - gitdata-dev-network
 
-  # Main Application
+  # Development Application with hot reload
   app:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: gitdata-app
+      dockerfile: Dockerfile.dev
+    container_name: gitdata-app-dev
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       PORT: 8788
 
       # Database Configuration
@@ -64,35 +64,30 @@ services:
       # Application Configuration
       ALLOWED_ORIGINS: http://localhost:3000,http://localhost:5173,http://localhost:8080
 
-      # Security
+      # Development specific
+      LOG_LEVEL: debug
       USE_REDIS_BUNDLES: "true"
-
-      # Headers file for SPV (optional)
-      HEADERS_FILE: /app/data/headers/headers.json
     ports:
       - "8788:8788"
+      - "9229:9229" # Node.js debugging port
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - app_data:/app/data
-      - app_logs:/app/logs
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8788/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    restart: unless-stopped
+      - .:/app
+      - /app/node_modules
+      - app_dev_data:/app/data
+      - app_dev_logs:/app/logs
+    command: npm run dev
     networks:
-      - gitdata-network
+      - gitdata-dev-network
 
-  # Optional: pgAdmin for database management
+  # pgAdmin for database management
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: gitdata-pgadmin
+    container_name: gitdata-pgadmin-dev
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@gitdata.dev
       PGADMIN_DEFAULT_PASSWORD: admin
@@ -102,16 +97,14 @@ services:
     depends_on:
       - postgres
     volumes:
-      - pgadmin_data:/var/lib/pgadmin
+      - pgadmin_dev_data:/var/lib/pgadmin
     networks:
-      - gitdata-network
-    profiles:
-      - admin
+      - gitdata-dev-network
 
-  # Optional: Redis Commander for cache management
+  # Redis Commander for cache management
   redis-commander:
     image: rediscommander/redis-commander:latest
-    container_name: gitdata-redis-commander
+    container_name: gitdata-redis-commander-dev
     environment:
       REDIS_HOSTS: local:redis:6379
       HTTP_USER: admin
@@ -121,24 +114,22 @@ services:
     depends_on:
       - redis
     networks:
-      - gitdata-network
-    profiles:
-      - admin
+      - gitdata-dev-network
 
-# Named volumes for data persistence
+# Named volumes for development data persistence
 volumes:
-  postgres_data:
+  postgres_dev_data:
     driver: local
-  redis_data:
+  redis_dev_data:
     driver: local
-  app_data:
+  app_dev_data:
     driver: local
-  app_logs:
+  app_dev_logs:
     driver: local
-  pgadmin_data:
+  pgadmin_dev_data:
     driver: local
 
-# Network for service communication
+# Network for development service communication
 networks:
-  gitdata-network:
+  gitdata-dev-network:
     driver: bridge

@@ -1,0 +1,41 @@
+# Development Dockerfile for hot reloading and debugging
+FROM node:18-alpine
+
+# Install build dependencies
+RUN apk add --no-cache python3 make g++ git
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies including dev dependencies
+RUN npm install
+
+# Create app user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S gitdata -u 1001
+
+# Create data directories
+RUN mkdir -p /app/data/headers /app/data/storage /app/logs && \
+    chown -R gitdata:nodejs /app
+
+# Copy source code (this will be mounted as volume in dev)
+COPY . .
+
+# Change ownership
+RUN chown -R gitdata:nodejs /app
+
+# Switch to non-root user
+USER gitdata
+
+# Expose port and debugging port
+EXPOSE 8788 9229
+
+# Set environment variables
+ENV NODE_ENV=development
+ENV PORT=8788
+
+# Start application with hot reload and debugging
+CMD ["npm", "run", "dev"]
