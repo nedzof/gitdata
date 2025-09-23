@@ -216,14 +216,13 @@ class BRC64HistoryService extends EventEmitter {
       const utxoId = `${txid}:${vout}`;
 
       // Find inputs that led to this UTXO
-      const parentInputs = this.database
-        .prepare(
-          `
+      const parentInputs = await this.database.query(
+        `
         SELECT * FROM brc64_historical_inputs
-        WHERE spending_txid = ?
+        WHERE spending_txid = $1
       `,
-        )
-        .all(txid);
+        [txid]
+      );
 
       for (const parentInput of parentInputs) {
         const parentUtxoId = `${parentInput.source_txid}:${parentInput.source_vout}`;
@@ -234,14 +233,13 @@ class BRC64HistoryService extends EventEmitter {
       }
 
       // Find future outputs that spend this UTXO
-      const futureSpends = this.database
-        .prepare(
-          `
+      const futureSpends = await this.database.query(
+        `
         SELECT * FROM brc64_historical_inputs
-        WHERE source_txid = ? AND source_vout = ?
+        WHERE source_txid = $1 AND source_vout = $2
       `,
-        )
-        .all(txid, vout);
+        [txid, vout]
+      );
 
       for (const futureSpend of futureSpends) {
         const childUtxoId = `${futureSpend.spending_txid}:0`; // Simplified - assume first output
@@ -275,15 +273,21 @@ class BRC64HistoryService extends EventEmitter {
   ): Promise<void> {
     const edgeId = `${parentUtxo}_${childUtxo}_${relationshipType}`;
 
-    this.database
-      .prepare(
-        `
-      INSERT OR REPLACE INTO brc64_lineage_edges
+    await this.database.execute(
+      `
+      INSERT INTO brc64_lineage_edges
       (edge_id, parent_utxo, child_utxo, relationship_type, topic, connecting_txid, timestamp, metadata_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (edge_id) DO UPDATE SET
+        parent_utxo = EXCLUDED.parent_utxo,
+        child_utxo = EXCLUDED.child_utxo,
+        relationship_type = EXCLUDED.relationship_type,
+        topic = EXCLUDED.topic,
+        connecting_txid = EXCLUDED.connecting_txid,
+        timestamp = EXCLUDED.timestamp,
+        metadata_json = EXCLUDED.metadata_json
     `,
-      )
-      .run(
+      [
         edgeId,
         parentUtxo,
         childUtxo,
@@ -292,7 +296,8 @@ class BRC64HistoryService extends EventEmitter {
         connectingTxid,
         Date.now(),
         JSON.stringify(metadata || {}),
-      );
+      ]
+    );
   }
 
   /**
@@ -435,13 +440,13 @@ class BRC64HistoryService extends EventEmitter {
     }
 
     // Get transaction details
-    const txRecord = this.database
-      .prepare(
-        `
-      SELECT * FROM brc22_transactions WHERE txid = ?
+    const txRecords = await this.database.query(
+      `
+      SELECT * FROM brc22_transactions WHERE txid = $1
     `,
-      )
-      .get(txid);
+      [txid]
+    );
+    const txRecord = txRecords[0];
 
     return {
       txid: utxo.txid,
@@ -463,15 +468,14 @@ class BRC64HistoryService extends EventEmitter {
    * Get historical inputs for a transaction
    */
   private async getHistoricalInputs(txid: string): Promise<HistoricalInput[]> {
-    const inputs = this.database
-      .prepare(
-        `
+    const inputs = await this.database.query(
+      `
       SELECT * FROM brc64_historical_inputs
-      WHERE spending_txid = ?
+      WHERE spending_txid = $1
       ORDER BY input_index
     `,
-      )
-      .all(txid);
+      [txid]
+    );
 
     return inputs.map((input) => ({
       txid: input.source_txid,
@@ -490,32 +494,30 @@ class BRC64HistoryService extends EventEmitter {
    * Get parent UTXOs
    */
   private async getParentUTXOs(utxoId: string): Promise<string[]> {
-    const edges = this.database
-      .prepare(
-        `
+    const edges = await this.database.query(
+      `
       SELECT parent_utxo FROM brc64_lineage_edges
-      WHERE child_utxo = ?
+      WHERE child_utxo = $1
     `,
-      )
-      .all(utxoId);
+      [utxoId]
+    );
 
-    return edges.map((edge) => edge.parent_utxo);
+    return edges.map((edge: any) => edge.parent_utxo);
   }
 
   /**
    * Get child UTXOs
    */
   private async getChildUTXOs(utxoId: string): Promise<string[]> {
-    const edges = this.database
-      .prepare(
-        `
+    const edges = await this.database.query(
+      `
       SELECT child_utxo FROM brc64_lineage_edges
-      WHERE parent_utxo = ?
+      WHERE parent_utxo = $1
     `,
-      )
-      .all(utxoId);
+      [utxoId]
+    );
 
-    return edges.map((edge) => edge.child_utxo);
+    return edges.map((edge: any) => edge.child_utxo);
   }
 
   /**
@@ -548,18 +550,18 @@ class BRC64HistoryService extends EventEmitter {
     }));
 
     const edges: LineageGraph['edges'] = [];
-    const edgeRecords = this.database
-      .prepare(
-        `
+    const utxoIds = history.map((u) => `${u.txid}:${u.vout}`);
+    const parentPlaceholders = utxoIds.map((_, i) => `$${i + 1}`).join(',');
+    const childPlaceholders = utxoIds.map((_, i) => `$${i + utxoIds.length + 1}`).join(',');
+
+    const edgeRecords = await this.database.query(
+      `
       SELECT * FROM brc64_lineage_edges
-      WHERE parent_utxo IN (${history.map(() => '?').join(',')})
-         OR child_utxo IN (${history.map(() => '?').join(',')})
+      WHERE parent_utxo IN (${parentPlaceholders})
+         OR child_utxo IN (${childPlaceholders})
     `,
-      )
-      .all(
-        ...history.map((u) => `${u.txid}:${u.vout}`),
-        ...history.map((u) => `${u.txid}:${u.vout}`),
-      );
+      [...utxoIds, ...utxoIds]
+    );
 
     for (const edge of edgeRecords) {
       edges.push({
@@ -577,38 +579,32 @@ class BRC64HistoryService extends EventEmitter {
   /**
    * Get history statistics
    */
-  getStats(): {
+  async getStats(): Promise<{
     historicalInputs: number;
     lineageEdges: number;
     trackedTransactions: number;
     cacheHitRate: number;
-  } {
-    const historicalInputs =
-      this.database
-        .prepare(
-          `
+  }> {
+    const historicalInputsResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc64_historical_inputs
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const historicalInputs = historicalInputsResult[0]?.count || 0;
 
-    const lineageEdges =
-      this.database
-        .prepare(
-          `
+    const lineageEdgesResult = await this.database.query(
+      `
       SELECT COUNT(*) as count FROM brc64_lineage_edges
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const lineageEdges = lineageEdgesResult[0]?.count || 0;
 
-    const trackedTransactions =
-      this.database
-        .prepare(
-          `
+    const trackedTransactionsResult = await this.database.query(
+      `
       SELECT COUNT(DISTINCT spending_txid) as count FROM brc64_historical_inputs
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const trackedTransactions = trackedTransactionsResult[0]?.count || 0;
 
     // Cache hit rate calculation would require tracking cache hits/misses
     const cacheHitRate = 0.75; // Placeholder
@@ -639,46 +635,49 @@ class BRC64HistoryService extends EventEmitter {
       .substring(0, 16);
   }
 
-  private getCachedResult(cacheKey: string): HistoricalUTXO[] | null {
-    const cached = this.database
-      .prepare(
-        `
+  private async getCachedResult(cacheKey: string): Promise<HistoricalUTXO[] | null> {
+    const results = await this.database.query(
+      `
       SELECT result_json FROM brc64_history_cache
-      WHERE cache_key = ? AND expiry > ?
+      WHERE cache_key = $1 AND expiry > $2
     `,
-      )
-      .get(cacheKey, Date.now());
+      [cacheKey, Date.now()]
+    );
+    const cached = results[0];
 
     return cached ? JSON.parse(cached.result_json) : null;
   }
 
-  private cacheResult(cacheKey: string, results: HistoricalUTXO[]): void {
+  private async cacheResult(cacheKey: string, results: HistoricalUTXO[]): Promise<void> {
     const expiry = Date.now() + 30 * 60 * 1000; // 30 minutes
 
-    this.database
-      .prepare(
-        `
-      INSERT OR REPLACE INTO brc64_history_cache
+    await this.database.execute(
+      `
+      INSERT INTO brc64_history_cache
       (cache_key, query_hash, result_json, expiry)
-      VALUES (?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (cache_key) DO UPDATE SET
+        query_hash = EXCLUDED.query_hash,
+        result_json = EXCLUDED.result_json,
+        expiry = EXCLUDED.expiry
     `,
-      )
-      .run(cacheKey, cacheKey, JSON.stringify(results), expiry);
+      [cacheKey, cacheKey, JSON.stringify(results), expiry]
+    );
   }
 
   /**
    * Clean up expired cache entries
    */
-  cleanupCache(): number {
-    const result = this.database
-      .prepare(
-        `
-      DELETE FROM brc64_history_cache WHERE expiry < ?
+  async cleanupCache(): Promise<number> {
+    await this.database.execute(
+      `
+      DELETE FROM brc64_history_cache WHERE expiry < $1
     `,
-      )
-      .run(Date.now());
+      [Date.now()]
+    );
 
-    return result.changes;
+    // PostgreSQL doesn't return changes count easily, return 0 for now
+    return 0;
   }
 }
 
