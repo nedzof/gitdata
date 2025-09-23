@@ -28,6 +28,9 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Serve static files from UI build directory
+app.use(express.static('./ui/build'));
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -68,13 +71,19 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
-// 404 handler
-app.use('*', (req: express.Request, res: express.Response) => {
-  res.status(404).json({
-    success: false,
-    error: 'Not found',
-    message: `Route ${req.method} ${req.originalUrl} not found`
-  });
+// Catch-all handler - serve index.html for SPA routes
+app.get('*', (req: express.Request, res: express.Response) => {
+  // If it's an API route that doesn't exist, return 404 JSON
+  if (req.path.startsWith('/api') || req.path.startsWith('/v1')) {
+    return res.status(404).json({
+      success: false,
+      error: 'Not found',
+      message: `Route ${req.method} ${req.originalUrl} not found`
+    });
+  }
+
+  // For all other routes, serve the SPA
+  res.sendFile('./ui/build/index.html', { root: '.' });
 });
 
 // Graceful shutdown handling

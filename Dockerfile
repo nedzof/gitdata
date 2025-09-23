@@ -20,6 +20,9 @@ RUN npm ci --legacy-peer-deps && npm cache clean --force
 # Copy source code
 COPY . .
 
+# Copy UI build files
+COPY ui/build ./ui/build
+
 # Copy additional required files
 COPY src/db/postgresql-schema.sql ./src/db/
 COPY src/db/schema-d08-realtime-packets.sql ./src/db/
