@@ -56,8 +56,26 @@
     type: 'data',
     tags: '',
     content: null,
-    parents: [] // Array of parent asset IDs for lineage
+    parents: [], // Array of parent asset IDs for lineage
+    parentRelationships: {}, // Map of parentId -> relationshipType
+    selectedPolicy: 'none', // Policy to apply/prefill from
+    classification: 'public',
+    license: 'CC-BY-4.0',
+    format: 'application/json'
   };
+
+  // Enhanced relationship types for lineage tracking
+  const relationshipTypes = [
+    { value: 'derived', label: 'Derived', description: 'New insights from existing data' },
+    { value: 'processed', label: 'Processed', description: 'Cleaned and transformed' },
+    { value: 'enriched', label: 'Enriched', description: 'Enhanced with additional data' },
+    { value: 'filtered', label: 'Filtered', description: 'Subset or filtered data' },
+    { value: 'aggregated', label: 'Aggregated', description: 'Summarized or grouped' },
+    { value: 'merged', label: 'Merged', description: 'Combined multiple sources' },
+    { value: 'analyzed', label: 'Analyzed', description: 'Analysis results from source' },
+    { value: 'trained', label: 'Trained', description: 'Model trained on source data' },
+    { value: 'validated', label: 'Validated', description: 'Validation using source data' }
+  ];
 
   onMount(async () => {
     await Promise.all([
@@ -111,6 +129,63 @@
         { id: 'none', name: 'No Policy Filter' }
       ];
     }
+  }
+
+  // Function to handle policy selection and prefill form fields
+  function handlePolicySelection() {
+    if (publishData.selectedPolicy === 'none') return;
+
+    // Find the selected policy
+    const selectedPolicy = availablePolicies.find(p => p.id === publishData.selectedPolicy);
+    if (!selectedPolicy) return;
+
+    // Prefill form fields based on policy
+    if (publishData.selectedPolicy === 'pol_001') {
+      // Production Data Access policy defaults
+      publishData.classification = 'restricted';
+      publishData.license = 'Commercial';
+      publishData.format = 'application/json';
+      publishData.tags = 'production, validated, enterprise';
+    } else if (publishData.selectedPolicy === 'pol_002') {
+      // PII Protection Policy defaults
+      publishData.classification = 'restricted';
+      publishData.license = 'CC-BY-NC-SA-4.0';
+      publishData.format = 'application/json';
+      publishData.tags = 'pii-protected, anonymized, privacy';
+    }
+
+    console.log(`Applied policy ${selectedPolicy.name} with prefilled values`);
+  }
+
+  // Function to handle parent asset selection and relationship type
+  function handleParentSelection(parentId, selected) {
+    if (selected) {
+      publishData.parents = [...publishData.parents, parentId];
+      // Default relationship type
+      publishData.parentRelationships = {
+        ...publishData.parentRelationships,
+        [parentId]: 'derived'
+      };
+    } else {
+      publishData.parents = publishData.parents.filter(id => id !== parentId);
+      const newRelationships = { ...publishData.parentRelationships };
+      delete newRelationships[parentId];
+      publishData.parentRelationships = newRelationships;
+    }
+
+    // Force reactivity update
+    publishData = { ...publishData };
+    console.log('Parent selection updated:', publishData.parents, publishData.parentRelationships);
+  }
+
+  // Function to update relationship type for a parent
+  function updateRelationshipType(parentId, relationshipType) {
+    publishData.parentRelationships = {
+      ...publishData.parentRelationships,
+      [parentId]: relationshipType
+    };
+    publishData = { ...publishData }; // Trigger reactivity
+    console.log('Relationship updated:', parentId, relationshipType);
   }
 
   async function loadAssets() {
@@ -544,7 +619,7 @@
       on:click={() => showPublishForm = !showPublishForm}
       class="button primary"
     >
-      {showPublishForm ? 'Cancel' : '🌐 + Publish to Overlay Network'}
+      {showPublishForm ? 'Cancel' : '🌐 + Publish'}
     </button>
   </div>
 
@@ -553,6 +628,23 @@
     <div class="form-section">
       <h2>Publish New Asset</h2>
       <form on:submit|preventDefault={handlePublish}>
+
+        <!-- Policy Selection for Prefill -->
+        <div class="form-group">
+          <label for="policy">Apply Policy Template (Optional)</label>
+          <select
+            id="policy"
+            bind:value={publishData.selectedPolicy}
+            on:change={handlePolicySelection}
+            class="form-input"
+          >
+            {#each availablePolicies as policy}
+              <option value={policy.id}>{policy.name}</option>
+            {/each}
+          </select>
+          <small class="form-help">Select a policy to auto-fill form fields with predefined values</small>
+        </div>
+
         <div class="form-grid">
           <div class="form-group">
             <label for="name">Name</label>
@@ -576,6 +668,38 @@
             </select>
           </div>
         </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="classification">Classification</label>
+            <select
+              id="classification"
+              bind:value={publishData.classification}
+              class="form-input"
+            >
+              <option value="public">Public</option>
+              <option value="restricted">Restricted</option>
+              <option value="premium">Premium</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="license">License</label>
+            <select
+              id="license"
+              bind:value={publishData.license}
+              class="form-input"
+            >
+              <option value="CC-BY-4.0">CC-BY-4.0</option>
+              <option value="CC-BY-NC-SA-4.0">CC-BY-NC-SA-4.0</option>
+              <option value="CC0-1.0">CC0-1.0</option>
+              <option value="MIT">MIT</option>
+              <option value="Apache-2.0">Apache-2.0</option>
+              <option value="GPL-3.0">GPL-3.0</option>
+              <option value="Commercial">Commercial</option>
+            </select>
+          </div>
+        </div>
+
         <div class="form-group">
           <label for="description">Description</label>
           <textarea
@@ -599,36 +723,63 @@
           <label for="parents">Parent Assets (for lineage tracking)</label>
           <div class="parent-selection">
             {#if availableAssets.length > 0}
+              <p class="form-help">Select assets that this new asset is derived from or related to:</p>
               <div class="parent-options">
                 {#each availableAssets as asset}
-                  <label class="parent-option">
-                    <input
-                      type="checkbox"
-                      value={asset.versionId}
-                      bind:group={publishData.parents}
-                      class="parent-checkbox"
-                    />
-                    <span class="parent-label">
-                      <strong>{asset.title || asset.datasetId || asset.versionId?.slice(0, 8)}</strong>
-                      {#if asset.title && asset.datasetId}
-                        <small>({asset.datasetId})</small>
-                      {/if}
-                    </span>
-                  </label>
+                  <div class="parent-asset-card">
+                    <label class="parent-option">
+                      <input
+                        type="checkbox"
+                        value={asset.versionId}
+                        checked={publishData.parents.includes(asset.versionId)}
+                        on:change={(e) => handleParentSelection(asset.versionId, e.target.checked)}
+                        class="parent-checkbox"
+                      />
+                      <div class="parent-asset-info">
+                        <div class="parent-asset-title">
+                          <strong>{asset.title || 'Untitled Asset'}</strong>
+                          <span class="asset-classification {asset.classification}">{asset.classification}</span>
+                        </div>
+                        <div class="parent-asset-details">
+                          <span class="dataset-id">📊 {asset.datasetId || asset.versionId?.slice(0, 8)}</span>
+                          <span class="asset-license">📄 {asset.license || 'Unknown'}</span>
+                        </div>
+                      </div>
+                    </label>
+
+                    {#if publishData.parents.includes(asset.versionId)}
+                      <div class="relationship-selector">
+                        <label for="rel-{asset.versionId}">Relationship Type:</label>
+                        <select
+                          id="rel-{asset.versionId}"
+                          bind:value={publishData.parentRelationships[asset.versionId]}
+                          on:change={(e) => updateRelationshipType(asset.versionId, e.target.value)}
+                          class="relationship-select"
+                        >
+                          {#each relationshipTypes as relType}
+                            <option value={relType.value}>{relType.label} - {relType.description}</option>
+                          {/each}
+                        </select>
+                      </div>
+                    {/if}
+                  </div>
                 {/each}
               </div>
             {:else}
               <p class="no-parents">No existing assets available for lineage. This will be the first asset.</p>
             {/if}
+
             {#if publishData.parents.length > 0}
-              <div class="selected-parents">
-                <strong>Selected parents:</strong>
+              <div class="selected-parents-summary">
+                <h4>Lineage Summary ({publishData.parents.length} parent{publishData.parents.length > 1 ? 's' : ''}):</h4>
                 {#each publishData.parents as parentId}
-                  <span class="selected-parent-tag">
-                    {availableAssets.find(a => a.versionId === parentId)?.title ||
-                     availableAssets.find(a => a.versionId === parentId)?.datasetId ||
-                     parentId?.slice(0, 8)}
-                  </span>
+                  {@const parentAsset = availableAssets.find(a => a.versionId === parentId)}
+                  {@const relationship = publishData.parentRelationships[parentId]}
+                  <div class="parent-summary-item">
+                    <span class="parent-title">{parentAsset?.title || 'Unknown Asset'}</span>
+                    <span class="relationship-badge">{relationshipTypes.find(r => r.value === relationship)?.label || 'Derived'}</span>
+                    <span class="parent-dataset-id">({parentAsset?.datasetId || parentId?.slice(0, 8)})</span>
+                  </div>
                 {/each}
               </div>
             {/if}
@@ -1666,37 +1817,171 @@
   }
 
 
-  /* Parent selection styles */
+  /* Enhanced Parent selection styles */
   .parent-selection {
     margin-top: 8px;
   }
 
+  .form-help {
+    color: #8b949e;
+    font-size: 12px;
+    margin-bottom: 12px;
+    font-style: italic;
+  }
+
   .parent-options {
-    max-height: 200px;
+    max-height: 300px;
     overflow-y: auto;
     border: 1px solid #30363d;
     border-radius: 6px;
     padding: 12px;
     background: #0d1117;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .parent-asset-card {
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    padding: 12px;
+    background: #161b22;
+    transition: all 0.2s;
+  }
+
+  .parent-asset-card:hover {
+    border-color: #58a6ff;
+    background: #1c2128;
   }
 
   .parent-option {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px;
-    border-radius: 4px;
+    align-items: flex-start;
+    gap: 12px;
     cursor: pointer;
-    transition: background-color 0.2s;
-  }
-
-  .parent-option:hover {
-    background: #21262d;
+    margin-bottom: 8px;
   }
 
   .parent-checkbox {
-    margin: 0;
+    margin: 4px 0 0 0;
     accent-color: #58a6ff;
+    transform: scale(1.2);
+  }
+
+  .parent-asset-info {
+    flex: 1;
+  }
+
+  .parent-asset-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .parent-asset-title strong {
+    color: #f0f6fc;
+    font-size: 14px;
+  }
+
+  .asset-classification {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+  }
+
+  .asset-classification.public {
+    background: #238636;
+    color: white;
+  }
+
+  .asset-classification.restricted {
+    background: #f85149;
+    color: white;
+  }
+
+  .asset-classification.premium {
+    background: #a5a5a5;
+    color: white;
+  }
+
+  .parent-asset-details {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: #8b949e;
+  }
+
+  .dataset-id, .asset-license {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .relationship-selector {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #30363d;
+  }
+
+  .relationship-selector label {
+    display: block;
+    font-size: 12px;
+    color: #8b949e;
+    margin-bottom: 4px;
+  }
+
+  .relationship-select {
+    width: 100%;
+    padding: 6px 8px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #f0f6fc;
+    font-size: 12px;
+  }
+
+  .selected-parents-summary {
+    margin-top: 16px;
+    padding: 12px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+  }
+
+  .selected-parents-summary h4 {
+    margin: 0 0 8px 0;
+    color: #58a6ff;
+    font-size: 14px;
+  }
+
+  .parent-summary-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 12px;
+  }
+
+  .parent-title {
+    color: #f0f6fc;
+    font-weight: 500;
+  }
+
+  .relationship-badge {
+    background: #58a6ff;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: bold;
+  }
+
+  .parent-dataset-id {
+    color: #8b949e;
+    font-family: monospace;
   }
 
   .parent-label {
