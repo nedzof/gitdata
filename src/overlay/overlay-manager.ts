@@ -3,9 +3,8 @@
 
 import { EventEmitter } from 'events';
 
-import type Database from 'better-sqlite3';
-
 import type { D01AData } from './bsv-overlay-service';
+import type { DatabaseAdapter } from './brc26-uhrp';
 import { BSVOverlayService, OverlayMessage } from './bsv-overlay-service';
 import {
   getOverlayConfig,
@@ -16,7 +15,7 @@ import {
 
 export interface OverlayManagerConfig {
   environment: 'development' | 'staging' | 'production';
-  database: Database.Database;
+  database: DatabaseAdapter;
   autoConnect: boolean;
   enablePaymentIntegration: boolean;
   enableSearchIntegration: boolean;
@@ -34,7 +33,7 @@ class OverlayManager extends EventEmitter {
   private overlayService: BSVOverlayService;
   private subscriptionManager: TopicSubscriptionManager;
   private config: OverlayManagerConfig;
-  private database: Database.Database;
+  private database: DatabaseAdapter;
   private isInitialized: boolean = false;
 
   constructor(config: OverlayManagerConfig) {
@@ -137,21 +136,25 @@ class OverlayManager extends EventEmitter {
       await this.overlayService.subscribeToTopic(topic);
 
       // Record subscription in database
-      this.database
-        .prepare(
-          `
-        INSERT OR REPLACE INTO overlay_subscriptions
+      await this.database.execute(
+        `
+        INSERT INTO overlay_subscriptions
         (topic, classification, subscribed_at, last_activity, auto_subscribe)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (topic) DO UPDATE SET
+          classification = EXCLUDED.classification,
+          subscribed_at = EXCLUDED.subscribed_at,
+          last_activity = EXCLUDED.last_activity,
+          auto_subscribe = EXCLUDED.auto_subscribe
       `,
-        )
-        .run(
+        [
           topic,
           'public', // TODO: Determine classification from topic
           Date.now(),
           Date.now(),
           autoSubscribe,
-        );
+        ]
+      );
 
       this.subscriptionManager.addSubscription(topic);
       this.emit('subscribed', topic);
@@ -168,7 +171,7 @@ class OverlayManager extends EventEmitter {
       await this.overlayService.unsubscribeFromTopic(topic);
 
       // Remove subscription from database
-      this.database.prepare(`DELETE FROM overlay_subscriptions WHERE topic = ?`).run(topic);
+      await this.database.execute(`DELETE FROM overlay_subscriptions WHERE topic = $1`, [topic]);
 
       this.subscriptionManager.removeSubscription(topic);
       this.emit('unsubscribed', topic);
