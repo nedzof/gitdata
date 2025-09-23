@@ -80,7 +80,7 @@ class BRC24LookupService extends EventEmitter {
         payment_status TEXT DEFAULT 'none',
         results_count INTEGER DEFAULT 0,
         processed_at INTEGER NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
       )
     `);
 
@@ -92,7 +92,7 @@ class BRC24LookupService extends EventEmitter {
         data_value TEXT NOT NULL,
         utxo_count INTEGER DEFAULT 0,
         last_updated INTEGER NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
         PRIMARY KEY (provider_id, topic, data_key)
       )
     `);

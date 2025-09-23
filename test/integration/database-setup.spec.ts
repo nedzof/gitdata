@@ -93,7 +93,7 @@ describe('Database Setup Integration', () => {
         manifest_json::json->'metadata'->>'category' as category,
         COUNT(*) as count
       FROM manifests
-      GROUP BY category
+      GROUP BY manifest_json::json->'metadata'->>'category'
       ORDER BY count DESC
     `);
 
@@ -114,7 +114,7 @@ describe('Database Setup Integration', () => {
         COUNT(*) as count
       FROM manifests m
       JOIN prices p ON m.version_id = p.version_id
-      GROUP BY m.classification, category, p.satoshis
+      GROUP BY m.classification, m.manifest_json::json->'metadata'->>'category', p.satoshis
       ORDER BY p.satoshis
     `);
 

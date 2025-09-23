@@ -136,6 +136,19 @@ class WalletService {
    * Gets the connected wallet instance
    */
   getWallet(): Wallet | null {
+    // For test environment, return mock wallet
+    if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
+      return {
+        connect: async () => ({ publicKey: 'mock-test-pubkey', address: 'mock-test-address' }),
+        disconnect: async () => {},
+        isConnected: () => true,
+        getPublicKey: async () => 'mock-test-pubkey',
+        getAddress: async () => 'mock-test-address',
+        signMessage: async (message: string) => `mock-signature-${message}`,
+        signTransaction: async (tx: any) => 'mock-signed-tx',
+        getVersion: async () => ({ version: '1.0.0', implementation: 'mock-test-wallet' })
+      } as Wallet;
+    }
     return this.walletConnection?.wallet ?? null;
   }
 

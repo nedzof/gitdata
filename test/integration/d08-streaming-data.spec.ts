@@ -16,8 +16,8 @@ describe('D08 Streaming Test Data Integration', () => {
   beforeAll(async () => {
     db = getHybridDatabase();
 
-    // Ensure D08 schema is set up
-    await setupD08Schema();
+    // D08 schema is already included in the comprehensive schema
+    // No need to run setupD08Schema() separately
   });
 
   afterAll(async () => {

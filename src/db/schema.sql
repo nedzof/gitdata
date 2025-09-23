@@ -74,9 +74,10 @@ CREATE INDEX IF NOT EXISTS idx_revenue_receipt ON revenue_events(receipt_id);
 CREATE TABLE IF NOT EXISTS producers (
   producer_id TEXT PRIMARY KEY,
   name TEXT,
+  display_name TEXT,
   website TEXT,
   identity_key TEXT UNIQUE, -- hex compressed pubkey (66 chars), optional-unique
-  created_at INTEGER NOT NULL
+  created_at INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_producers_identity ON producers(identity_key);

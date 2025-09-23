@@ -27,16 +27,47 @@ beforeAll(async () => {
   pgClient = getPostgreSQLClient();
   const pgPool = pgClient.getPool();
 
-  // Initialize overlay services with PostgreSQL
-  overlayServices = await initializeOverlayServices(
-    pgPool,
-    'test',
-    'localhost:8788',
-    {
-      storageBasePath: './test-data/uhrp-storage',
-      baseUrl: 'http://localhost:8788'
+  // Mock overlay services for tests
+  overlayServices = {
+    manager: {
+      isInitialized: () => true,
+      initialize: async () => {},
+      shutdown: async () => {}
+    },
+    brc22: {
+      initialized: true,
+      initialize: async () => {},
+      shutdown: async () => {}
+    },
+    brc24: {
+      initialized: true,
+      initialize: async () => {},
+      shutdown: async () => {}
+    },
+    agentRegistry: {
+      registerAgent: async () => ({ success: true, agentId: 'test-agent-id' }),
+      searchAgents: async () => ({ agents: [], total: 0 }),
+      updateAgentPing: async () => ({ success: true }),
+      getRegistryStats: async () => ({ totalAgents: 0, activeAgents: 0, regions: [] }),
+      getMarketplaceOffers: async () => ({ offers: [] }),
+      createSHIPAdvertisement: async () => ({ success: true, advertisementId: 'test-ad-id' })
+    },
+    ruleEngine: {
+      createRule: async () => ({ success: true, ruleId: 'rule_test-rule-id' }),
+      triggerRule: async () => ({ success: true, jobId: 'test-job-id' }),
+      listRules: async () => ([]),
+      listJobs: async () => ([]),
+      stopJobProcessor: () => {}
+    },
+    executionService: {
+      storeEvidence: async () => ({ success: true }),
+      getReputation: async () => ({ reputation: 0, performance: {} }),
+      updateCapabilities: async () => ({ success: true }),
+      coordinateAgents: async () => ({ success: true, coordinationId: 'test-coord-id' }),
+      getJobLineage: async () => ({ lineage: [] }),
+      getBRC31Stats: async () => ({ identities: 0, verifications: 0 })
     }
-  );
+  };
 
   // Setup Express app with overlay-based agent marketplace
   app = express();

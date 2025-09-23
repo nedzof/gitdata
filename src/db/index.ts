@@ -1095,16 +1095,14 @@ export async function listJobsByRule(ruleId: string, state?: string, limit = 100
 export async function createTemplate(template: Partial<ContractTemplateRow>): Promise<string> {
   const { getPostgreSQLClient } = await import('./postgresql');
   const pgClient = getPostgreSQLClient();
-
-  const templateId = template.template_id || `tmpl_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const now = new Date(); // agent_templates uses timestamp, not integer
 
-  await pgClient.query(`
+  const result = await pgClient.query(`
     INSERT INTO agent_templates (
-      template_id, template_name, template_config, created_at
-    ) VALUES ($1, $2, $3, $4)
+      template_name, template_config, created_at
+    ) VALUES ($1, $2, $3)
+    RETURNING template_id
   `, [
-    templateId,
     template.name,
     JSON.stringify({
       description: template.description,
@@ -1116,7 +1114,7 @@ export async function createTemplate(template: Partial<ContractTemplateRow>): Pr
     now
   ]);
 
-  return templateId;
+  return result.rows[0].template_id;
 }
 
 export async function getTemplate(templateId: string): Promise<ContractTemplateRow | null> {
@@ -1127,7 +1125,8 @@ export async function getTemplate(templateId: string): Promise<ContractTemplateR
   if (!result) return null;
 
   // Map the agent_templates structure back to the expected ContractTemplateRow format
-  const config = result.template_config ? JSON.parse(result.template_config) : {};
+  // template_config is JSONB which is already parsed by PostgreSQL client
+  const config = result.template_config || {};
   return {
     template_id: result.template_id,
     name: result.template_name,
@@ -1153,7 +1152,8 @@ export async function listTemplates(limit = 100, offset = 0): Promise<ContractTe
 
   // Map agent_templates structure to ContractTemplateRow format
   return result.rows.map(row => {
-    const config = row.template_config ? JSON.parse(row.template_config) : {};
+    // template_config is JSONB which is already parsed by PostgreSQL client
+    const config = row.template_config || {};
     return {
       template_id: row.template_id,
       name: row.template_name,
@@ -1235,7 +1235,8 @@ export async function updateTemplate(templateId: string, updates: Partial<Contra
 
   // Map back to ContractTemplateRow format
   const row = result.rows[0];
-  const config = JSON.parse(row.template_config);
+  // template_config is JSONB which is already parsed by PostgreSQL client
+  const config = row.template_config;
   return {
     template_id: row.template_id,
     name: row.template_name,

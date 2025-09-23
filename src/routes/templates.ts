@@ -55,7 +55,15 @@ export function templatesRouter(): Router {
   // GET /:id (get template)
   router.get('/:id', async (req: Request, res: Response) => {
     try {
-      const t = await getTemplate(String(req.params.id));
+      const templateId = String(req.params.id);
+
+      // Validate UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(templateId)) {
+        return json(res, 404, { error: 'not-found' });
+      }
+
+      const t = await getTemplate(templateId);
       if (!t) return json(res, 404, { error: 'not-found' });
 
       return json(res, 200, {

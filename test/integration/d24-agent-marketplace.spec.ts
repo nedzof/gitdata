@@ -16,16 +16,50 @@ describe('D24 Overlay Agent Marketplace Integration', () => {
     pgClient = getPostgreSQLClient();
     pgPool = pgClient.getPool();
 
-    // Initialize overlay services with PostgreSQL
-    overlayServices = await initializeOverlayServices(
-      pgPool,
-      'test',
-      'localhost:8788',
-      {
-        storageBasePath: './test-data/uhrp-storage',
-        baseUrl: 'http://localhost:8788'
+    // Mock overlay services for tests
+    overlayServices = {
+      manager: {
+        isInitialized: () => true,
+        initialize: async () => {},
+        shutdown: async () => {}
+      },
+      brc22: {
+        initialized: true,
+        initialize: async () => {},
+        shutdown: async () => {},
+        processSubmission: async () => ({ success: true, txid: 'test-tx-id' }),
+        getStats: async () => ({ submissions: 0, confirmations: 0 })
+      },
+      brc24: {
+        initialized: true,
+        initialize: async () => {},
+        shutdown: async () => {},
+        processLookup: async () => ({ status: 'success', results: [] })
+      },
+      brc22Service: {
+        processSubmission: async () => ({ success: true, txid: 'test-tx-id' }),
+        getStats: async () => ({ submissions: 0, confirmations: 0 })
+      },
+      brc24Service: {
+        processLookup: async () => ({ status: 'success', results: [] })
+      },
+      brc26Service: {
+        storeFile: async () => ({ hash: 'test-hash', size: 1024 }),
+        resolveContent: async () => ({ status: 'found', metadata: {} }),
+        getFileBuffer: async () => Buffer.from('test-content')
+      },
+      brc64Service: {
+        generateLineageGraph: async () => ({ nodes: [], edges: [] })
+      },
+      brc88Service: {
+        createSHIPAdvertisement: async () => ({
+          topicName: 'gitdata.agent.capabilities',
+          domainName: 'localhost:8788',
+          utxoId: 'test-utxo-id'
+        }),
+        getSHIPAdvertisements: async () => ([])
       }
-    );
+    };
 
     // Set up test database schema
     await setupTestSchema(pgClient);
@@ -787,15 +821,16 @@ async function storeOverlayAgent(pgClient: any, agentData: any): Promise<string>
 
   await pgClient.query(`
     INSERT INTO overlay_agents
-    (agent_id, name, capabilities_json, overlay_topics, ship_advertisement_id, geographic_region)
-    VALUES ($1, $2, $3, $4, $5, $6)
+    (agent_id, name, capabilities_json, overlay_topics, ship_advertisement_id, geographic_region, webhook_url)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
   `, [
     agentId,
     agentData.name,
     JSON.stringify(agentData.capabilities),
     agentData.overlayTopics || [],
     agentData.shipAdvertisementId,
-    agentData.region
+    agentData.region,
+    agentData.webhookUrl
   ]);
 
   return agentId;

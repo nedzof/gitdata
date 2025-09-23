@@ -40,7 +40,7 @@ export function agentsRouter() {
 
       const agentId = crypto.randomUUID();
 
-      const now = Math.floor(Date.now() / 1000); // Unix timestamp in seconds (fits in integer)
+      const now = new Date(); // Unix timestamp in seconds (fits in integer)
       await pgClient.query(`
         INSERT INTO agents (agent_id, name, webhook_url, capabilities_json, status, created_at)
         VALUES ($1, $2, $3, $4, 'active', $5)
@@ -97,6 +97,13 @@ export function agentsRouter() {
   router.get('/:agentId', async (req, res) => {
     try {
       const { agentId } = req.params;
+
+      // Validate UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(agentId)) {
+        return res.status(404).json({ error: 'not-found' });
+      }
+
       const result = await pgClient.query('SELECT * FROM agents WHERE agent_id = $1', [agentId]);
 
       if (result.rows.length === 0) {
@@ -127,7 +134,14 @@ export function agentsRouter() {
   router.post('/:agentId/ping', async (req, res) => {
     try {
       const { agentId } = req.params;
-      const now = Math.floor(Date.now() / 1000);
+
+      // Validate UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(agentId)) {
+        return res.status(404).json({ error: 'not-found' });
+      }
+
+      const now = new Date();
 
       // Update last ping timestamp
       const result = await pgClient.query(`

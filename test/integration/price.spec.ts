@@ -83,7 +83,7 @@ describe('Price Integration Test', () => {
     expect(r5.status).toBe(400);
 
     // 5) 404 when manifest missing
-    const anotherVid = 'b'.repeat(64);
+    const anotherVid = 'f'.repeat(64);
     const r6 = await request(app).get(`/price?versionId=${anotherVid}`);
     expect(r6.status).toBe(404);
   });

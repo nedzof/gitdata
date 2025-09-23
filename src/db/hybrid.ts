@@ -288,7 +288,7 @@ export class HybridDatabase {
   async insertReceipt(receipt: Omit<ReceiptRow, 'bytes_used' | 'last_seen'> & Partial<Pick<ReceiptRow, 'bytes_used' | 'last_seen'>>): Promise<void> {
     await this.pg.query(`
       INSERT INTO receipts(receipt_id, version_id, quantity, content_hash, amount_sat, status, created_at, expires_at, bytes_used, last_seen)
-      VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7), $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     `, [
       receipt.receipt_id,
       receipt.version_id,

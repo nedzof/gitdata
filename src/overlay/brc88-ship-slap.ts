@@ -2,7 +2,7 @@
 // Implements SHIP (Services Host Interconnect Protocol) and SLAP (Services Lookup Availability Protocol)
 
 import { EventEmitter } from 'events';
-import Database from 'better-sqlite3';
+import { getPostgreSQLClient, PostgreSQLClient } from '../db/postgresql';
 import { BRC22SubmitService } from './brc22-submit';
 import { BRC24LookupService } from './brc24-lookup';
 import { walletService } from '../../ui/src/lib/wallet';
@@ -46,7 +46,7 @@ export interface SynchronizationConfig {
 }
 
 class BRC88SHIPSLAPService extends EventEmitter {
-  private database: Database.Database;
+  private database: PostgreSQLClient;
   private brc22Service: BRC22SubmitService;
   private brc24Service: BRC24LookupService;
   private config: SynchronizationConfig;
@@ -56,7 +56,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
   private knownPeers = new Map<string, ServiceNode>();
 
   constructor(
-    database: Database.Database,
+    database: PostgreSQLClient,
     brc22Service: BRC22SubmitService,
     brc24Service: BRC24LookupService,
     config: SynchronizationConfig,
@@ -90,7 +90,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
         timestamp INTEGER NOT NULL,
         is_revocation BOOLEAN DEFAULT FALSE,
         is_active BOOLEAN DEFAULT TRUE,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
         UNIQUE(advertiser_identity, domain_name, topic_name)
       )
     `);
@@ -106,7 +106,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
         timestamp INTEGER NOT NULL,
         is_revocation BOOLEAN DEFAULT FALSE,
         is_active BOOLEAN DEFAULT TRUE,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
         UNIQUE(advertiser_identity, domain_name, service_id)
       )
     `);

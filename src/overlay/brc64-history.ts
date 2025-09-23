@@ -97,7 +97,7 @@ class BRC64HistoryService extends EventEmitter {
         spent_at INTEGER NOT NULL,
         original_admitted_at INTEGER NOT NULL,
         metadata_json TEXT,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
         UNIQUE(spending_txid, input_index)
       )
     `);
@@ -113,7 +113,7 @@ class BRC64HistoryService extends EventEmitter {
         connecting_txid TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
         metadata_json TEXT,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
         UNIQUE(parent_utxo, child_utxo, relationship_type)
       )
     `);
@@ -125,7 +125,7 @@ class BRC64HistoryService extends EventEmitter {
         query_hash TEXT NOT NULL,
         result_json TEXT NOT NULL,
         expiry INTEGER NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
       )
     `);
 
