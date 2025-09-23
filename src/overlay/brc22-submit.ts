@@ -285,15 +285,19 @@ class BRC22SubmitService extends EventEmitter {
     const utxoId = `${txid}:${vout}`;
 
     // Store in database
-    this.database
-      .prepare(
-        `
-      INSERT OR REPLACE INTO brc22_utxos
+    await this.database.execute(
+      `
+      INSERT INTO brc22_utxos
       (utxo_id, topic, txid, vout, output_script, satoshis, admitted_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (utxo_id) DO UPDATE SET
+        topic = EXCLUDED.topic,
+        output_script = EXCLUDED.output_script,
+        satoshis = EXCLUDED.satoshis,
+        admitted_at = EXCLUDED.admitted_at
     `,
-      )
-      .run(utxoId, topic, txid, vout, output.script, output.satoshis, Date.now());
+      [utxoId, topic, txid, vout, output.script, output.satoshis, Date.now()]
+    );
 
     // Add to tracked UTXOs
     this.trackedUTXOs.get(topic)?.add(utxoId);
@@ -313,30 +317,34 @@ class BRC22SubmitService extends EventEmitter {
     vout: number,
     spentByTxid: string,
   ): Promise<void> {
-    this.database
-      .prepare(
-        `
+    await this.database.execute(
+      `
       UPDATE brc22_utxos
-      SET spent_at = ?, spent_by_txid = ?
-      WHERE topic = ? AND txid = ? AND vout = ?
+      SET spent_at = $1, spent_by_txid = $2
+      WHERE topic = $3 AND txid = $4 AND vout = $5
     `,
-      )
-      .run(Date.now(), spentByTxid, topic, txid, vout);
+      [Date.now(), spentByTxid, topic, txid, vout]
+    );
   }
 
   /**
    * Store transaction record
    */
   private async storeTransactionRecord(transaction: BRC22Transaction, txid: string): Promise<void> {
-    this.database
-      .prepare(
-        `
-      INSERT OR REPLACE INTO brc22_transactions
+    await this.database.execute(
+      `
+      INSERT INTO brc22_transactions
       (txid, raw_tx, topics_json, inputs_json, mapi_responses_json, proof, processed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (txid) DO UPDATE SET
+        raw_tx = EXCLUDED.raw_tx,
+        topics_json = EXCLUDED.topics_json,
+        inputs_json = EXCLUDED.inputs_json,
+        mapi_responses_json = EXCLUDED.mapi_responses_json,
+        proof = EXCLUDED.proof,
+        processed_at = EXCLUDED.processed_at
     `,
-      )
-      .run(
+      [
         txid,
         transaction.rawTx,
         JSON.stringify(transaction.topics),
@@ -344,7 +352,8 @@ class BRC22SubmitService extends EventEmitter {
         JSON.stringify(transaction.mapiResponses || []),
         transaction.proof || null,
         Date.now(),
-      );
+      ]
+    );
   }
 
   /**
@@ -365,54 +374,50 @@ class BRC22SubmitService extends EventEmitter {
   }> {
     const sql = `
       SELECT * FROM brc22_utxos
-      WHERE topic = ? ${includeSpent ? '' : 'AND spent_at IS NULL'}
+      WHERE topic = $1 ${includeSpent ? '' : 'AND spent_at IS NULL'}
       ORDER BY admitted_at DESC
     `;
 
-    return this.database
-      .prepare(sql)
-      .all(topic)
-      .map((row) => ({
-        utxoId: row.utxo_id,
-        txid: row.txid,
-        vout: row.vout,
-        outputScript: row.output_script,
-        satoshis: row.satoshis,
-        admittedAt: row.admitted_at,
-        spentAt: row.spent_at || undefined,
-        spentByTxid: row.spent_by_txid || undefined,
-      }));
+    const rows = await this.database.query(sql, [topic]);
+    return rows.map((row: any) => ({
+      utxoId: row.utxo_id,
+      txid: row.txid,
+      vout: row.vout,
+      outputScript: row.output_script,
+      satoshis: row.satoshis,
+      admittedAt: row.admitted_at,
+      spentAt: row.spent_at || undefined,
+      spentByTxid: row.spent_by_txid || undefined,
+    }));
   }
 
   /**
    * Get statistics for BRC-22 operations
    */
-  getStats(): {
+  async getStats(): Promise<{
     topics: Record<string, { active: number; spent: number; total: number }>;
     transactions: { total: number; recent: number };
-  } {
+  }> {
     const topicStats: Record<string, { active: number; spent: number; total: number }> = {};
 
     for (const [topic] of this.topicManagers) {
-      const active =
-        this.database
-          .prepare(
-            `
+      const activeResult = await this.database.queryOne(
+        `
         SELECT COUNT(*) as count FROM brc22_utxos
-        WHERE topic = ? AND spent_at IS NULL
+        WHERE topic = $1 AND spent_at IS NULL
       `,
-          )
-          .get(topic)?.count || 0;
+        [topic]
+      );
+      const active = activeResult?.count || 0;
 
-      const spent =
-        this.database
-          .prepare(
-            `
+      const spentResult = await this.database.queryOne(
+        `
         SELECT COUNT(*) as count FROM brc22_utxos
-        WHERE topic = ? AND spent_at IS NOT NULL
+        WHERE topic = $1 AND spent_at IS NOT NULL
       `,
-          )
-          .get(topic)?.count || 0;
+        [topic]
+      );
+      const spent = spentResult?.count || 0;
 
       topicStats[topic] = {
         active,
@@ -421,24 +426,21 @@ class BRC22SubmitService extends EventEmitter {
       };
     }
 
-    const totalTransactions =
-      this.database
-        .prepare(
-          `
+    const totalResult = await this.database.queryOne(
+      `
       SELECT COUNT(*) as count FROM brc22_transactions
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const totalTransactions = totalResult?.count || 0;
 
-    const recentTransactions =
-      this.database
-        .prepare(
-          `
+    const recentResult = await this.database.queryOne(
+      `
       SELECT COUNT(*) as count FROM brc22_transactions
-      WHERE processed_at > ?
+      WHERE processed_at > $1
     `,
-        )
-        .get(Date.now() - 3600000)?.count || 0; // Last hour
+      [Date.now() - 3600000] // Last hour
+    );
+    const recentTransactions = recentResult?.count || 0;
 
     return {
       topics: topicStats,
