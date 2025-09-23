@@ -776,6 +776,54 @@ CREATE TABLE IF NOT EXISTS agent_templates (
 );
 
 -- =====================================
+-- STORAGE SYSTEM TABLES (D22 Overlay Storage)
+-- =====================================
+
+-- Storage performance metrics
+CREATE TABLE IF NOT EXISTS storage_performance_metrics (
+  id SERIAL PRIMARY KEY,
+  content_hash TEXT NOT NULL,
+  storage_location TEXT NOT NULL,
+  metric_type TEXT NOT NULL,
+  metric_value DECIMAL(12,4) NOT NULL,
+  measurement_unit TEXT NOT NULL,
+  geographic_region TEXT,
+  client_context JSONB,
+  measured_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Storage cache statistics
+CREATE TABLE IF NOT EXISTS storage_cache_stats (
+  id SERIAL PRIMARY KEY,
+  content_hash TEXT NOT NULL,
+  cache_level TEXT NOT NULL,
+  cache_status TEXT NOT NULL,
+  access_frequency INTEGER DEFAULT 1,
+  last_access_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  cache_size_bytes BIGINT,
+  ttl_seconds INTEGER,
+  priority_score DECIMAL(5,2),
+  recorded_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Storage replications
+CREATE TABLE IF NOT EXISTS storage_replications (
+  id SERIAL PRIMARY KEY,
+  content_hash TEXT NOT NULL,
+  source_location TEXT NOT NULL,
+  target_location TEXT NOT NULL,
+  replication_agent TEXT,
+  replication_job_id TEXT,
+  status TEXT DEFAULT 'pending',
+  progress_percentage INTEGER DEFAULT 0,
+  bytes_replicated BIGINT DEFAULT 0,
+  error_message TEXT,
+  overlay_job_evidence JSONB,
+  started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  completed_at TIMESTAMPTZ
+);
+
+-- =====================================
 -- ALL INDEXES
 -- =====================================
 
@@ -922,6 +970,30 @@ CREATE INDEX IF NOT EXISTS idx_agents_capabilities_gin
 -- Agent templates config field
 CREATE INDEX IF NOT EXISTS idx_agent_templates_config_gin
   ON agent_templates USING GIN (template_config);
+
+-- Storage system JSONB fields
+CREATE INDEX IF NOT EXISTS idx_storage_performance_client_context_gin
+  ON storage_performance_metrics USING GIN (client_context);
+
+CREATE INDEX IF NOT EXISTS idx_storage_replications_evidence_gin
+  ON storage_replications USING GIN (overlay_job_evidence);
+
+-- Storage system performance indexes
+CREATE INDEX IF NOT EXISTS idx_storage_performance_hash ON storage_performance_metrics(content_hash, measured_at);
+CREATE INDEX IF NOT EXISTS idx_storage_performance_location ON storage_performance_metrics(storage_location, measured_at);
+CREATE INDEX IF NOT EXISTS idx_storage_performance_type ON storage_performance_metrics(metric_type, measured_at);
+CREATE INDEX IF NOT EXISTS idx_storage_performance_region ON storage_performance_metrics(geographic_region, measured_at);
+
+CREATE INDEX IF NOT EXISTS idx_storage_cache_hash ON storage_cache_stats(content_hash, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_storage_cache_level ON storage_cache_stats(cache_level, cache_status);
+CREATE INDEX IF NOT EXISTS idx_storage_cache_frequency ON storage_cache_stats(access_frequency DESC);
+CREATE INDEX IF NOT EXISTS idx_storage_cache_priority ON storage_cache_stats(priority_score DESC);
+
+CREATE INDEX IF NOT EXISTS idx_storage_replication_status ON storage_replications(status, started_at);
+CREATE INDEX IF NOT EXISTS idx_storage_replication_agent ON storage_replications(replication_agent, started_at);
+CREATE INDEX IF NOT EXISTS idx_storage_replication_hash ON storage_replications(content_hash);
+CREATE INDEX IF NOT EXISTS idx_storage_replication_job_id ON storage_replications(replication_job_id);
+CREATE INDEX IF NOT EXISTS idx_storage_replication_locations ON storage_replications(source_location, target_location);
 
 -- Multi-column indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_assets_dataset_producer
