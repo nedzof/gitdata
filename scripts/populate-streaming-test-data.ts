@@ -10,11 +10,29 @@ async function populateStreamingTestData() {
   try {
     console.log('🔄 Creating test streaming data...');
 
+    // Insert producers first
+    const producers = [
+      { producer_id: 'weather-producer', display_name: 'Weather Producer', website: 'https://weather.example.com' },
+      { producer_id: 'WeatherNet Labs', display_name: 'WeatherNet Labs', website: 'https://weathernet.com' },
+      { producer_id: 'CryptoStream Inc', display_name: 'CryptoStream Inc', website: 'https://cryptostream.io' },
+      { producer_id: 'SentimentAI Corp', display_name: 'SentimentAI Corp', website: 'https://sentimentai.com' },
+      { producer_id: 'SmartCity Solutions', display_name: 'SmartCity Solutions', website: 'https://smartcity.tech' }
+    ];
+
+    for (const producer of producers) {
+      await db.pg.query(`
+        INSERT INTO producers (producer_id, display_name, website)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (producer_id) DO NOTHING
+      `, [producer.producer_id, producer.display_name, producer.website]);
+    }
+
     // Insert streaming manifests
     const streamingManifests = [
       {
         version_id: 'stream-001-weather-sensors',
         dataset_id: 'weather-sensors-001',
+        producer_id: 'WeatherNet Labs',
         title: 'Live Weather Sensor Network',
         license: 'CC-BY-4.0',
         classification: 'public',
@@ -37,6 +55,7 @@ async function populateStreamingTestData() {
       {
         version_id: 'stream-002-crypto-prices',
         dataset_id: 'crypto-prices-002',
+        producer_id: 'CryptoStream Inc',
         title: 'Cryptocurrency Price Feed',
         license: 'MIT',
         classification: 'public',
@@ -59,6 +78,7 @@ async function populateStreamingTestData() {
       {
         version_id: 'stream-003-social-sentiment',
         dataset_id: 'social-sentiment-003',
+        producer_id: 'SentimentAI Corp',
         title: 'Social Media Sentiment Stream',
         license: 'Apache-2.0',
         classification: 'public',
@@ -81,6 +101,7 @@ async function populateStreamingTestData() {
       {
         version_id: 'stream-004-traffic-data',
         dataset_id: 'traffic-data-004',
+        producer_id: 'SmartCity Solutions',
         title: 'City Traffic Flow Monitor',
         license: 'GPL-3.0',
         classification: 'public',
@@ -106,17 +127,19 @@ async function populateStreamingTestData() {
     for (const manifest of streamingManifests) {
       await db.pg.query(`
         INSERT INTO manifests (
-          version_id, dataset_id, title, license, classification, created_at,
+          version_id, dataset_id, producer_id, title, license, classification, created_at,
           manifest_json, content_hash, manifest_hash, is_streaming, stream_config
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         ON CONFLICT (version_id) DO UPDATE SET
           title = EXCLUDED.title,
+          producer_id = EXCLUDED.producer_id,
           is_streaming = EXCLUDED.is_streaming,
           stream_config = EXCLUDED.stream_config
       `, [
         manifest.version_id,
         manifest.dataset_id,
+        manifest.producer_id,
         manifest.title,
         manifest.license,
         manifest.classification,
@@ -131,6 +154,15 @@ async function populateStreamingTestData() {
 
     // Insert stream metadata
     const streamMetadata = [
+      {
+        version_id: 'stream-weather-001', // For the sample manifest created by D08 schema
+        producer_id: 'weather-producer',
+        status: 'active',
+        tags: JSON.stringify(['weather', 'sample', 'demo']),
+        price_per_packet: 2,
+        last_packet_sequence: 1001,
+        last_packet_at: new Date(Date.now() - 120000).toISOString() // 2 minutes ago
+      },
       {
         version_id: 'stream-001-weather-sensors',
         producer_id: 'WeatherNet Labs',
@@ -190,6 +222,9 @@ async function populateStreamingTestData() {
 
     // Insert some realtime packets to show activity
     const packets = [
+      // Sample weather stream packets (for schema-created manifest)
+      { version_id: 'stream-weather-001', sequence: 1001, packets_today: 1200 },
+
       // Weather stream packets
       { version_id: 'stream-001-weather-sensors', sequence: 12450, packets_today: 24680 },
       { version_id: 'stream-001-weather-sensors', sequence: 12451, packets_today: 24681 },
@@ -209,7 +244,7 @@ async function populateStreamingTestData() {
 
     for (const packet of packets) {
       const packetTime = new Date(Date.now() - Math.random() * 3600000); // Random time in last hour
-      const dataSize = 1024 + Math.floor(Math.random() * 2048); // Random size 1-3KB
+      const dataSize = 1100 + Math.floor(Math.random() * 2000); // Random size 1.1-3.1KB
       await db.pg.query(`
         INSERT INTO realtime_packets (
           version_id, packet_sequence, packet_timestamp, txid, overlay_data,
@@ -239,6 +274,12 @@ async function populateStreamingTestData() {
 
     // Add some webhook subscribers to show activity
     const webhooks = [
+      {
+        version_id: 'stream-weather-001', // For sample manifest
+        webhook_url: 'https://sample.weather.com/webhook',
+        subscriber_id: 'sample-weather-001',
+        status: 'active'
+      },
       {
         version_id: 'stream-001-weather-sensors',
         webhook_url: 'https://api.weatherapp.com/webhook',
