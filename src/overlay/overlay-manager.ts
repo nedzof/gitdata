@@ -194,15 +194,14 @@ class OverlayManager extends EventEmitter {
       const messageId = await this.overlayService.publishD01AData(topic, d01aData);
 
       // Store publication record
-      this.database
-        .prepare(
-          `
+      await this.database.execute(
+        `
         INSERT INTO overlay_messages
         (message_id, topic, message_type, data_json, received_at, processed)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6)
       `,
-        )
-        .run(messageId, topic, 'publish', JSON.stringify(d01aData), Date.now(), true);
+        [messageId, topic, 'publish', JSON.stringify(d01aData), Date.now(), true]
+      );
 
       this.emit('asset-published', { topic, asset, messageId });
       return messageId;
@@ -231,14 +230,14 @@ class OverlayManager extends EventEmitter {
   }): Promise<any[]> {
     try {
       // Send search request to appropriate topics
-      const searchTopics = [D01A_TOPICS.SEARCH_QUERIES];
+      const searchTopics: string[] = [D01A_TOPICS.SEARCH_QUERIES];
 
       if (query.classification) {
         searchTopics.push(TopicGenerator.datasetTopic('*', query.classification));
       }
 
       const searchPromises = searchTopics.map((topic) =>
-        this.overlayService.requestData(topic, {
+        this.overlayService.requestData(topic as any, {
           type: 'search',
           query,
           timestamp: Date.now(),
@@ -249,7 +248,7 @@ class OverlayManager extends EventEmitter {
 
       // Return cached results (overlay responses will be handled by event handlers)
       // In a real implementation, you'd wait for responses or use a callback pattern
-      return this.getCachedSearchResults(query);
+      return await this.getCachedSearchResults(query);
     } catch (error) {
       throw new Error(`Failed to search overlay data: ${error.message}`);
     }
@@ -258,26 +257,31 @@ class OverlayManager extends EventEmitter {
   /**
    * Handle incoming overlay data
    */
-  private handleIncomingData(event: OverlayDataEvent): void {
+  private async handleIncomingData(event: OverlayDataEvent): Promise<void> {
     try {
       // Store message in database
       const messageId = this.generateMessageId(event);
-      this.database
-        .prepare(
-          `
-        INSERT OR REPLACE INTO overlay_messages
+      await this.database.execute(
+        `
+        INSERT INTO overlay_messages
         (message_id, topic, message_type, sender, data_json, received_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (message_id) DO UPDATE SET
+          topic = EXCLUDED.topic,
+          message_type = EXCLUDED.message_type,
+          sender = EXCLUDED.sender,
+          data_json = EXCLUDED.data_json,
+          received_at = EXCLUDED.received_at
       `,
-        )
-        .run(
+        [
           messageId,
           event.topic,
           'data',
           event.sender,
           JSON.stringify(event.data),
           event.timestamp,
-        );
+        ]
+      );
 
       // Update subscription activity
       this.subscriptionManager.updateActivity(event.topic);
@@ -302,11 +306,11 @@ class OverlayManager extends EventEmitter {
   /**
    * Handle data request events
    */
-  private handleDataRequest(event: OverlayDataEvent): void {
+  private async handleDataRequest(event: OverlayDataEvent): Promise<void> {
     try {
       // Process search requests
       if (event.data.type === 'search') {
-        this.handleSearchRequest(event);
+        await this.handleSearchRequest(event);
       }
 
       this.emit('data-request', event);
@@ -318,10 +322,10 @@ class OverlayManager extends EventEmitter {
   /**
    * Handle search requests from other nodes
    */
-  private handleSearchRequest(event: OverlayDataEvent): void {
+  private async handleSearchRequest(event: OverlayDataEvent): Promise<void> {
     try {
       const query = event.data.query;
-      const results = this.searchLocalData(query);
+      const results = await this.searchLocalData(query);
 
       if (results.length > 0) {
         // Send response back to requester
@@ -344,7 +348,7 @@ class OverlayManager extends EventEmitter {
   /**
    * Search local database for matching data
    */
-  private searchLocalData(query: any): any[] {
+  private async searchLocalData(query: any): Promise<any[]> {
     try {
       let sql = `
         SELECT m.*, v.version_id, v.content_hash
@@ -353,28 +357,32 @@ class OverlayManager extends EventEmitter {
         WHERE 1=1
       `;
       const params: any[] = [];
+      let paramIndex = 1;
 
       if (query.datasetId) {
-        sql += ` AND m.dataset_id = ?`;
+        sql += ` AND m.dataset_id = $${paramIndex}`;
         params.push(query.datasetId);
+        paramIndex++;
       }
 
       if (query.classification) {
-        sql += ` AND m.classification = ?`;
+        sql += ` AND m.classification = $${paramIndex}`;
         params.push(query.classification);
+        paramIndex++;
       }
 
       if (query.mediaType) {
-        sql += ` AND m.media_type = ?`;
+        sql += ` AND m.media_type = $${paramIndex}`;
         params.push(query.mediaType);
+        paramIndex++;
       }
 
       if (query.limit) {
-        sql += ` LIMIT ?`;
+        sql += ` LIMIT $${paramIndex}`;
         params.push(query.limit);
       }
 
-      return this.database.prepare(sql).all(...params);
+      return await this.database.query(sql, params);
     } catch (error) {
       console.error('Failed to search local data:', error);
       return [];
@@ -455,16 +463,19 @@ class OverlayManager extends EventEmitter {
   /**
    * Handle peer connected
    */
-  private handlePeerConnected(peerId: string): void {
-    this.database
-      .prepare(
-        `
-      INSERT OR REPLACE INTO overlay_peers
+  private async handlePeerConnected(peerId: string): Promise<void> {
+    await this.database.execute(
+      `
+      INSERT INTO overlay_peers
       (peer_id, connected_at, last_seen, message_count)
-      VALUES (?, ?, ?, 0)
+      VALUES ($1, $2, $3, 0)
+      ON CONFLICT (peer_id) DO UPDATE SET
+        connected_at = EXCLUDED.connected_at,
+        last_seen = EXCLUDED.last_seen,
+        message_count = EXCLUDED.message_count
     `,
-      )
-      .run(peerId, Date.now(), Date.now());
+      [peerId, Date.now(), Date.now()]
+    );
 
     this.emit('peer-connected', peerId);
   }
@@ -472,14 +483,13 @@ class OverlayManager extends EventEmitter {
   /**
    * Handle peer disconnected
    */
-  private handlePeerDisconnected(peerId: string): void {
-    this.database
-      .prepare(
-        `
-      UPDATE overlay_peers SET last_seen = ? WHERE peer_id = ?
+  private async handlePeerDisconnected(peerId: string): Promise<void> {
+    await this.database.execute(
+      `
+      UPDATE overlay_peers SET last_seen = $1 WHERE peer_id = $2
     `,
-      )
-      .run(Date.now(), peerId);
+      [Date.now(), peerId]
+    );
 
     this.emit('peer-disconnected', peerId);
   }
@@ -487,20 +497,19 @@ class OverlayManager extends EventEmitter {
   /**
    * Get cached search results
    */
-  private getCachedSearchResults(query: any): any[] {
+  private async getCachedSearchResults(query: any): Promise<any[]> {
     try {
       // Return recent search results from database
-      const results = this.database
-        .prepare(
-          `
+      const results = await this.database.query(
+        `
         SELECT data_json FROM overlay_messages
-        WHERE topic = ? AND message_type = 'data'
-        AND received_at > ?
+        WHERE topic = $1 AND message_type = 'data'
+        AND received_at > $2
         ORDER BY received_at DESC
         LIMIT 50
       `,
-        )
-        .all(D01A_TOPICS.SEARCH_RESULTS, Date.now() - 300000); // Last 5 minutes
+        [D01A_TOPICS.SEARCH_RESULTS, Date.now() - 300000] // Last 5 minutes
+      );
 
       return results
         .map((row) => JSON.parse(row.data_json))
@@ -521,52 +530,46 @@ class OverlayManager extends EventEmitter {
   /**
    * Get overlay statistics
    */
-  getStats(): {
+  async getStats(): Promise<{
     overlay: any;
     subscriptions: any;
     messages: { total: number; recent: number };
     peers: { total: number; active: number };
-  } {
+  }> {
     const overlayStats = this.overlayService.getStats();
     const subscriptionStats = this.subscriptionManager.getStats();
 
-    const totalMessages =
-      this.database
-        .prepare(
-          `
+    const totalMessagesResult = await this.database.queryOne(
+      `
       SELECT COUNT(*) as count FROM overlay_messages
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const totalMessages = totalMessagesResult?.count || 0;
 
-    const recentMessages =
-      this.database
-        .prepare(
-          `
+    const recentMessagesResult = await this.database.queryOne(
+      `
       SELECT COUNT(*) as count FROM overlay_messages
-      WHERE received_at > ?
+      WHERE received_at > $1
     `,
-        )
-        .get(Date.now() - 3600000)?.count || 0; // Last hour
+      [Date.now() - 3600000] // Last hour
+    );
+    const recentMessages = recentMessagesResult?.count || 0;
 
-    const totalPeers =
-      this.database
-        .prepare(
-          `
+    const totalPeersResult = await this.database.queryOne(
+      `
       SELECT COUNT(*) as count FROM overlay_peers
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const totalPeers = totalPeersResult?.count || 0;
 
-    const activePeers =
-      this.database
-        .prepare(
-          `
+    const activePeersResult = await this.database.queryOne(
+      `
       SELECT COUNT(*) as count FROM overlay_peers
-      WHERE last_seen > ?
+      WHERE last_seen > $1
     `,
-        )
-        .get(Date.now() - 300000)?.count || 0; // Last 5 minutes
+      [Date.now() - 300000] // Last 5 minutes
+    );
+    const activePeers = activePeersResult?.count || 0;
 
     return {
       overlay: overlayStats,

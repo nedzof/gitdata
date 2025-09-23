@@ -26,9 +26,10 @@ export async function callAgentWebhook(
   ensureKeys();
   const nonce = Math.random().toString(16).slice(2) + Date.now().toString(16);
   const msgHash = sha256hex(JSON.stringify(body || {}) + nonce);
-  const sigDer = Buffer.from(
-    secp.signSync(msgHash, Buffer.from(CALL_PRIV_HEX, 'hex'), { der: true }),
-  ).toString('hex');
+  const msgHashBytes = Buffer.from(msgHash, 'hex');
+  const privateKeyBytes = Buffer.from(CALL_PRIV_HEX, 'hex');
+  const signature = secp.sign(msgHashBytes, privateKeyBytes);
+  const sigDer = Buffer.from(signature).toString('hex');
 
   const ctl = new AbortController();
   const tm = setTimeout(() => ctl.abort(), timeoutMs);

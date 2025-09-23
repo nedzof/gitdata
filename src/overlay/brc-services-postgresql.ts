@@ -3,7 +3,7 @@
 
 import { EventEmitter } from 'events';
 
-import { walletService } from '../../ui/src/lib/wallet';
+import { walletService } from '../lib/wallet';
 
 import type { DatabaseAdapter } from './brc26-uhrp';
 
@@ -277,7 +277,7 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
   }> {
     const stats: any = { topics: {}, transactions: { total: 0, recent: 0 } };
 
-    for (const [topic] of this.topicManagers) {
+    for (const [topic] of Array.from(this.topicManagers.entries())) {
       const [activeResult, spentResult] = await Promise.all([
         this.database.queryOne(
           `

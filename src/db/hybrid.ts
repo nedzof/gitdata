@@ -62,6 +62,11 @@ export class HybridDatabase {
     await this.redis.del(keys);
   }
 
+  // Public query method for direct database access
+  async query<T = any>(text: string, params?: any[]): Promise<{ rows: T[]; rowCount: number }> {
+    return await this.pg.query<T>(text, params);
+  }
+
   // Assets (formerly manifests) with cache-aside
   async getAsset(versionId: string): Promise<ManifestRow | null> {
     // Bypass cache for now to fix test issues - directly query database
@@ -340,10 +345,11 @@ export class HybridDatabase {
   }
 
   async getRecentReceipts(limit: number = 50, offset: number = 0): Promise<ReceiptRow[]> {
-    return await this.pg.queryAll<ReceiptRow>(
+    const result = await this.pg.query<ReceiptRow>(
       'SELECT * FROM receipts ORDER BY created_at DESC LIMIT $1 OFFSET $2',
       [limit, offset],
     );
+    return result.rows;
   }
 
   // OpenLineage integration with Redis

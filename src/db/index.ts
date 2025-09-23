@@ -1150,7 +1150,7 @@ export async function createRule(rule: Partial<RuleRow>): Promise<string> {
     [
       ruleId,
       rule.name,
-      rule.enabled !== false ? 1 : 0,
+      rule.enabled ? 1 : 0,
       rule.when_json || '{}',
       rule.find_json || '{}',
       rule.actions_json || '[]',

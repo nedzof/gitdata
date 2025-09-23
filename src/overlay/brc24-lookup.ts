@@ -3,8 +3,7 @@
 
 import { EventEmitter } from 'events';
 
-import type Database from 'better-sqlite3';
-
+import type { DatabaseAdapter } from './brc26-uhrp';
 import type { BRC22SubmitService } from './brc22-submit';
 
 export interface BRC24Query {
@@ -65,11 +64,11 @@ export interface PaymentRequirement {
 }
 
 class BRC24LookupService extends EventEmitter {
-  private database: Database.Database;
+  private database: DatabaseAdapter;
   private brc22Service: BRC22SubmitService;
   private lookupProviders = new Map<string, LookupProvider>();
 
-  constructor(database: Database.Database, brc22Service: BRC22SubmitService) {
+  constructor(database: DatabaseAdapter, brc22Service: BRC22SubmitService) {
     super();
     this.database = database;
     this.brc22Service = brc22Service;
@@ -98,7 +97,7 @@ class BRC24LookupService extends EventEmitter {
       name: 'Topic Lookup',
       description: 'Query UTXOs by topic name',
       processQuery: async (query: { topic: string; limit?: number }) => {
-        const utxos = this.brc22Service.getTopicUTXOs(query.topic, false);
+        const utxos = await this.brc22Service.getTopicUTXOs(query.topic, false);
         const limit = query.limit || 100;
         return utxos.slice(0, limit).map((utxo) => ({
           topic: query.topic,
@@ -195,13 +194,13 @@ class BRC24LookupService extends EventEmitter {
    */
   private setupBRC22EventHandlers(): void {
     // Handle new UTXOs being admitted
-    this.brc22Service.on('transaction-processed', (event) => {
+    this.brc22Service.on('transaction-processed', async (event) => {
       for (const [topic, outputIndexes] of Object.entries(event.topics)) {
-        for (const provider of this.lookupProviders.values()) {
+        for (const provider of Array.from(this.lookupProviders.values())) {
           if (provider.onUTXOAdded) {
-            const utxos = this.brc22Service.getTopicUTXOs(topic, false);
+            const utxos = await this.brc22Service.getTopicUTXOs(topic, false);
             for (const utxo of utxos) {
-              if (outputIndexes.includes(utxo.vout)) {
+              if (Array.isArray(outputIndexes) && outputIndexes.includes(utxo.vout)) {
                 provider.onUTXOAdded(topic, utxo.txid, utxo.vout, utxo.outputScript, utxo.satoshis);
               }
             }
@@ -212,7 +211,7 @@ class BRC24LookupService extends EventEmitter {
 
     // Handle UTXOs being spent
     this.brc22Service.on('utxo-spent', (event) => {
-      for (const provider of this.lookupProviders.values()) {
+      for (const provider of Array.from(this.lookupProviders.values())) {
         if (provider.onUTXOSpent) {
           provider.onUTXOSpent(event.topic, event.txid, event.vout);
         }
@@ -341,18 +340,17 @@ class BRC24LookupService extends EventEmitter {
 
     for (const identifier of identifiers) {
       // Get UTXO from BRC-22 service
-      const topicUTXOs = this.brc22Service.getTopicUTXOs(identifier.topic, false);
+      const topicUTXOs = await this.brc22Service.getTopicUTXOs(identifier.topic, false);
       const utxo = topicUTXOs.find((u) => u.txid === identifier.txid && u.vout === identifier.vout);
 
       if (utxo) {
         // Get transaction record for additional data
-        const txRecord = this.database
-          .prepare(
-            `
-          SELECT * FROM brc22_transactions WHERE txid = ?
+        const txRecord = await this.database.queryOne(
+          `
+          SELECT * FROM brc22_transactions WHERE txid = $1
         `,
-          )
-          .get(identifier.txid);
+          [identifier.txid]
+        );
 
         utxos.push({
           txid: utxo.txid,
@@ -380,22 +378,27 @@ class BRC24LookupService extends EventEmitter {
     requesterId: string | undefined,
     resultsCount: number,
   ): Promise<void> {
-    this.database
-      .prepare(
-        `
+    await this.database.execute(
+      `
       INSERT INTO brc24_queries
       (query_id, provider, query_json, requester_identity, results_count, processed_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (query_id) DO UPDATE SET
+        provider = EXCLUDED.provider,
+        query_json = EXCLUDED.query_json,
+        requester_identity = EXCLUDED.requester_identity,
+        results_count = EXCLUDED.results_count,
+        processed_at = EXCLUDED.processed_at
     `,
-      )
-      .run(
+      [
         queryId,
         queryRequest.provider,
         JSON.stringify(queryRequest.query),
         requesterId || null,
         resultsCount,
         Date.now(),
-      );
+      ]
+    );
   }
 
   // Provider-specific query implementations
@@ -417,7 +420,7 @@ class BRC24LookupService extends EventEmitter {
         continue;
       }
 
-      const utxos = this.brc22Service.getTopicUTXOs(topic, false);
+      const utxos = await this.brc22Service.getTopicUTXOs(topic, false);
       for (const utxo of utxos) {
         // In production, parse output script to check dataset criteria
         // For now, include all UTXOs from relevant topics
@@ -444,7 +447,7 @@ class BRC24LookupService extends EventEmitter {
     const topics = ['gitdata.payment.quotes', 'gitdata.payment.receipts'];
 
     for (const topic of topics) {
-      const utxos = this.brc22Service.getTopicUTXOs(topic, false);
+      const utxos = await this.brc22Service.getTopicUTXOs(topic, false);
       for (const utxo of utxos) {
         results.push({ topic, txid: utxo.txid, vout: utxo.vout });
 
@@ -469,7 +472,7 @@ class BRC24LookupService extends EventEmitter {
     const topics = ['gitdata.agent.registry', 'gitdata.agent.capabilities'];
 
     for (const topic of topics) {
-      const utxos = this.brc22Service.getTopicUTXOs(topic, false);
+      const utxos = await this.brc22Service.getTopicUTXOs(topic, false);
       for (const utxo of utxos) {
         results.push({ topic, txid: utxo.txid, vout: utxo.vout });
 
@@ -495,7 +498,7 @@ class BRC24LookupService extends EventEmitter {
     const topics = ['gitdata.lineage.graph', 'gitdata.lineage.events', 'gitdata.provenance.chain'];
 
     for (const topic of topics) {
-      const utxos = this.brc22Service.getTopicUTXOs(topic, false);
+      const utxos = await this.brc22Service.getTopicUTXOs(topic, false);
       for (const utxo of utxos) {
         results.push({ topic, txid: utxo.txid, vout: utxo.vout });
 
@@ -510,21 +513,21 @@ class BRC24LookupService extends EventEmitter {
 
   // Provider data indexing methods
 
-  private indexDatasetUTXO(topic: string, txid: string, vout: number, outputScript: string): void {
+  private async indexDatasetUTXO(topic: string, txid: string, vout: number, outputScript: string): Promise<void> {
     // Extract dataset information from output script and index it
     // This is a simplified implementation
-    this.updateProviderData('dataset_search', topic, `${txid}:${vout}`, outputScript);
+    await this.updateProviderData('dataset_search', topic, `${txid}:${vout}`, outputScript);
   }
 
-  private indexPaymentUTXO(
+  private async indexPaymentUTXO(
     topic: string,
     txid: string,
     vout: number,
     outputScript: string,
     satoshis: number,
-  ): void {
+  ): Promise<void> {
     // Index payment information
-    this.updateProviderData(
+    await this.updateProviderData(
       'payment_tracker',
       topic,
       `${txid}:${vout}`,
@@ -532,31 +535,34 @@ class BRC24LookupService extends EventEmitter {
     );
   }
 
-  private indexAgentUTXO(topic: string, txid: string, vout: number, outputScript: string): void {
+  private async indexAgentUTXO(topic: string, txid: string, vout: number, outputScript: string): Promise<void> {
     // Index agent information
-    this.updateProviderData('agent_services', topic, `${txid}:${vout}`, outputScript);
+    await this.updateProviderData('agent_services', topic, `${txid}:${vout}`, outputScript);
   }
 
-  private indexLineageUTXO(topic: string, txid: string, vout: number, outputScript: string): void {
+  private async indexLineageUTXO(topic: string, txid: string, vout: number, outputScript: string): Promise<void> {
     // Index lineage information
-    this.updateProviderData('lineage_tracker', topic, `${txid}:${vout}`, outputScript);
+    await this.updateProviderData('lineage_tracker', topic, `${txid}:${vout}`, outputScript);
   }
 
-  private updateProviderData(
+  private async updateProviderData(
     providerId: string,
     topic: string,
     dataKey: string,
     dataValue: string,
-  ): void {
-    this.database
-      .prepare(
-        `
-      INSERT OR REPLACE INTO brc24_provider_data
+  ): Promise<void> {
+    await this.database.execute(
+      `
+      INSERT INTO brc24_provider_data
       (provider_id, topic, data_key, data_value, utxo_count, last_updated)
-      VALUES (?, ?, ?, ?, 1, ?)
+      VALUES ($1, $2, $3, $4, 1, $5)
+      ON CONFLICT (provider_id, topic, data_key) DO UPDATE SET
+        data_value = EXCLUDED.data_value,
+        utxo_count = EXCLUDED.utxo_count,
+        last_updated = EXCLUDED.last_updated
     `,
-      )
-      .run(providerId, topic, dataKey, dataValue, Date.now());
+      [providerId, topic, dataKey, dataValue, Date.now()]
+    );
   }
 
   /**
@@ -577,56 +583,51 @@ class BRC24LookupService extends EventEmitter {
   /**
    * Get lookup statistics
    */
-  getStats(): {
+  async getStats(): Promise<{
     providers: Record<string, { queries: number; recentQueries: number }>;
     totalQueries: number;
     indexedData: Record<string, number>;
-  } {
+  }> {
     const providerStats: Record<string, { queries: number; recentQueries: number }> = {};
 
-    for (const [providerId] of this.lookupProviders) {
-      const queries =
-        this.database
-          .prepare(
-            `
-        SELECT COUNT(*) as count FROM brc24_queries WHERE provider = ?
+    for (const [providerId] of Array.from(this.lookupProviders.entries())) {
+      const queriesResult = await this.database.queryOne(
+        `
+        SELECT COUNT(*) as count FROM brc24_queries WHERE provider = $1
       `,
-          )
-          .get(providerId)?.count || 0;
+        [providerId]
+      );
+      const queries = queriesResult?.count || 0;
 
-      const recentQueries =
-        this.database
-          .prepare(
-            `
+      const recentQueriesResult = await this.database.queryOne(
+        `
         SELECT COUNT(*) as count FROM brc24_queries
-        WHERE provider = ? AND processed_at > ?
+        WHERE provider = $1 AND processed_at > $2
       `,
-          )
-          .get(providerId, Date.now() - 3600000)?.count || 0; // Last hour
+        [providerId, Date.now() - 3600000] // Last hour
+      );
+      const recentQueries = recentQueriesResult?.count || 0;
 
       providerStats[providerId] = { queries, recentQueries };
     }
 
-    const totalQueries =
-      this.database
-        .prepare(
-          `
+    const totalQueriesResult = await this.database.queryOne(
+      `
       SELECT COUNT(*) as count FROM brc24_queries
-    `,
-        )
-        .get()?.count || 0;
+    `
+    );
+    const totalQueries = totalQueriesResult?.count || 0;
 
     const indexedData: Record<string, number> = {};
     const providers = Array.from(this.lookupProviders.keys());
     for (const providerId of providers) {
-      indexedData[providerId] =
-        this.database
-          .prepare(
-            `
-        SELECT COUNT(*) as count FROM brc24_provider_data WHERE provider_id = ?
+      const indexedResult = await this.database.queryOne(
+        `
+        SELECT COUNT(*) as count FROM brc24_provider_data WHERE provider_id = $1
       `,
-          )
-          .get(providerId)?.count || 0;
+        [providerId]
+      );
+      indexedData[providerId] = indexedResult?.count || 0;
     }
 
     return {

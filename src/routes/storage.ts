@@ -191,16 +191,17 @@ export function storageRouter(): Router {
       const tierBreakdown: Record<string, any> = {};
 
       for (const [tier, data] of Object.entries(lifecycleStats.tierBreakdown)) {
-        totalObjects += data.objectCount;
-        totalSize += data.totalSize;
+        const tierData = data as any;
+        totalObjects += tierData.objectCount;
+        totalSize += tierData.totalSize;
 
         // Estimate costs (arbitrary units)
         const costPerGB = tier === 'hot' ? 0.023 : tier === 'warm' ? 0.0125 : 0.004;
-        const costEstimate = (data.totalSize / 1024 / 1024 / 1024) * costPerGB;
+        const costEstimate = (tierData.totalSize / 1024 / 1024 / 1024) * costPerGB;
 
         tierBreakdown[tier] = {
-          objectCount: data.objectCount,
-          sizeBytes: data.totalSize,
+          objectCount: tierData.objectCount,
+          sizeBytes: tierData.totalSize,
           costEstimate,
         };
       }
@@ -338,10 +339,24 @@ export function storageRouter(): Router {
         });
       }
 
-      // Create storage drivers
+      // Create storage drivers with proper StorageConfig
       const { createStorageDriver } = await import('../storage');
-      const source = createStorageDriver({ backend: sourceBackend });
-      const target = createStorageDriver({ backend: targetBackend });
+      const sourceConfig = {
+        backend: sourceBackend,
+        cdn: { mode: 'off' as const },
+        presignTtlSec: 3600,
+        defaultTier: 'hot' as const,
+        maxRangeBytes: 1024 * 1024 * 10 // 10MB
+      };
+      const targetConfig = {
+        backend: targetBackend,
+        cdn: { mode: 'off' as const },
+        presignTtlSec: 3600,
+        defaultTier: 'hot' as const,
+        maxRangeBytes: 1024 * 1024 * 10 // 10MB
+      };
+      const source = createStorageDriver(sourceConfig);
+      const target = createStorageDriver(targetConfig);
 
       const migrator = new StorageMigrator(source, target, {
         deleteSourceAfterCopy: !dryRun,

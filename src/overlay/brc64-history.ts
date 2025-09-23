@@ -15,6 +15,7 @@ export interface HistoricalUTXO extends BRC36UTXO {
   lineageDepth?: number;
   parentUTXOs?: string[]; // Array of "txid:vout" references
   childUTXOs?: string[]; // Array of "txid:vout" references
+  timestamp?: number; // Added for compatibility
 }
 
 export interface HistoricalInput {
@@ -138,7 +139,7 @@ class BRC64HistoryService extends EventEmitter {
 
         // Check if this input was a tracked UTXO in any topic
         for (const [topic, outputIndexes] of Object.entries(admittedTopics)) {
-          const trackedUTXOs = this.brc22Service.getTopicUTXOs(topic, true); // Include spent
+          const trackedUTXOs = await this.brc22Service.getTopicUTXOs(topic, true); // Include spent
           const sourceUTXO = trackedUTXOs.find(
             (u) => u.txid === input.txid && u.vout === input.vout && u.spentByTxid === txid,
           );
@@ -307,7 +308,7 @@ class BRC64HistoryService extends EventEmitter {
     try {
       // Check cache first
       const cacheKey = this.generateCacheKey(query);
-      const cached = this.getCachedResult(cacheKey);
+      const cached = await this.getCachedResult(cacheKey);
       if (cached) {
         return cached;
       }
@@ -426,12 +427,12 @@ class BRC64HistoryService extends EventEmitter {
     topic: string,
   ): Promise<HistoricalUTXO | null> {
     // First check active UTXOs
-    const activeUTXOs = this.brc22Service.getTopicUTXOs(topic, false);
+    const activeUTXOs = await this.brc22Service.getTopicUTXOs(topic, false);
     let utxo = activeUTXOs.find((u) => u.txid === txid && u.vout === vout);
 
     if (!utxo) {
       // Check spent UTXOs
-      const spentUTXOs = this.brc22Service.getTopicUTXOs(topic, true);
+      const spentUTXOs = await this.brc22Service.getTopicUTXOs(topic, true);
       utxo = spentUTXOs.find((u) => u.txid === txid && u.vout === vout);
     }
 

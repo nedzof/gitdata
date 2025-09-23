@@ -3,9 +3,9 @@
 
 import { EventEmitter } from 'events';
 
-import { walletService } from '../../ui/src/lib/wallet';
-import type { PostgreSQLClient } from '../db/postgresql';
-import { getPostgreSQLClient } from '../db/postgresql';
+import { walletService } from '../lib/wallet';
+
+import type { DatabaseAdapter } from './brc26-uhrp';
 
 import type { BRC22SubmitService } from './brc22-submit';
 import type { BRC24LookupService } from './brc24-lookup';
@@ -49,7 +49,7 @@ export interface SynchronizationConfig {
 }
 
 class BRC88SHIPSLAPService extends EventEmitter {
-  private database: PostgreSQLClient;
+  private database: DatabaseAdapter;
   private brc22Service: BRC22SubmitService;
   private brc24Service: BRC24LookupService;
   private config: SynchronizationConfig;
@@ -59,7 +59,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
   private knownPeers = new Map<string, ServiceNode>();
 
   constructor(
-    database: PostgreSQLClient,
+    database: DatabaseAdapter,
     brc22Service: BRC22SubmitService,
     brc24Service: BRC24LookupService,
     config: SynchronizationConfig,
@@ -168,7 +168,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       });
     } catch (error) {
       console.error('[BRC-88] Synchronization failed:', error);
-      await this.recordSyncAttempt(null, 'full_sync', 'outgoing', 'failed', 0, error.message);
+      await this.recordSyncAttempt(null, 'full_sync', 'outgoing', 'failed', 0, (error as Error).message);
     }
   }
 
@@ -235,7 +235,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       },
       lastSeen: Date.now(),
       isActive: true,
-      connectionStatus: 'discovered',
+      connectionStatus: 'pending',
     };
 
     this.knownPeers.set(peerInfo.identity, serviceNode);
@@ -380,7 +380,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       this.emit('ship-advertisement-created', { topicName, txid: txResult.txid });
       return txResult.txid;
     } catch (error) {
-      throw new Error(`Failed to create SHIP advertisement: ${error.message}`);
+      throw new Error(`Failed to create SHIP advertisement: ${(error as Error).message}`);
     }
   }
 
@@ -414,7 +414,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       this.emit('slap-advertisement-created', { serviceId, txid: txResult.txid });
       return txResult.txid;
     } catch (error) {
-      throw new Error(`Failed to create SLAP advertisement: ${error.message}`);
+      throw new Error(`Failed to create SLAP advertisement: ${(error as Error).message}`);
     }
   }
 
@@ -426,7 +426,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
 
     try {
       // Get current topic managers from BRC-22
-      const stats = this.brc22Service.getStats();
+      const stats = await this.brc22Service.getStats();
       const activeTopics = Object.keys(stats.topics);
 
       // Create SHIP advertisements for each topic

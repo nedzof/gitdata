@@ -3,7 +3,7 @@
 
 import { EventEmitter } from 'events';
 
-import { walletService } from '../../ui/src/lib/wallet';
+import { walletService } from '../lib/wallet';
 
 import type { DatabaseAdapter } from './brc26-uhrp';
 
@@ -359,10 +359,10 @@ class BRC22SubmitService extends EventEmitter {
   /**
    * Get UTXOs for a topic
    */
-  getTopicUTXOs(
+  async getTopicUTXOs(
     topic: string,
     includeSpent: boolean = false,
-  ): Array<{
+  ): Promise<Array<{
     utxoId: string;
     txid: string;
     vout: number;
@@ -371,7 +371,7 @@ class BRC22SubmitService extends EventEmitter {
     admittedAt: number;
     spentAt?: number;
     spentByTxid?: string;
-  }> {
+  }>> {
     const sql = `
       SELECT * FROM brc22_utxos
       WHERE topic = $1 ${includeSpent ? '' : 'AND spent_at IS NULL'}
@@ -400,7 +400,7 @@ class BRC22SubmitService extends EventEmitter {
   }> {
     const topicStats: Record<string, { active: number; spent: number; total: number }> = {};
 
-    for (const [topic] of this.topicManagers) {
+    for (const [topic] of Array.from(this.topicManagers.entries())) {
       const activeResult = await this.database.queryOne(
         `
         SELECT COUNT(*) as count FROM brc22_utxos

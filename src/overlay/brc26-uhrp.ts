@@ -4,9 +4,9 @@
 import { createHash } from 'crypto';
 import { EventEmitter } from 'events';
 import { promises as fs } from 'fs';
-import path from 'path';
+import * as path from 'path';
 
-import { walletService } from '../../ui/src/lib/wallet';
+import { walletService } from '../lib/wallet';
 
 export interface UHRPAdvertisement {
   publicKey: string;
@@ -315,7 +315,7 @@ class BRC26UHRPService extends EventEmitter {
       return content;
     } catch (error) {
       console.error('[UHRP] Failed to store file:', error);
-      throw new Error(`Failed to store file: ${error.message}`);
+      throw new Error(`Failed to store file: ${(error as Error).message}`);
     }
   }
 
@@ -359,7 +359,7 @@ class BRC26UHRPService extends EventEmitter {
 
       return advertisement;
     } catch (error) {
-      throw new Error(`Failed to create advertisement: ${error.message}`);
+      throw new Error(`Failed to create advertisement: ${(error as Error).message}`);
     }
   }
 
@@ -468,7 +468,7 @@ class BRC26UHRPService extends EventEmitter {
       }));
 
       // Get available hosts
-      const hostPublicKeys = [...new Set(uhrlAdverts.map((ad) => ad.publicKey))];
+      const hostPublicKeys = Array.from(new Set(uhrlAdverts.map((ad) => ad.publicKey)));
       const hosts = await this.getHostsByPublicKeys(hostPublicKeys);
 
       return {
@@ -549,15 +549,15 @@ class BRC26UHRPService extends EventEmitter {
 
           return { success: true, content, buffer };
         } catch (error) {
-          console.warn(`[UHRP] Download failed from ${ad.url}:`, error.message);
-          await this.recordDownload(contentHash, ad.publicKey, ad.url, false, 0, error.message);
+          console.warn(`[UHRP] Download failed from ${ad.url}:`, (error as Error).message);
+          await this.recordDownload(contentHash, ad.publicKey, ad.url, false, 0, (error as Error).message);
         }
       }
 
       return { success: false, error: 'Failed to download from all available hosts' };
     } catch (error) {
       console.error('[UHRP] Download failed:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: (error as Error).message };
     }
   }
 

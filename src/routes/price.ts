@@ -96,23 +96,12 @@ export function priceRouter(): Router {
       return json(res, 400, { error: 'bad-request', hint: 'satoshis > 0 integer' });
 
     try {
-      if (db) {
-        // Use SQLite for test database (synchronous)
-        upsertPriceRule(db, {
-          version_id: versionId ? String(versionId).toLowerCase() : null,
-          producer_id: producerId || null,
-          tier_from: Number(tierFrom),
-          satoshis: Number(satoshis),
-        });
-      } else {
-        // Use PostgreSQL for production (async)
-        await upsertPriceRule({
-          version_id: versionId ? String(versionId).toLowerCase() : null,
-          producer_id: producerId || null,
-          tier_from: Number(tierFrom),
-          satoshis: Number(satoshis),
-        });
-      }
+      await upsertPriceRule({
+        version_id: versionId ? String(versionId).toLowerCase() : null,
+        producer_id: producerId || null,
+        tier_from: Number(tierFrom),
+        satoshis: Number(satoshis),
+      });
       return json(res, 200, { status: 'ok' });
     } catch (e: any) {
       return json(res, 500, { error: 'set-rule-failed', message: String(e?.message || e) });
@@ -127,17 +116,7 @@ export function priceRouter(): Router {
     if (!versionId && !producerId)
       return json(res, 400, { error: 'bad-request', hint: 'versionId or producerId required' });
     try {
-      if (db) {
-        // Use SQLite for test database (synchronous)
-        deletePriceRule(db, {
-          version_id: versionId,
-          producer_id: producerId,
-          tier_from: tierFrom || null,
-        });
-      } else {
-        // Use PostgreSQL for production (async)
-        await deletePriceRule(versionId, producerId, tierFrom);
-      }
+      await deletePriceRule(versionId, producerId, tierFrom);
       return json(res, 200, { status: 'ok' });
     } catch (e: any) {
       return json(res, 500, { error: 'delete-rule-failed', message: String(e?.message || e) });

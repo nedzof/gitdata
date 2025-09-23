@@ -3,7 +3,7 @@
  * Handles webhook-based content delivery with quota enforcement
  */
 
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 
 import { Pool } from 'pg';
 // Using built-in fetch (Node.js 18+)
@@ -222,7 +222,10 @@ export async function deliverContentToWebhook(
       deliveryMethod: 'webhook',
     };
 
-    // Deliver to webhook
+    // Deliver to webhook with proper timeout handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
     const response = await fetch(subscription.webhookUrl, {
       method: 'POST',
       headers: {
@@ -232,8 +235,10 @@ export async function deliverContentToWebhook(
         'X-Content-Size': contentSize.toString(),
       },
       body: JSON.stringify(payload),
-      timeout: 30000, // 30 second timeout
+      signal: controller.signal, // Use signal instead of timeout property
     });
+
+    clearTimeout(timeoutId);
 
     const deliveryTime = Date.now() - startTime;
 
@@ -264,7 +269,7 @@ export async function deliverContentToWebhook(
       success: false,
       bytesDelivered: 0,
       deliveryTime,
-      error: error.message,
+      error: (error as Error).message,
     };
 
     await recordStreamingUsage(subscription, result);

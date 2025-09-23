@@ -6,7 +6,7 @@
 
 import { createHash, randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
-import path from 'path';
+import * as path from 'path';
 
 import type { WalletClient } from '@bsv/sdk';
 import type { Pool } from 'pg';
@@ -182,7 +182,7 @@ export class UHRPStorageService {
       return result;
     } catch (error) {
       console.error(`❌ Storage failed for ${contentHash}:`, error);
-      throw new Error(`Storage failed: ${error.message}`);
+      throw new Error(`Storage failed: ${(error as Error).message}`);
     }
   }
 
@@ -235,7 +235,7 @@ export class UHRPStorageService {
       return resolution;
     } catch (error) {
       console.error(`❌ Resolution failed for ${contentHash}:`, error);
-      throw new Error(`Resolution failed: ${error.message}`);
+      throw new Error(`Resolution failed: ${(error as Error).message}`);
     }
   }
 
@@ -265,7 +265,7 @@ export class UHRPStorageService {
 
       // Sign advertisement with wallet
       const signature = await this.walletClient.createSignature({
-        data: Buffer.from(JSON.stringify(advertisementData)).toString('base64'),
+        data: Array.from(Buffer.from(JSON.stringify(advertisementData))),
         protocolID: [2, 'gitdata-storage-advertisement'],
         keyID: 'identity',
         privilegedReason: 'Advertise storage capability for content',
@@ -312,7 +312,7 @@ export class UHRPStorageService {
       return advertisement;
     } catch (error) {
       console.error(`❌ Advertisement failed for ${contentHash}:`, error);
-      throw new Error(`Advertisement failed: ${error.message}`);
+      throw new Error(`Advertisement failed: ${(error as Error).message}`);
     }
   }
 
@@ -336,7 +336,7 @@ export class UHRPStorageService {
       // Calculate consensus
       const successfulVerifications = verificationResults.filter((v) => v.hashMatch);
       const agreementRatio = successfulVerifications.length / verificationResults.length;
-      const consensusAchieved = agreementRatio >= this.config.consensusThreshold;
+      const consensusAchieved = agreementRatio >= (this.config?.consensusThreshold ?? 0.6);
 
       // Store verification results
       for (const result of verificationResults) {
@@ -370,7 +370,7 @@ export class UHRPStorageService {
       return verification;
     } catch (error) {
       console.error(`❌ Integrity verification failed for ${contentHash}:`, error);
-      throw new Error(`Integrity verification failed: ${error.message}`);
+      throw new Error(`Integrity verification failed: ${(error as Error).message}`);
     }
   }
 
@@ -593,7 +593,7 @@ export class UHRPStorageService {
         hashMatch: false,
         responseTime: Date.now() - startTime,
         contentSize: 0,
-        error: error.message,
+        error: (error as Error).message,
       };
     }
   }

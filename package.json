@@ -1,7 +1,7 @@
 {
   "scripts": {
     "start": "tsx src/server.ts",
-    "dev": "tsx src/mock/overlay-mock-extended.ts",
+    "dev": "tsx src/server.ts",
     "agent:example": "tsx examples/agent-webhook.ts",
     "lint": "eslint --ext .ts src",
     "format": "prettier --write .",
@@ -43,7 +43,7 @@
     "postman:agents": "newman run postman/BSV-Overlay-Network-API.postman_collection.json -e postman/BSV-Overlay-Network.postman_environment.json --folder \"🤖 Agent Marketplace (D24)\" --reporters cli,junit --reporter-junit-export test-results/newman-agents.xml --delay-request 250",
     "newman": "newman run postman/collection.postman_collection.json -e postman/env.postman_environment.json --reporters cli,junit --reporter-junit-export test-results/newman.xml",
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/mock/overlay-mock-extended.ts",
+    "dev": "tsx src/server.ts",
     "wallet": "tsx src/mock/wallet-stub.ts",
     "setup:database": "tsx scripts/setup-database.ts",
     "test:hybrid": "npm run test:integration"

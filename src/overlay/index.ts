@@ -54,7 +54,7 @@ import {
 import { BRC26UHRPService } from './brc26-uhrp';
 import { getOverlayConfig } from './overlay-config';
 
-import type Database from 'better-sqlite3';
+import type * as Database from 'better-sqlite3';
 import { Pool } from 'pg';
 
 // Database adapter interface for PostgreSQL support
@@ -92,7 +92,8 @@ class SQLiteAdapter implements DatabaseAdapter {
 
   async query(sql: string, params: any[] = []): Promise<any[]> {
     try {
-      return this.db.prepare(sql).all(...params);
+      const stmt = this.db.prepare(sql);
+      return stmt.all(...params);
     } catch (error) {
       console.error('SQLite query error:', error);
       return [];
@@ -101,7 +102,8 @@ class SQLiteAdapter implements DatabaseAdapter {
 
   async queryOne(sql: string, params: any[] = []): Promise<any> {
     try {
-      return this.db.prepare(sql).get(...params) || null;
+      const stmt = this.db.prepare(sql);
+      return stmt.get(...params) || null;
     } catch (error) {
       console.error('SQLite queryOne error:', error);
       return null;
@@ -110,7 +112,8 @@ class SQLiteAdapter implements DatabaseAdapter {
 
   async execute(sql: string, params: any[] = []): Promise<void> {
     try {
-      this.db.prepare(sql).run(...params);
+      const stmt = this.db.prepare(sql);
+      stmt.run(...params);
     } catch (error) {
       console.error('SQLite execute error:', error);
     }
@@ -245,11 +248,11 @@ export async function initializeOverlayServices(
     console.log('[OVERLAY] ✅ All BRC standards available for production use');
   } else {
     // SQLite: Use legacy services for development
-    brc22Service = new BRC22SubmitService(database);
-    brc24Service = new BRC24LookupService(database, brc22Service);
-    brc64Service = new BRC64HistoryService(database, brc22Service, brc24Service);
+    brc22Service = new BRC22SubmitService(dbAdapter);
+    brc24Service = new BRC24LookupService(dbAdapter, brc22Service);
+    brc64Service = new BRC64HistoryService(dbAdapter, brc22Service, brc24Service);
     brc88Service = new BRC88SHIPSLAPService(
-      database,
+      dbAdapter as any,
       brc22Service,
       brc24Service,
       {
@@ -282,8 +285,8 @@ export async function initializeOverlayServices(
   const paymentService = new OverlayPaymentService(overlayManager, legacyDatabase);
 
   // D24 Agent Marketplace Services
-  const agentRegistry = new OverlayAgentRegistry(dbAdapter, brc88Service!);
-  const ruleEngine = new OverlayRuleEngine(dbAdapter, brc22Service!, agentRegistry);
+  const agentRegistry = new OverlayAgentRegistry(dbAdapter, brc88Service as any);
+  const ruleEngine = new OverlayRuleEngine(dbAdapter, brc22Service as any, agentRegistry);
   const executionService = new AgentExecutionService(dbAdapter, {
     webhookTimeoutMs: 15000,
     requireIdentity: true,
@@ -296,20 +299,20 @@ export async function initializeOverlayServices(
   setupCrossServiceEvents(
     overlayManager,
     paymentService,
-    brc22Service,
-    brc24Service,
-    brc64Service,
-    brc88Service,
+    brc22Service as any,
+    brc24Service as any,
+    brc64Service as any,
+    brc88Service as any,
     brc26Service,
   );
 
   return {
     overlayManager,
     paymentService,
-    brc22Service,
-    brc24Service,
-    brc64Service,
-    brc88Service,
+    brc22Service: brc22Service as any,
+    brc24Service: brc24Service as any,
+    brc64Service: brc64Service as any,
+    brc88Service: brc88Service as any,
     brc26Service,
     // D24 Agent Marketplace Services
     agentRegistry,
@@ -502,7 +505,7 @@ function setupCrossServiceEvents(
       try {
         // Also search overlay network for additional results
         const overlayResults = await overlayManager.searchData({
-          topic: event.provider,
+          classification: 'public',
           limit: 10,
         });
         // Merge results if needed

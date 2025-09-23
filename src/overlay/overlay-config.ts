@@ -129,7 +129,7 @@ export class TopicGenerator {
  * Default overlay configuration for different environments
  */
 export function getOverlayConfig(
-  env: 'development' | 'staging' | 'production' = 'development',
+  env: 'development' | 'staging' | 'production' | 'test' = 'development',
 ): OverlayConfig {
   const baseConfig = {
     peerDiscovery: {
@@ -238,13 +238,19 @@ export function getOverlayConfig(
 
     case 'test':
       return {
-        development: true,
-        autoConnect: false,
         topics: [
-          D01A_TOPICS.MANIFEST_SUBMISSION,
+          D01A_TOPICS.DATA_ASSET,
           D01A_TOPICS.PAYMENT_RECEIPTS,
           D01A_TOPICS.LINEAGE_GRAPH,
         ],
+        advertiseTopics: [
+          D01A_TOPICS.DATA_ASSET,
+        ],
+        peerDiscovery: {
+          lookupServices: ['https://overlay.powping.com'],
+          timeout: 30000,
+        },
+        network: 'testnet' as const,
       };
 
     default:
@@ -327,7 +333,7 @@ export class TopicSubscriptionManager {
     const now = Date.now();
     const removed: string[] = [];
 
-    for (const [topic, subscription] of this.activeSubscriptions.entries()) {
+    for (const [topic, subscription] of Array.from(this.activeSubscriptions.entries())) {
       if (now - subscription.lastActivity > maxAgeMs) {
         this.activeSubscriptions.delete(topic);
         removed.push(topic);

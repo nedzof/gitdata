@@ -5,7 +5,7 @@
  * webhook delivery, and WebSocket broadcasting.
  */
 
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 
 import { getHybridDatabase } from '../db/hybrid';
 
@@ -76,7 +76,7 @@ export class RealtimeStreamingService {
 
     const data_size_bytes = Buffer.byteLength(JSON.stringify(data.data_payload), 'utf8');
 
-    const result = await this.db.pg.query(
+    const result = await this.db.query(
       `
       INSERT INTO realtime_packets (
         version_id, packet_sequence, txid, overlay_data, data_hash,
@@ -115,7 +115,7 @@ export class RealtimeStreamingService {
     const confirmation_status = confirmations > 0 ? 'confirmed' : 'pending';
     const confirmed_at = confirmations > 0 ? new Date() : null;
 
-    await this.db.pg.query(
+    await this.db.query(
       `
       UPDATE realtime_packets
       SET confirmation_status = $1, confirmations = $2, block_height = $3, confirmed_at = $4
@@ -126,7 +126,7 @@ export class RealtimeStreamingService {
 
     if (confirmations > 0) {
       // Get the updated packet
-      const result = await this.db.pg.query('SELECT * FROM realtime_packets WHERE txid = $1', [
+      const result = await this.db.query('SELECT * FROM realtime_packets WHERE txid = $1', [
         txid,
       ]);
 
@@ -188,7 +188,7 @@ export class RealtimeStreamingService {
       params.push('confirmed', 'both', confirmations);
     }
 
-    const result = await this.db.pg.query(
+    const result = await this.db.query(
       `
       SELECT * FROM stream_webhooks
       WHERE ${whereClause}
@@ -217,7 +217,7 @@ export class RealtimeStreamingService {
       params.push('confirmed', 'both');
     }
 
-    const result = await this.db.pg.query(
+    const result = await this.db.query(
       `
       SELECT * FROM stream_websockets
       WHERE ${whereClause}
@@ -300,7 +300,7 @@ export class RealtimeStreamingService {
     packet: RealtimePacket,
     trigger: 'immediate' | 'confirmed',
   ): Promise<void> {
-    const agentSubs = await this.db.pg.query(
+    const agentSubs = await this.db.query(
       `
       SELECT * FROM stream_agent_subscriptions
       WHERE version_id = $1 AND status = $2
@@ -389,7 +389,7 @@ export class RealtimeStreamingService {
     }
 
     // Update last processed packet
-    await this.db.pg.query(
+    await this.db.query(
       `
       UPDATE stream_agent_subscriptions
       SET last_processed_packet = $1
@@ -411,7 +411,7 @@ export class RealtimeStreamingService {
     min_confirmations?: number;
     batch_size?: number;
   }): Promise<StreamWebhook> {
-    const result = await this.db.pg.query(
+    const result = await this.db.query(
       `
       INSERT INTO stream_webhooks (
         version_id, webhook_url, webhook_secret, subscriber_id,
@@ -442,7 +442,7 @@ export class RealtimeStreamingService {
     subscriber_id?: string;
     delivery_mode?: 'confirmed' | 'immediate' | 'both';
   }): Promise<StreamWebsocket> {
-    const result = await this.db.pg.query(
+    const result = await this.db.query(
       `
       INSERT INTO stream_websockets (
         connection_id, version_id, subscriber_id, delivery_mode
@@ -465,7 +465,7 @@ export class RealtimeStreamingService {
     trigger_conditions?: any;
     agent_webhook_url?: string;
   }): Promise<any> {
-    const result = await this.db.pg.query(
+    const result = await this.db.query(
       `
       INSERT INTO stream_agent_subscriptions (
         version_id, agent_id, processing_mode, trigger_conditions, agent_webhook_url
@@ -494,7 +494,7 @@ export class RealtimeStreamingService {
    * Get stream statistics
    */
   async getStreamStats(version_id: string): Promise<any> {
-    const result = await this.db.pg.query(
+    const result = await this.db.query(
       `
       SELECT
         COUNT(*) as total_packets,
@@ -515,7 +515,7 @@ export class RealtimeStreamingService {
    * Get recent packets for a stream
    */
   async getRecentPackets(version_id: string, limit: number = 10): Promise<RealtimePacket[]> {
-    const result = await this.db.pg.query(
+    const result = await this.db.query(
       `
       SELECT * FROM realtime_packets
       WHERE version_id = $1
