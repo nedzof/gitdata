@@ -48,6 +48,10 @@ import { d06RevenueManagementRouter } from './src/routes/d06-revenue-management'
 // D07: BSV Overlay Network Data Streaming & Quota Management
 import d07StreamingQuotasRouter from './src/routes/d07-streaming-quotas';
 
+// D08: BSV Overlay Network Real-time Streaming & Producer Integration
+import producerRouter from './src/routes/producer';
+import streamingMarketRouter from './src/routes/streaming-market';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -172,6 +176,10 @@ app.use('/v1/revenue', rateLimit('payments'), d06RevenueManagementRouter(pgPool)
 
 // D07: BSV Overlay Network Data Streaming & Quota Management
 app.use('/v1/streaming', rateLimit('streaming'), d07StreamingQuotasRouter);
+
+// D08: BSV Overlay Network Real-time Streaming & Producer Integration
+app.use('/v1/producer', rateLimit('streaming'), producerRouter);
+app.use('/v1/streaming-market', rateLimit('streaming'), streamingMarketRouter);
 
 // D24: Agent marketplace is now handled via overlay network through /overlay routes
 app.use('/templates', enforceResourceLimits(), templatesRouter());

@@ -35,38 +35,23 @@ export interface PolicyJSON {
 
   // Compliance
   licenseAllowList?: string[];
-  piiFlagsBlockList?: string[];
   geoOriginAllowList?: string[];
 
   // Economics
   maxPricePerByte?: number;
   maxTotalCostForLineage?: number;
   maxDataAgeSeconds?: number;
-  minProducerUptime?: number;
-  requiresBillingAccount?: boolean;
 
-  // Quality & Profiling
-  minRowCount?: number;
+  // Quality & Profiling (not applicable to unstructured data)
   maxRowCount?: number;
-  maxNullValuePercentage?: number;
   requiredDistributionProfileHash?: string;
-  maxOutlierScore?: number;
-  minUniquenessRatio?: number;
 
   // MLOps
   requiredFeatureSetId?: string;
-  requiresValidSplit?: boolean;
-  maxBiasScore?: number;
-  maxDriftScore?: number;
   requiredParentModelId?: string;
 
   // Security
   blockIfInThreatFeed?: boolean;
-  minAnonymizationLevel?: {
-    type: 'k-anon' | 'dp';
-    k?: number;
-    epsilon?: number;
-  };
 }
 
 export interface PolicyDecision {
@@ -313,14 +298,6 @@ export async function evaluatePolicy(
     }
   }
 
-  if (policy.piiFlagsBlockList && manifest?.piiFlags) {
-    const piiFlags = manifest.piiFlags;
-    evidence.piiFlags = piiFlags;
-    const hasBlockedFlag = policy.piiFlagsBlockList.some(flag => piiFlags.includes(flag));
-    if (hasBlockedFlag) {
-      setDecision('block', 'POLICY.COMPLIANCE.PII_BLOCKED');
-    }
-  }
 
   if (policy.geoOriginAllowList && manifest?.geoOrigin) {
     const geoOrigin = manifest.geoOrigin;
@@ -348,36 +325,13 @@ export async function evaluatePolicy(
     }
   }
 
-  if (policy.minProducerUptime !== undefined && externalData?.uptime) {
-    const uptime = externalData.uptime;
-    evidence.producerUptime = uptime;
-    if (uptime < policy.minProducerUptime) {
-      setDecision('warn', 'POLICY.ECON.UPTIME_TOO_LOW');
-    }
-  }
 
-  // 6. Quality & Profiling
-  if (policy.minRowCount !== undefined && manifest?.stats?.rowCount) {
-    const rowCount = manifest.stats.rowCount;
-    evidence.rowCount = rowCount;
-    if (rowCount < policy.minRowCount) {
-      setDecision('block', 'POLICY.QA.ROWS_TOO_FEW');
-    }
-  }
-
+  // 6. Quality & Profiling (limited for unstructured data)
   if (policy.maxRowCount !== undefined && manifest?.stats?.rowCount) {
     const rowCount = manifest.stats.rowCount;
     evidence.rowCount = rowCount;
     if (rowCount > policy.maxRowCount) {
       setDecision('block', 'POLICY.QA.ROWS_TOO_MANY');
-    }
-  }
-
-  if (policy.maxNullValuePercentage !== undefined && manifest?.stats?.nullPercentage) {
-    const nullPercent = manifest.stats.nullPercentage;
-    evidence.nullPercentage = nullPercent;
-    if (nullPercent > policy.maxNullValuePercentage) {
-      setDecision('warn', 'POLICY.QA.NULL_PERCENT_EXCEEDED');
     }
   }
 
@@ -390,14 +344,6 @@ export async function evaluatePolicy(
     }
   }
 
-  if (policy.requiresValidSplit && manifest?.splitTag) {
-    const splitTag = manifest.splitTag;
-    evidence.splitTag = splitTag;
-    const validSplits = ['train', 'val', 'test'];
-    if (!validSplits.includes(splitTag)) {
-      setDecision('block', 'POLICY.MLOPS.SPLIT_INVALID');
-    }
-  }
 
   // 8. Security
   if (policy.blockIfInThreatFeed && externalData?.threatFeedMatch) {
@@ -473,19 +419,18 @@ function getMockLineage(versionId: string): any[] {
 // Default policies
 const DEFAULT_POLICIES = {
   'pol_default': {
-    name: 'Default Policy',
+    name: 'Default Policy (Unstructured Data)',
     policy: {
       minConfs: 6,
       allowRecalled: false,
       classificationAllowList: ['public', 'internal'],
       licenseAllowList: ['MIT', 'Apache-2.0', 'GPL-3.0', 'CC-BY-4.0'],
       maxLineageDepth: 10,
-      maxDataAgeSeconds: 30 * 24 * 60 * 60, // 30 days
-      minProducerUptime: 95.0
+      maxDataAgeSeconds: 30 * 24 * 60 * 60 // 30 days
     }
   },
   'pol_strict_banking': {
-    name: 'Strict Banking Policy',
+    name: 'Strict Banking Policy (Documents)',
     policy: {
       minConfs: 12,
       classificationAllowList: ['restricted'],
@@ -493,31 +438,22 @@ const DEFAULT_POLICIES = {
       producerAllowList: ['internal-fraud-department-key', 'verified-partner-feed-key'],
       requiredAncestor: 'Q1-2024-AUDITED-TRANSACTIONS',
       licenseAllowList: ['Internal-Banking-Use-Only'],
-      piiFlagsBlockList: ['has_customer_name', 'has_address'],
       geoOriginAllowList: ['EU'],
       maxPricePerByte: 0.5,
       maxTotalCostForLineage: 250000,
       maxDataAgeSeconds: 3600,
-      minProducerUptime: 99.9,
-      requiresBillingAccount: true,
-      minRowCount: 1000000,
-      maxNullValuePercentage: 1.0,
-      blockIfInThreatFeed: true,
-      minAnonymizationLevel: { type: 'k-anon', k: 5 }
+      blockIfInThreatFeed: true
     }
   },
-  'pol_ml_research': {
-    name: 'ML Research Policy',
+  'pol_content_general': {
+    name: 'General Content Policy (Media & Documents)',
     policy: {
       minConfs: 3,
       classificationAllowList: ['public', 'academic'],
       licenseAllowList: ['MIT', 'Apache-2.0', 'CC-BY-4.0'],
-      requiredFeatureSetId: 'research-features-v2',
-      requiresValidSplit: true,
-      maxBiasScore: 0.3,
-      maxDriftScore: 0.2,
-      minRowCount: 10000,
-      maxNullValuePercentage: 5.0
+      requiredFeatureSetId: 'content-features-v1',
+      maxPricePerByte: 2.0,
+      maxDataAgeSeconds: 7 * 24 * 60 * 60 // 7 days
     }
   }
 };

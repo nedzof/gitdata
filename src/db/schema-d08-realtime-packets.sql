@@ -4,6 +4,22 @@
 -- Extend manifests for streaming packages
 ALTER TABLE manifests ADD COLUMN IF NOT EXISTS is_streaming BOOLEAN DEFAULT FALSE;
 ALTER TABLE manifests ADD COLUMN IF NOT EXISTS stream_config JSONB DEFAULT '{}';
+ALTER TABLE manifests ADD COLUMN IF NOT EXISTS producer_public_key TEXT;
+
+-- Stream metadata for producer management
+CREATE TABLE IF NOT EXISTS stream_metadata (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  version_id VARCHAR(64) NOT NULL,
+  producer_id VARCHAR(255) NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'active',
+  tags JSONB,
+  price_per_packet INTEGER DEFAULT 0,
+  last_packet_sequence BIGINT DEFAULT 0,
+  last_packet_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(version_id, producer_id)
+);
 
 -- Real-time data packets (each packet is an overlay transaction)
 CREATE TABLE IF NOT EXISTS realtime_packets (

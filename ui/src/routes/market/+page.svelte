@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { api } from '$lib/api';
   import { AuthFetch } from '@bsv/sdk';
+  import StreamingPackages from '../../components/StreamingPackages.svelte';
 
   let assets = [];
   let availableAssets = []; // For parent selection
@@ -697,6 +698,9 @@
     </button>
   </div>
 
+  <!-- Streaming Packages Section -->
+  <StreamingPackages />
+
   <!-- Publishing Form -->
   {#if showPublishForm}
     <div class="form-section">
@@ -1140,7 +1144,7 @@
                 on:click|stopPropagation={() => handlePurchase(asset)}
                 title="Purchase via BSV Overlay Network with D24 Marketplace & D07 Streaming"
               >
-                {asset.pricePerKB ? `🌐 💳 Buy - $${asset.pricePerKB.toFixed(3)}/KB` : '🌐 💾 Get Free'}
+                {asset.pricePerKB ? `Buy - $${asset.pricePerKB.toFixed(3)}/KB` : '🌐 💾 Get Free'}
               </button>
             </div>
           </div>
