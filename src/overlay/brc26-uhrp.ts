@@ -66,6 +66,144 @@ export interface DatabaseAdapter {
   execute(sql: string, params?: any[]): Promise<void>;
 }
 
+// ==================== Query Builder Helper ====================
+
+interface TableColumn {
+  name: string;
+  type: string;
+  constraints?: string[];
+}
+
+interface TableDefinition {
+  name: string;
+  columns: TableColumn[];
+  constraints?: string[];
+}
+
+class QueryBuilder {
+  static insert(table: string, data: Record<string, any>, onConflict?: string): { query: string; params: any[] } {
+    const keys = Object.keys(data);
+    const placeholders = keys.map((_, index) => `$${index + 1}`);
+    const params = Object.values(data);
+
+    let query = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders.join(', ')})`;
+
+    if (onConflict) {
+      query += ` ${onConflict}`;
+    }
+
+    return { query, params };
+  }
+
+  static update(table: string, data: Record<string, any>, where: Record<string, any>): { query: string; params: any[] } {
+    const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+    const params = [...Object.values(data)];
+
+    const whereClause = Object.keys(where).map((key, index) => {
+      params.push(where[key]);
+      return `${key} = $${params.length}`;
+    }).join(' AND ');
+
+    const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
+    return { query, params };
+  }
+
+  static selectWithOptions(
+    table: string,
+    options: {
+      columns?: string[];
+      where?: Record<string, any>;
+      orderBy?: string;
+      orderDirection?: 'ASC' | 'DESC';
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): { query: string; params: any[] } {
+    const columns = options.columns || ['*'];
+    const cols = columns.join(', ');
+    let query = `SELECT ${cols} FROM ${table}`;
+    const params: any[] = [];
+
+    if (options.where) {
+      const conditions = Object.keys(options.where).map((key, index) => {
+        params.push(options.where![key]);
+        return `${key} = $${index + 1}`;
+      });
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    if (options.orderBy) {
+      query += ` ORDER BY ${options.orderBy}`;
+      if (options.orderDirection) {
+        query += ` ${options.orderDirection}`;
+      }
+    }
+
+    if (options.limit) {
+      query += ` LIMIT ${options.limit}`;
+    }
+
+    if (options.offset) {
+      query += ` OFFSET ${options.offset}`;
+    }
+
+    return { query, params };
+  }
+
+  static count(table: string, where?: Record<string, any>): { query: string; params: any[] } {
+    let query = `SELECT COUNT(*) as count FROM ${table}`;
+    const params: any[] = [];
+
+    if (where) {
+      const conditions = Object.keys(where).map((key, index) => {
+        params.push(where[key]);
+        return `${key} = $${index + 1}`;
+      });
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    return { query, params };
+  }
+
+  static countWithCondition(table: string, condition: string, params: any[] = []): { query: string; params: any[] } {
+    const query = `SELECT COUNT(*) as count FROM ${table} WHERE ${condition}`;
+    return { query, params };
+  }
+
+  static selectWithCustomWhere(
+    table: string,
+    columns: string[],
+    whereCondition: string,
+    params: any[] = [],
+    options: {
+      orderBy?: string;
+      orderDirection?: 'ASC' | 'DESC';
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): { query: string; params: any[] } {
+    const cols = columns.join(', ');
+    let query = `SELECT ${cols} FROM ${table} WHERE ${whereCondition}`;
+
+    if (options.orderBy) {
+      query += ` ORDER BY ${options.orderBy}`;
+      if (options.orderDirection) {
+        query += ` ${options.orderDirection}`;
+      }
+    }
+
+    if (options.limit) {
+      query += ` LIMIT ${options.limit}`;
+    }
+
+    if (options.offset) {
+      query += ` OFFSET ${options.offset}`;
+    }
+
+    return { query, params };
+  }
+}
+
 class BRC26UHRPService extends EventEmitter {
   private database: DatabaseAdapter;
   private storageBasePath: string;
@@ -197,12 +335,13 @@ class BRC26UHRPService extends EventEmitter {
    */
   private async loadExistingContent(): Promise<void> {
     try {
-      const content = await this.database.query(
-        `
-        SELECT * FROM uhrp_content WHERE expires_at > $1
-      `,
-        [Date.now()],
+      const { query, params } = QueryBuilder.selectWithCustomWhere(
+        'uhrp_content',
+        ['*'],
+        'expires_at > $1',
+        [Date.now()]
       );
+      const content = await this.database.query(query, params);
 
       for (const item of content) {
         this.hostedContent.set(item.content_hash, {
@@ -280,26 +419,21 @@ class BRC26UHRPService extends EventEmitter {
       };
 
       // Store in database
-      await this.database.execute(
-        `
-        INSERT INTO uhrp_content
-        (content_hash, filename, content_type, size_bytes, uploaded_at, expires_at,
-         download_count, local_path, is_public, metadata_json)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      `,
-        [
-          content.hash,
-          content.filename,
-          content.contentType,
-          content.size,
-          content.uploadedAt,
-          content.expiresAt,
-          content.downloadCount,
-          content.localPath,
-          content.isPublic,
-          content.metadata ? JSON.stringify(content.metadata) : null,
-        ],
-      );
+      const contentData = {
+        content_hash: content.hash,
+        filename: content.filename,
+        content_type: content.contentType,
+        size_bytes: content.size,
+        uploaded_at: content.uploadedAt,
+        expires_at: content.expiresAt,
+        download_count: content.downloadCount,
+        local_path: content.localPath,
+        is_public: content.isPublic,
+        metadata_json: content.metadata ? JSON.stringify(content.metadata) : null
+      };
+
+      const { query, params } = QueryBuilder.insert('uhrp_content', contentData);
+      await this.database.execute(query, params);
 
       // Store in memory
       this.hostedContent.set(contentHash, content);
@@ -368,51 +502,56 @@ class BRC26UHRPService extends EventEmitter {
    */
   async queryContent(query: UHRPQuery): Promise<UHRPContent[]> {
     try {
-      let sql = `
-        SELECT * FROM uhrp_content
-        WHERE 1=1
-      `;
+      // Build dynamic WHERE conditions
+      const conditions: string[] = ['1=1'];
       const params: any[] = [];
       let paramIndex = 1;
 
       if (query.hash) {
-        sql += ` AND content_hash = $${paramIndex++}`;
+        conditions.push(`content_hash = $${paramIndex++}`);
         params.push(query.hash);
       }
 
       if (query.filename) {
-        sql += ` AND filename ILIKE $${paramIndex++}`;
+        conditions.push(`filename ILIKE $${paramIndex++}`);
         params.push(`%${query.filename}%`);
       }
 
       if (query.contentType) {
-        sql += ` AND content_type = $${paramIndex++}`;
+        conditions.push(`content_type = $${paramIndex++}`);
         params.push(query.contentType);
       }
 
       if (query.author) {
-        sql += ` AND metadata_json::jsonb ->> 'author' ILIKE $${paramIndex++}`;
+        conditions.push(`metadata_json::jsonb ->> 'author' ILIKE $${paramIndex++}`);
         params.push(`%${query.author}%`);
       }
 
       if (query.tags && query.tags.length > 0) {
-        sql += ` AND metadata_json::jsonb -> 'tags' ?| $${paramIndex++}`;
+        conditions.push(`metadata_json::jsonb -> 'tags' ?| $${paramIndex++}`);
         params.push(query.tags);
       }
 
       if (!query.includeExpired) {
-        sql += ` AND expires_at > $${paramIndex++}`;
+        conditions.push(`expires_at > $${paramIndex++}`);
         params.push(Date.now());
       }
 
-      sql += ` ORDER BY uploaded_at DESC`;
+      const whereCondition = conditions.join(' AND ');
 
-      if (query.limit) {
-        sql += ` LIMIT $${paramIndex++}`;
-        params.push(query.limit);
-      }
+      const { query: selectQuery, params: selectParams } = QueryBuilder.selectWithCustomWhere(
+        'uhrp_content',
+        ['*'],
+        whereCondition,
+        params,
+        {
+          orderBy: 'uploaded_at',
+          orderDirection: 'DESC',
+          limit: query.limit
+        }
+      );
 
-      const results = await this.database.query(sql, params);
+      const results = await this.database.query(selectQuery, selectParams);
 
       return results.map((row) => ({
         hash: row.content_hash,
@@ -445,14 +584,17 @@ class BRC26UHRPService extends EventEmitter {
       const localContent = this.hostedContent.get(contentHash);
 
       // Query advertisements from database (including from other hosts)
-      const advertisements = await this.database.query(
-        `
-        SELECT * FROM uhrp_advertisements
-        WHERE content_hash = $1 AND is_active = TRUE AND expiry_time > $2
-        ORDER BY advertised_at DESC
-      `,
+      const { query, params } = QueryBuilder.selectWithCustomWhere(
+        'uhrp_advertisements',
+        ['*'],
+        'content_hash = $1 AND is_active = TRUE AND expiry_time > $2',
         [contentHash, Date.now()],
+        {
+          orderBy: 'advertised_at',
+          orderDirection: 'DESC'
+        }
       );
+      const advertisements = await this.database.query(query, params);
 
       const uhrlAdverts: UHRPAdvertisement[] = advertisements.map((row) => ({
         publicKey: row.public_key,
@@ -570,13 +712,13 @@ class BRC26UHRPService extends EventEmitter {
       if (!content) return null;
 
       // Increment download count
+      const updateData = { download_count: 'download_count + 1' };
+      const whereCondition = { content_hash: contentHash };
+
+      // For increment operations, we need to use raw SQL
       await this.database.execute(
-        `
-        UPDATE uhrp_content
-        SET download_count = download_count + 1
-        WHERE content_hash = $1
-      `,
-        [contentHash],
+        'UPDATE uhrp_content SET download_count = download_count + 1 WHERE content_hash = $1',
+        [contentHash]
       );
 
       return await fs.readFile(content.localPath);
@@ -694,48 +836,47 @@ class BRC26UHRPService extends EventEmitter {
   }
 
   private async storeAdvertisement(ad: UHRPAdvertisement): Promise<void> {
-    await this.database.execute(
-      `
-      INSERT INTO uhrp_advertisements
-      (public_key, address, content_hash, url, expiry_time, content_length,
-       signature, utxo_id, advertised_at, is_active)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      ON CONFLICT (public_key, content_hash)
+    const advertisementData = {
+      public_key: ad.publicKey,
+      address: ad.address,
+      content_hash: ad.contentHash,
+      url: ad.url,
+      expiry_time: ad.expiryTime,
+      content_length: ad.contentLength,
+      signature: ad.signature,
+      utxo_id: ad.utxoId,
+      advertised_at: ad.advertisedAt,
+      is_active: ad.isActive
+    };
+
+    const onConflict = `ON CONFLICT (public_key, content_hash)
       DO UPDATE SET
         url = EXCLUDED.url,
         expiry_time = EXCLUDED.expiry_time,
         signature = EXCLUDED.signature,
         utxo_id = EXCLUDED.utxo_id,
         advertised_at = EXCLUDED.advertised_at,
-        is_active = EXCLUDED.is_active
-    `,
-      [
-        ad.publicKey,
-        ad.address,
-        ad.contentHash,
-        ad.url,
-        ad.expiryTime,
-        ad.contentLength,
-        ad.signature,
-        ad.utxoId,
-        ad.advertisedAt,
-        ad.isActive,
-      ],
-    );
+        is_active = EXCLUDED.is_active`;
+
+    const { query, params } = QueryBuilder.insert('uhrp_advertisements', advertisementData, onConflict);
+    await this.database.execute(query, params);
   }
 
   private async getHostsByPublicKeys(publicKeys: string[]): Promise<UHRPHost[]> {
     if (publicKeys.length === 0) return [];
 
     const placeholders = publicKeys.map((_, i) => `$${i + 1}`).join(',');
-    const hosts = await this.database.query(
-      `
-      SELECT * FROM uhrp_hosts
-      WHERE public_key IN (${placeholders}) AND is_active = TRUE
-      ORDER BY reputation DESC
-    `,
+    const { query, params } = QueryBuilder.selectWithCustomWhere(
+      'uhrp_hosts',
+      ['*'],
+      `public_key IN (${placeholders}) AND is_active = TRUE`,
       publicKeys,
+      {
+        orderBy: 'reputation',
+        orderDirection: 'DESC'
+      }
     );
+    const hosts = await this.database.query(query, params);
 
     return hosts.map((row) => ({
       publicKey: row.public_key,
@@ -757,22 +898,18 @@ class BRC26UHRPService extends EventEmitter {
     downloadTimeMs: number = 0,
     errorMessage?: string,
   ): Promise<void> {
-    await this.database.execute(
-      `
-      INSERT INTO uhrp_downloads
-      (content_hash, host_public_key, download_url, downloaded_at, success, error_message, download_time_ms)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-    `,
-      [
-        contentHash,
-        hostPublicKey,
-        downloadUrl,
-        Date.now(),
-        success,
-        errorMessage || null,
-        downloadTimeMs,
-      ],
-    );
+    const downloadData = {
+      content_hash: contentHash,
+      host_public_key: hostPublicKey,
+      download_url: downloadUrl,
+      downloaded_at: Date.now(),
+      success: success,
+      error_message: errorMessage || null,
+      download_time_ms: downloadTimeMs
+    };
+
+    const { query, params } = QueryBuilder.insert('uhrp_downloads', downloadData);
+    await this.database.execute(query, params);
   }
 
   /**
@@ -783,23 +920,20 @@ class BRC26UHRPService extends EventEmitter {
       const now = Date.now();
 
       // Mark expired advertisements as inactive
+      const adUpdateData = { is_active: false };
       const adResult = await this.database.execute(
-        `
-        UPDATE uhrp_advertisements
-        SET is_active = FALSE
-        WHERE expiry_time < $1 AND is_active = TRUE
-      `,
-        [now],
+        'UPDATE uhrp_advertisements SET is_active = FALSE WHERE expiry_time < $1 AND is_active = TRUE',
+        [now]
       );
 
       // Remove expired content files
-      const expiredContent = await this.database.query(
-        `
-        SELECT content_hash, local_path FROM uhrp_content
-        WHERE expires_at < $1
-      `,
-        [now],
+      const { query: expiredQuery, params: expiredParams } = QueryBuilder.selectWithCustomWhere(
+        'uhrp_content',
+        ['content_hash', 'local_path'],
+        'expires_at < $1',
+        [now]
       );
+      const expiredContent = await this.database.query(expiredQuery, expiredParams);
 
       let contentRemoved = 0;
       for (const content of expiredContent) {
@@ -814,10 +948,8 @@ class BRC26UHRPService extends EventEmitter {
 
       // Remove expired content records
       await this.database.execute(
-        `
-        DELETE FROM uhrp_content WHERE expires_at < $1
-      `,
-        [now],
+        'DELETE FROM uhrp_content WHERE expires_at < $1',
+        [now]
       );
 
       return {

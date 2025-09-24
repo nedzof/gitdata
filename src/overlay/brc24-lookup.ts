@@ -6,6 +6,144 @@ import { EventEmitter } from 'events';
 import type { DatabaseAdapter } from './brc26-uhrp';
 import type { BRC22SubmitService } from './brc22-submit';
 
+// ==================== Query Builder Helper ====================
+
+interface TableColumn {
+  name: string;
+  type: string;
+  constraints?: string[];
+}
+
+interface TableDefinition {
+  name: string;
+  columns: TableColumn[];
+  constraints?: string[];
+}
+
+class QueryBuilder {
+  static insert(table: string, data: Record<string, any>, onConflict?: string): { query: string; params: any[] } {
+    const keys = Object.keys(data);
+    const placeholders = keys.map((_, index) => `$${index + 1}`);
+    const params = Object.values(data);
+
+    let query = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders.join(', ')})`;
+
+    if (onConflict) {
+      query += ` ${onConflict}`;
+    }
+
+    return { query, params };
+  }
+
+  static update(table: string, data: Record<string, any>, where: Record<string, any>): { query: string; params: any[] } {
+    const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+    const params = [...Object.values(data)];
+
+    const whereClause = Object.keys(where).map((key, index) => {
+      params.push(where[key]);
+      return `${key} = $${params.length}`;
+    }).join(' AND ');
+
+    const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
+    return { query, params };
+  }
+
+  static selectWithOptions(
+    table: string,
+    options: {
+      columns?: string[];
+      where?: Record<string, any>;
+      orderBy?: string;
+      orderDirection?: 'ASC' | 'DESC';
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): { query: string; params: any[] } {
+    const columns = options.columns || ['*'];
+    const cols = columns.join(', ');
+    let query = `SELECT ${cols} FROM ${table}`;
+    const params: any[] = [];
+
+    if (options.where) {
+      const conditions = Object.keys(options.where).map((key, index) => {
+        params.push(options.where![key]);
+        return `${key} = $${index + 1}`;
+      });
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    if (options.orderBy) {
+      query += ` ORDER BY ${options.orderBy}`;
+      if (options.orderDirection) {
+        query += ` ${options.orderDirection}`;
+      }
+    }
+
+    if (options.limit) {
+      query += ` LIMIT ${options.limit}`;
+    }
+
+    if (options.offset) {
+      query += ` OFFSET ${options.offset}`;
+    }
+
+    return { query, params };
+  }
+
+  static count(table: string, where?: Record<string, any>): { query: string; params: any[] } {
+    let query = `SELECT COUNT(*) as count FROM ${table}`;
+    const params: any[] = [];
+
+    if (where) {
+      const conditions = Object.keys(where).map((key, index) => {
+        params.push(where[key]);
+        return `${key} = $${index + 1}`;
+      });
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    return { query, params };
+  }
+
+  static countWithCondition(table: string, condition: string, params: any[] = []): { query: string; params: any[] } {
+    const query = `SELECT COUNT(*) as count FROM ${table} WHERE ${condition}`;
+    return { query, params };
+  }
+
+  static selectWithCustomWhere(
+    table: string,
+    columns: string[],
+    whereCondition: string,
+    params: any[] = [],
+    options: {
+      orderBy?: string;
+      orderDirection?: 'ASC' | 'DESC';
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): { query: string; params: any[] } {
+    const cols = columns.join(', ');
+    let query = `SELECT ${cols} FROM ${table} WHERE ${whereCondition}`;
+
+    if (options.orderBy) {
+      query += ` ORDER BY ${options.orderBy}`;
+      if (options.orderDirection) {
+        query += ` ${options.orderDirection}`;
+      }
+    }
+
+    if (options.limit) {
+      query += ` LIMIT ${options.limit}`;
+    }
+
+    if (options.offset) {
+      query += ` OFFSET ${options.offset}`;
+    }
+
+    return { query, params };
+  }
+}
+
 export interface BRC24Query {
   provider: string;
   query: any;
@@ -345,12 +483,10 @@ class BRC24LookupService extends EventEmitter {
 
       if (utxo) {
         // Get transaction record for additional data
-        const txRecord = await this.database.queryOne(
-          `
-          SELECT * FROM brc22_transactions WHERE txid = $1
-        `,
-          [identifier.txid]
-        );
+        const { query, params } = QueryBuilder.selectWithOptions('brc22_transactions', {
+          where: { txid: identifier.txid }
+        });
+        const txRecord = await this.database.queryOne(query, params);
 
         utxos.push({
           txid: utxo.txid,
@@ -378,27 +514,24 @@ class BRC24LookupService extends EventEmitter {
     requesterId: string | undefined,
     resultsCount: number,
   ): Promise<void> {
-    await this.database.execute(
-      `
-      INSERT INTO brc24_queries
-      (query_id, provider, query_json, requester_identity, results_count, processed_at)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      ON CONFLICT (query_id) DO UPDATE SET
+    const queryData = {
+      query_id: queryId,
+      provider: queryRequest.provider,
+      query_json: JSON.stringify(queryRequest.query),
+      requester_identity: requesterId || null,
+      results_count: resultsCount,
+      processed_at: Date.now()
+    };
+
+    const onConflict = `ON CONFLICT (query_id) DO UPDATE SET
         provider = EXCLUDED.provider,
         query_json = EXCLUDED.query_json,
         requester_identity = EXCLUDED.requester_identity,
         results_count = EXCLUDED.results_count,
-        processed_at = EXCLUDED.processed_at
-    `,
-      [
-        queryId,
-        queryRequest.provider,
-        JSON.stringify(queryRequest.query),
-        requesterId || null,
-        resultsCount,
-        Date.now(),
-      ]
-    );
+        processed_at = EXCLUDED.processed_at`;
+
+    const { query, params } = QueryBuilder.insert('brc24_queries', queryData, onConflict);
+    await this.database.execute(query, params);
   }
 
   // Provider-specific query implementations
@@ -551,18 +684,22 @@ class BRC24LookupService extends EventEmitter {
     dataKey: string,
     dataValue: string,
   ): Promise<void> {
-    await this.database.execute(
-      `
-      INSERT INTO brc24_provider_data
-      (provider_id, topic, data_key, data_value, utxo_count, last_updated)
-      VALUES ($1, $2, $3, $4, 1, $5)
-      ON CONFLICT (provider_id, topic, data_key) DO UPDATE SET
+    const providerData = {
+      provider_id: providerId,
+      topic: topic,
+      data_key: dataKey,
+      data_value: dataValue,
+      utxo_count: 1,
+      last_updated: Date.now()
+    };
+
+    const onConflict = `ON CONFLICT (provider_id, topic, data_key) DO UPDATE SET
         data_value = EXCLUDED.data_value,
         utxo_count = EXCLUDED.utxo_count,
-        last_updated = EXCLUDED.last_updated
-    `,
-      [providerId, topic, dataKey, dataValue, Date.now()]
-    );
+        last_updated = EXCLUDED.last_updated`;
+
+    const { query, params } = QueryBuilder.insert('brc24_provider_data', providerData, onConflict);
+    await this.database.execute(query, params);
   }
 
   /**
@@ -591,42 +728,31 @@ class BRC24LookupService extends EventEmitter {
     const providerStats: Record<string, { queries: number; recentQueries: number }> = {};
 
     for (const [providerId] of Array.from(this.lookupProviders.entries())) {
-      const queriesResult = await this.database.queryOne(
-        `
-        SELECT COUNT(*) as count FROM brc24_queries WHERE provider = $1
-      `,
-        [providerId]
-      );
-      const queries = queriesResult?.count || 0;
-
-      const recentQueriesResult = await this.database.queryOne(
-        `
-        SELECT COUNT(*) as count FROM brc24_queries
-        WHERE provider = $1 AND processed_at > $2
-      `,
+      const queriesQuery = QueryBuilder.count('brc24_queries', { provider: providerId });
+      const recentQueriesQuery = QueryBuilder.countWithCondition(
+        'brc24_queries',
+        'provider = $1 AND processed_at > $2',
         [providerId, Date.now() - 3600000] // Last hour
       );
+
+      const queriesResult = await this.database.queryOne(queriesQuery.query, queriesQuery.params);
+      const queries = queriesResult?.count || 0;
+
+      const recentQueriesResult = await this.database.queryOne(recentQueriesQuery.query, recentQueriesQuery.params);
       const recentQueries = recentQueriesResult?.count || 0;
 
       providerStats[providerId] = { queries, recentQueries };
     }
 
-    const totalQueriesResult = await this.database.queryOne(
-      `
-      SELECT COUNT(*) as count FROM brc24_queries
-    `
-    );
+    const totalQueriesQuery = QueryBuilder.count('brc24_queries');
+    const totalQueriesResult = await this.database.queryOne(totalQueriesQuery.query, totalQueriesQuery.params);
     const totalQueries = totalQueriesResult?.count || 0;
 
     const indexedData: Record<string, number> = {};
     const providers = Array.from(this.lookupProviders.keys());
     for (const providerId of providers) {
-      const indexedResult = await this.database.queryOne(
-        `
-        SELECT COUNT(*) as count FROM brc24_provider_data WHERE provider_id = $1
-      `,
-        [providerId]
-      );
+      const indexedQuery = QueryBuilder.count('brc24_provider_data', { provider_id: providerId });
+      const indexedResult = await this.database.queryOne(indexedQuery.query, indexedQuery.params);
       indexedData[providerId] = indexedResult?.count || 0;
     }
 

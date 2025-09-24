@@ -110,6 +110,39 @@ class QueryBuilder {
     const query = `SELECT COUNT(*) as count FROM ${table} WHERE ${condition}`;
     return { query, params };
   }
+
+  static selectWithCustomWhere(
+    table: string,
+    columns: string[],
+    whereCondition: string,
+    params: any[] = [],
+    options: {
+      orderBy?: string;
+      orderDirection?: 'ASC' | 'DESC';
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): { query: string; params: any[] } {
+    const cols = columns.join(', ');
+    let query = `SELECT ${cols} FROM ${table} WHERE ${whereCondition}`;
+
+    if (options.orderBy) {
+      query += ` ORDER BY ${options.orderBy}`;
+      if (options.orderDirection) {
+        query += ` ${options.orderDirection}`;
+      }
+    }
+
+    if (options.limit) {
+      query += ` LIMIT ${options.limit}`;
+    }
+
+    if (options.offset) {
+      query += ` OFFSET ${options.offset}`;
+    }
+
+    return { query, params };
+  }
 }
 
 export interface BRC22Transaction {
@@ -390,19 +423,24 @@ class BRC22SubmitService extends EventEmitter {
     const utxoId = `${txid}:${vout}`;
 
     // Store in database
-    await this.database.execute(
-      `
-      INSERT INTO brc22_utxos
-      (utxo_id, topic, txid, vout, output_script, satoshis, admitted_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (utxo_id) DO UPDATE SET
-        topic = EXCLUDED.topic,
-        output_script = EXCLUDED.output_script,
-        satoshis = EXCLUDED.satoshis,
-        admitted_at = EXCLUDED.admitted_at
-    `,
-      [utxoId, topic, txid, vout, output.script, output.satoshis, Date.now()]
-    );
+    const utxoData = {
+      utxo_id: utxoId,
+      topic: topic,
+      txid: txid,
+      vout: vout,
+      output_script: output.script,
+      satoshis: output.satoshis,
+      admitted_at: Date.now()
+    };
+
+    const onConflict = `ON CONFLICT (utxo_id) DO UPDATE SET
+      topic = EXCLUDED.topic,
+      output_script = EXCLUDED.output_script,
+      satoshis = EXCLUDED.satoshis,
+      admitted_at = EXCLUDED.admitted_at`;
+
+    const { query, params } = QueryBuilder.insert('brc22_utxos', utxoData, onConflict);
+    await this.database.execute(query, params);
 
     // Add to tracked UTXOs
     this.trackedUTXOs.get(topic)?.add(utxoId);
@@ -422,43 +460,45 @@ class BRC22SubmitService extends EventEmitter {
     vout: number,
     spentByTxid: string,
   ): Promise<void> {
-    await this.database.execute(
-      `
-      UPDATE brc22_utxos
-      SET spent_at = $1, spent_by_txid = $2
-      WHERE topic = $3 AND txid = $4 AND vout = $5
-    `,
-      [Date.now(), spentByTxid, topic, txid, vout]
-    );
+    const updateData = {
+      spent_at: Date.now(),
+      spent_by_txid: spentByTxid
+    };
+
+    const whereCondition = {
+      topic: topic,
+      txid: txid,
+      vout: vout
+    };
+
+    const { query, params } = QueryBuilder.update('brc22_utxos', updateData, whereCondition);
+    await this.database.execute(query, params);
   }
 
   /**
    * Store transaction record
    */
   private async storeTransactionRecord(transaction: BRC22Transaction, txid: string): Promise<void> {
-    await this.database.execute(
-      `
-      INSERT INTO brc22_transactions
-      (txid, raw_tx, topics_json, inputs_json, mapi_responses_json, proof, processed_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (txid) DO UPDATE SET
+    const transactionData = {
+      txid: txid,
+      raw_tx: transaction.rawTx,
+      topics_json: JSON.stringify(transaction.topics),
+      inputs_json: JSON.stringify(transaction.inputs || {}),
+      mapi_responses_json: JSON.stringify(transaction.mapiResponses || []),
+      proof: transaction.proof || null,
+      processed_at: Date.now()
+    };
+
+    const onConflict = `ON CONFLICT (txid) DO UPDATE SET
         raw_tx = EXCLUDED.raw_tx,
         topics_json = EXCLUDED.topics_json,
         inputs_json = EXCLUDED.inputs_json,
         mapi_responses_json = EXCLUDED.mapi_responses_json,
         proof = EXCLUDED.proof,
-        processed_at = EXCLUDED.processed_at
-    `,
-      [
-        txid,
-        transaction.rawTx,
-        JSON.stringify(transaction.topics),
-        JSON.stringify(transaction.inputs || {}),
-        JSON.stringify(transaction.mapiResponses || []),
-        transaction.proof || null,
-        Date.now(),
-      ]
-    );
+        processed_at = EXCLUDED.processed_at`;
+
+    const { query, params } = QueryBuilder.insert('brc22_transactions', transactionData, onConflict);
+    await this.database.execute(query, params);
   }
 
   /**
@@ -477,13 +517,27 @@ class BRC22SubmitService extends EventEmitter {
     spentAt?: number;
     spentByTxid?: string;
   }>> {
-    const sql = `
-      SELECT * FROM brc22_utxos
-      WHERE topic = $1 ${includeSpent ? '' : 'AND spent_at IS NULL'}
-      ORDER BY admitted_at DESC
-    `;
-
-    const rows = await this.database.query(sql, [topic]);
+    let rows;
+    if (includeSpent) {
+      const { query, params } = QueryBuilder.selectWithOptions('brc22_utxos', {
+        where: { topic },
+        orderBy: 'admitted_at',
+        orderDirection: 'DESC'
+      });
+      rows = await this.database.query(query, params);
+    } else {
+      const { query, params } = QueryBuilder.selectWithCustomWhere(
+        'brc22_utxos',
+        ['*'],
+        'topic = $1 AND spent_at IS NULL',
+        [topic],
+        {
+          orderBy: 'admitted_at',
+          orderDirection: 'DESC'
+        }
+      );
+      rows = await this.database.query(query, params);
+    }
     return rows.map((row: any) => ({
       utxoId: row.utxo_id,
       txid: row.txid,
@@ -506,22 +560,13 @@ class BRC22SubmitService extends EventEmitter {
     const topicStats: Record<string, { active: number; spent: number; total: number }> = {};
 
     for (const [topic] of Array.from(this.topicManagers.entries())) {
-      const activeResult = await this.database.queryOne(
-        `
-        SELECT COUNT(*) as count FROM brc22_utxos
-        WHERE topic = $1 AND spent_at IS NULL
-      `,
-        [topic]
-      );
+      const activeQuery = QueryBuilder.countWithCondition('brc22_utxos', 'topic = $1 AND spent_at IS NULL', [topic]);
+      const spentQuery = QueryBuilder.countWithCondition('brc22_utxos', 'topic = $1 AND spent_at IS NOT NULL', [topic]);
+
+      const activeResult = await this.database.queryOne(activeQuery.query, activeQuery.params);
       const active = activeResult?.count || 0;
 
-      const spentResult = await this.database.queryOne(
-        `
-        SELECT COUNT(*) as count FROM brc22_utxos
-        WHERE topic = $1 AND spent_at IS NOT NULL
-      `,
-        [topic]
-      );
+      const spentResult = await this.database.queryOne(spentQuery.query, spentQuery.params);
       const spent = spentResult?.count || 0;
 
       topicStats[topic] = {
@@ -531,20 +576,17 @@ class BRC22SubmitService extends EventEmitter {
       };
     }
 
-    const totalResult = await this.database.queryOne(
-      `
-      SELECT COUNT(*) as count FROM brc22_transactions
-    `
-    );
-    const totalTransactions = totalResult?.count || 0;
-
-    const recentResult = await this.database.queryOne(
-      `
-      SELECT COUNT(*) as count FROM brc22_transactions
-      WHERE processed_at > $1
-    `,
+    const totalQuery = QueryBuilder.count('brc22_transactions');
+    const recentQuery = QueryBuilder.countWithCondition(
+      'brc22_transactions',
+      'processed_at > $1',
       [Date.now() - 3600000] // Last hour
     );
+
+    const totalResult = await this.database.queryOne(totalQuery.query, totalQuery.params);
+    const totalTransactions = totalResult?.count || 0;
+
+    const recentResult = await this.database.queryOne(recentQuery.query, recentQuery.params);
     const recentTransactions = recentResult?.count || 0;
 
     return {
