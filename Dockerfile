@@ -13,14 +13,21 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY ui/package*.json ./ui/
 
-# Install dependencies with legacy peer deps to handle conflicts
+# Install backend dependencies with legacy peer deps to handle conflicts
 RUN npm ci --legacy-peer-deps && npm cache clean --force
+
+# Install UI dependencies
+RUN cd ui && npm ci && npm cache clean --force
 
 # Copy source code
 COPY . .
 
-# Create required directories and copy optional UI files
+# Build UI for production
+RUN cd ui && npm run build
+
+# Create required directories
 RUN mkdir -p ./ui/build
 
 # Create data directories
