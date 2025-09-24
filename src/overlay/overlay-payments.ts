@@ -6,6 +6,175 @@ import { EventEmitter } from 'events';
 import type { DatabaseAdapter } from './brc26-uhrp';
 import { walletService } from '../lib/wallet';
 
+// ==================== Query Builder Helper ====================
+
+interface TableColumn {
+  name: string;
+  type: string;
+  constraints?: string[];
+}
+
+interface TableDefinition {
+  name: string;
+  columns: TableColumn[];
+  constraints?: string[];
+}
+
+class QueryBuilder {
+  static insert(table: string, data: Record<string, any>, onConflict?: string): { query: string; params: any[] } {
+    const keys = Object.keys(data);
+    const placeholders = keys.map((_, index) => `$${index + 1}`);
+    const params = Object.values(data);
+
+    let query = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders.join(', ')})`;
+
+    if (onConflict) {
+      query += ` ${onConflict}`;
+    }
+
+    return { query, params };
+  }
+
+  static update(table: string, data: Record<string, any>, where: Record<string, any>): { query: string; params: any[] } {
+    const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+    const params = [...Object.values(data)];
+
+    const whereClause = Object.keys(where).map((key, index) => {
+      params.push(where[key]);
+      return `${key} = $${params.length}`;
+    }).join(' AND ');
+
+    const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
+    return { query, params };
+  }
+
+  static selectWithOptions(
+    table: string,
+    options: {
+      columns?: string[];
+      where?: Record<string, any>;
+      orderBy?: string;
+      orderDirection?: 'ASC' | 'DESC';
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): { query: string; params: any[] } {
+    const columns = options.columns || ['*'];
+    const cols = columns.join(', ');
+    let query = `SELECT ${cols} FROM ${table}`;
+    const params: any[] = [];
+
+    if (options.where) {
+      const conditions = Object.keys(options.where).map((key, index) => {
+        params.push(options.where![key]);
+        return `${key} = $${index + 1}`;
+      });
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    if (options.orderBy) {
+      query += ` ORDER BY ${options.orderBy}`;
+      if (options.orderDirection) {
+        query += ` ${options.orderDirection}`;
+      }
+    }
+
+    if (options.limit) {
+      query += ` LIMIT ${options.limit}`;
+    }
+
+    if (options.offset) {
+      query += ` OFFSET ${options.offset}`;
+    }
+
+    return { query, params };
+  }
+
+  static count(table: string, where?: Record<string, any>): { query: string; params: any[] } {
+    let query = `SELECT COUNT(*) as count FROM ${table}`;
+    const params: any[] = [];
+
+    if (where) {
+      const conditions = Object.keys(where).map((key, index) => {
+        params.push(where[key]);
+        return `${key} = $${index + 1}`;
+      });
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    return { query, params };
+  }
+
+  static countWithCondition(table: string, condition: string, params: any[] = []): { query: string; params: any[] } {
+    const query = `SELECT COUNT(*) as count FROM ${table} WHERE ${condition}`;
+    return { query, params };
+  }
+
+  static selectWithCustomWhere(
+    table: string,
+    columns: string[],
+    whereCondition: string,
+    params: any[] = [],
+    options: {
+      orderBy?: string;
+      orderDirection?: 'ASC' | 'DESC';
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): { query: string; params: any[] } {
+    const cols = columns.join(', ');
+    let query = `SELECT ${cols} FROM ${table} WHERE ${whereCondition}`;
+
+    if (options.orderBy) {
+      query += ` ORDER BY ${options.orderBy}`;
+      if (options.orderDirection) {
+        query += ` ${options.orderDirection}`;
+      }
+    }
+
+    if (options.limit) {
+      query += ` LIMIT ${options.limit}`;
+    }
+
+    if (options.offset) {
+      query += ` OFFSET ${options.offset}`;
+    }
+
+    return { query, params };
+  }
+
+  static selectWithJoin(
+    fromTable: string,
+    joinTable: string,
+    joinCondition: string,
+    columns: string[],
+    whereCondition?: string,
+    params: any[] = []
+  ): { query: string; params: any[] } {
+    const cols = columns.join(', ');
+    let query = `SELECT ${cols} FROM ${fromTable} JOIN ${joinTable} ON ${joinCondition}`;
+
+    if (whereCondition) {
+      query += ` WHERE ${whereCondition}`;
+    }
+
+    return { query, params };
+  }
+
+  static updateWithCondition(
+    table: string,
+    data: Record<string, any>,
+    whereCondition: string,
+    whereParams: any[] = []
+  ): { query: string; params: any[] } {
+    const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+    const params = [...Object.values(data), ...whereParams];
+
+    const query = `UPDATE ${table} SET ${setClause} WHERE ${whereCondition}`;
+    return { query, params };
+  }
+}
+
 import { D01A_TOPICS, TopicGenerator } from './overlay-config';
 import type { OverlayManager } from './overlay-manager';
 
@@ -94,15 +263,15 @@ class OverlayPaymentService extends EventEmitter {
       }
 
       // Check if version exists and get pricing
-      const version = await this.database.queryOne(
-        `
-        SELECT v.*, m.unit_price_sat, m.classification
-        FROM versions v
-        JOIN assets m ON v.version_id = m.version_id
-        WHERE v.version_id = $1
-      `,
+      const { query: versionQuery, params: versionParams } = QueryBuilder.selectWithJoin(
+        'versions v',
+        'assets m',
+        'v.version_id = m.version_id',
+        ['v.*', 'm.unit_price_sat', 'm.classification'],
+        'v.version_id = $1',
         [request.versionId]
       );
+      const version = await this.database.queryOne(versionQuery, versionParams);
 
       if (!version) {
         throw new Error(`Version not found: ${request.versionId}`);
@@ -138,31 +307,28 @@ class OverlayPaymentService extends EventEmitter {
       };
 
       // Store quote
-      await this.database.execute(
-        `
-        INSERT INTO overlay_payment_quotes
-        (quote_id, receipt_id, version_id, amount_sat, outputs_json, expires_at, template_hash, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (quote_id) DO UPDATE SET
+      const quoteData = {
+        quote_id: quote.quoteId,
+        receipt_id: quote.receiptId,
+        version_id: quote.versionId,
+        amount_sat: quote.amountSat,
+        outputs_json: JSON.stringify(quote.outputs),
+        expires_at: quote.expiresAt,
+        template_hash: quote.templateHash,
+        created_at: quote.createdAt
+      };
+
+      const onConflict = `ON CONFLICT (quote_id) DO UPDATE SET
           receipt_id = EXCLUDED.receipt_id,
           version_id = EXCLUDED.version_id,
           amount_sat = EXCLUDED.amount_sat,
           outputs_json = EXCLUDED.outputs_json,
           expires_at = EXCLUDED.expires_at,
           template_hash = EXCLUDED.template_hash,
-          created_at = EXCLUDED.created_at
-      `,
-        [
-          quote.quoteId,
-          quote.receiptId,
-          quote.versionId,
-          quote.amountSat,
-          JSON.stringify(quote.outputs),
-          quote.expiresAt,
-          quote.templateHash,
-          quote.createdAt,
-        ]
-      );
+          created_at = EXCLUDED.created_at`;
+
+      const { query: insertQuoteQuery, params: insertQuoteParams } = QueryBuilder.insert('overlay_payment_quotes', quoteData, onConflict);
+      await this.database.execute(insertQuoteQuery, insertQuoteParams);
 
       this.pendingQuotes.set(quote.quoteId, quote);
 
@@ -211,29 +377,26 @@ class OverlayPaymentService extends EventEmitter {
       };
 
       // Store receipt
-      await this.database.execute(
-        `
-        INSERT INTO overlay_payment_receipts
-        (receipt_id, quote_id, txid, status, amount_sat, buyer_public_key, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (receipt_id) DO UPDATE SET
+      const receiptData = {
+        receipt_id: receipt.receiptId,
+        quote_id: quote.quoteId,
+        txid: receipt.txid,
+        status: receipt.status,
+        amount_sat: receipt.amountSat,
+        buyer_public_key: submission.buyerPublicKey,
+        created_at: receipt.createdAt
+      };
+
+      const onConflict = `ON CONFLICT (receipt_id) DO UPDATE SET
           quote_id = EXCLUDED.quote_id,
           txid = EXCLUDED.txid,
           status = EXCLUDED.status,
           amount_sat = EXCLUDED.amount_sat,
           buyer_public_key = EXCLUDED.buyer_public_key,
-          created_at = EXCLUDED.created_at
-      `,
-        [
-          receipt.receiptId,
-          quote.quoteId,
-          receipt.txid,
-          receipt.status,
-          receipt.amountSat,
-          submission.buyerPublicKey,
-          receipt.createdAt,
-        ]
-      );
+          created_at = EXCLUDED.created_at`;
+
+      const { query: insertReceiptQuery, params: insertReceiptParams } = QueryBuilder.insert('overlay_payment_receipts', receiptData, onConflict);
+      await this.database.execute(insertReceiptQuery, insertReceiptParams);
 
       this.pendingPayments.set(receipt.receiptId, receipt);
 
@@ -503,12 +666,10 @@ class OverlayPaymentService extends EventEmitter {
    */
   private async getQuoteFromDatabase(quoteId: string): Promise<PaymentQuote | null> {
     try {
-      const row = await this.database.queryOne(
-        `
-        SELECT * FROM overlay_payment_quotes WHERE quote_id = $1
-      `,
-        [quoteId]
-      );
+      const { query: selectQuery, params: selectParams } = QueryBuilder.selectWithOptions('overlay_payment_quotes', {
+        where: { quote_id: quoteId }
+      });
+      const row = await this.database.queryOne(selectQuery, selectParams);
 
       if (!row) return null;
 
@@ -568,42 +729,30 @@ class OverlayPaymentService extends EventEmitter {
   }> {
     const now = Date.now();
 
-    const totalQuotesResult = await this.database.queryOne(
-      `
-      SELECT COUNT(*) as count FROM overlay_payment_quotes
-    `
-    );
+    const totalQuotesQuery = QueryBuilder.count('overlay_payment_quotes');
+    const totalQuotesResult = await this.database.queryOne(totalQuotesQuery.query, totalQuotesQuery.params);
     const totalQuotes = totalQuotesResult?.count || 0;
 
-    const activeQuotesResult = await this.database.queryOne(
-      `
-      SELECT COUNT(*) as count FROM overlay_payment_quotes WHERE expires_at > $1
-    `,
+    const activeQuotesQuery = QueryBuilder.countWithCondition(
+      'overlay_payment_quotes',
+      'expires_at > $1',
       [now]
     );
+    const activeQuotesResult = await this.database.queryOne(activeQuotesQuery.query, activeQuotesQuery.params);
     const activeQuotes = activeQuotesResult?.count || 0;
 
     const expiredQuotes = totalQuotes - activeQuotes;
 
-    const totalReceiptsResult = await this.database.queryOne(
-      `
-      SELECT COUNT(*) as count FROM overlay_payment_receipts
-    `
-    );
+    const totalReceiptsQuery = QueryBuilder.count('overlay_payment_receipts');
+    const totalReceiptsResult = await this.database.queryOne(totalReceiptsQuery.query, totalReceiptsQuery.params);
     const totalReceipts = totalReceiptsResult?.count || 0;
 
-    const pendingReceiptsResult = await this.database.queryOne(
-      `
-      SELECT COUNT(*) as count FROM overlay_payment_receipts WHERE status = 'pending'
-    `
-    );
+    const pendingReceiptsQuery = QueryBuilder.count('overlay_payment_receipts', { status: 'pending' });
+    const pendingReceiptsResult = await this.database.queryOne(pendingReceiptsQuery.query, pendingReceiptsQuery.params);
     const pendingReceipts = pendingReceiptsResult?.count || 0;
 
-    const confirmedReceiptsResult = await this.database.queryOne(
-      `
-      SELECT COUNT(*) as count FROM overlay_payment_receipts WHERE status = 'confirmed'
-    `
-    );
+    const confirmedReceiptsQuery = QueryBuilder.count('overlay_payment_receipts', { status: 'confirmed' });
+    const confirmedReceiptsResult = await this.database.queryOne(confirmedReceiptsQuery.query, confirmedReceiptsQuery.params);
     const confirmedReceipts = confirmedReceiptsResult?.count || 0;
 
     return {
@@ -616,14 +765,14 @@ class OverlayPaymentService extends EventEmitter {
    * Clean up expired quotes
    */
   async cleanupExpiredQuotes(): Promise<number> {
-    await this.database.execute(
-      `
-      UPDATE overlay_payment_quotes
-      SET status = 'expired'
-      WHERE expires_at < $1 AND status = 'active'
-    `,
-      [Date.now()]
+    const updateData = { status: 'expired' };
+    const { query: updateQuery, params: updateParams } = QueryBuilder.updateWithCondition(
+      'overlay_payment_quotes',
+      updateData,
+      'expires_at < $1 AND status = $2',
+      [Date.now(), 'active']
     );
+    await this.database.execute(updateQuery, updateParams);
 
     // Return number of affected rows (PostgreSQL doesn't provide this directly with execute)
     // For now, return 0 as a placeholder
