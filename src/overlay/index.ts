@@ -54,7 +54,6 @@ import {
 import { BRC26UHRPService } from './brc26-uhrp';
 import { getOverlayConfig } from './overlay-config';
 
-import type * as Database from 'better-sqlite3';
 import { Pool } from 'pg';
 
 // Database adapter interface for PostgreSQL support
@@ -87,38 +86,6 @@ class PostgreSQLAdapter implements DatabaseAdapter {
   }
 }
 
-class SQLiteAdapter implements DatabaseAdapter {
-  constructor(private db: Database.Database) {}
-
-  async query(sql: string, params: any[] = []): Promise<any[]> {
-    try {
-      const stmt = this.db.prepare(sql);
-      return stmt.all(...params);
-    } catch (error) {
-      console.error('SQLite query error:', error);
-      return [];
-    }
-  }
-
-  async queryOne(sql: string, params: any[] = []): Promise<any> {
-    try {
-      const stmt = this.db.prepare(sql);
-      return stmt.get(...params) || null;
-    } catch (error) {
-      console.error('SQLite queryOne error:', error);
-      return null;
-    }
-  }
-
-  async execute(sql: string, params: any[] = []): Promise<void> {
-    try {
-      const stmt = this.db.prepare(sql);
-      stmt.run(...params);
-    } catch (error) {
-      console.error('SQLite execute error:', error);
-    }
-  }
-}
 
 /**
  * Creates a legacy SQLite-compatible wrapper for PostgreSQL DatabaseAdapter
@@ -208,7 +175,7 @@ export interface GitdataOverlayServices {
  * Initialize complete BSV overlay services with BRC standards for Gitdata
  */
 export async function initializeOverlayServices(
-  database: Database.Database | Pool,
+  database: Pool,
   environment: 'development' | 'staging' | 'production' = 'development',
   myDomain: string = 'localhost:8788',
   options: {
@@ -216,62 +183,29 @@ export async function initializeOverlayServices(
     baseUrl?: string;
   } = {},
 ): Promise<GitdataOverlayServices> {
-  // Create database adapter based on the type of database provided
-  let dbAdapter: DatabaseAdapter;
-  if (database instanceof Pool) {
-    dbAdapter = new PostgreSQLAdapter(database);
-    console.log('[OVERLAY] Using PostgreSQL database for overlay services');
-  } else {
-    dbAdapter = new SQLiteAdapter(database);
-    console.log('[OVERLAY] Using SQLite database for overlay services');
-  }
+  // Create PostgreSQL database adapter
+  const dbAdapter: DatabaseAdapter = new PostgreSQLAdapter(database);
+  console.log('[OVERLAY] Using PostgreSQL database for overlay services');
 
   // Default configuration
   const storageBasePath = options.storageBasePath || './data/uhrp-storage';
   const baseUrl = options.baseUrl || `http://${myDomain}`;
 
-  // Initialize BRC services based on database type
-  let brc22Service: BRC22SubmitService | PostgreSQLBRC22SubmitService | null = null;
-  let brc24Service: BRC24LookupService | PostgreSQLBRC24LookupService | null = null;
-  let brc64Service: BRC64HistoryService | PostgreSQLBRC64HistoryService | null = null;
-  let brc88Service: BRC88SHIPSLAPService | PostgreSQLBRC88SHIPSLAPService | null = null;
+  // Initialize PostgreSQL BRC services
+  const brc22Service = new PostgreSQLBRC22SubmitService(dbAdapter);
+  const brc24Service = new PostgreSQLBRC24LookupService(dbAdapter, brc22Service);
+  const brc64Service = new PostgreSQLBRC64HistoryService(dbAdapter, brc22Service, brc24Service);
+  const brc88Service = new PostgreSQLBRC88SHIPSLAPService(dbAdapter, myDomain);
 
-  if (database instanceof Pool) {
-    // PostgreSQL: Use production-ready BRC services
-    brc22Service = new PostgreSQLBRC22SubmitService(dbAdapter);
-    brc24Service = new PostgreSQLBRC24LookupService(dbAdapter, brc22Service);
-    brc64Service = new PostgreSQLBRC64HistoryService(dbAdapter, brc22Service, brc24Service);
-    brc88Service = new PostgreSQLBRC88SHIPSLAPService(dbAdapter, myDomain);
-
-    console.log('[OVERLAY] ✅ Initialized PostgreSQL BRC services (22, 24, 64, 88)');
-    console.log('[OVERLAY] ✅ Production-ready with scalable database backend');
-    console.log('[OVERLAY] ✅ All BRC standards available for production use');
-  } else {
-    // SQLite: Use legacy services for development
-    brc22Service = new BRC22SubmitService(dbAdapter);
-    brc24Service = new BRC24LookupService(dbAdapter, brc22Service);
-    brc64Service = new BRC64HistoryService(dbAdapter, brc22Service, brc24Service);
-    brc88Service = new BRC88SHIPSLAPService(
-      dbAdapter as any,
-      brc22Service,
-      brc24Service,
-      {
-        enableAutoSync: true,
-        syncInterval: 60000, // 1 minute
-        peerDiscoveryUrls: ['https://overlay.powping.com', 'https://overlay.bitcoinfiles.org'],
-        advertisementTTL: 24 * 60 * 60 * 1000, // 24 hours
-        maxPeers: 50,
-      },
-      myDomain,
-    );
-    console.log('[OVERLAY] ✅ Initialized SQLite BRC services (22, 24, 64, 88) for development');
-  }
+  console.log('[OVERLAY] ✅ Initialized PostgreSQL BRC services (22, 24, 64, 88)');
+  console.log('[OVERLAY] ✅ Production-ready with scalable database backend');
+  console.log('[OVERLAY] ✅ All BRC standards available for production use');
 
   // Create BRC-26 UHRP service (Universal Hash Resolution Protocol for file storage)
   const brc26Service = new BRC26UHRPService(dbAdapter, storageBasePath, baseUrl);
 
-  // Create overlay manager - use appropriate database interface
-  const legacyDatabase = database instanceof Pool ? createLegacyWrapper(dbAdapter) : database;
+  // Create overlay manager with PostgreSQL legacy wrapper
+  const legacyDatabase = createLegacyWrapper(dbAdapter);
 
   const overlayManager = new OverlayManager({
     environment,
@@ -285,8 +219,8 @@ export async function initializeOverlayServices(
   const paymentService = new OverlayPaymentService(overlayManager, legacyDatabase);
 
   // D24 Agent Marketplace Services
-  const agentRegistry = new OverlayAgentRegistry(dbAdapter, brc88Service as any);
-  const ruleEngine = new OverlayRuleEngine(dbAdapter, brc22Service as any, agentRegistry);
+  const agentRegistry = new OverlayAgentRegistry(dbAdapter, brc88Service);
+  const ruleEngine = new OverlayRuleEngine(dbAdapter, brc22Service, agentRegistry);
   const executionService = new AgentExecutionService(dbAdapter, {
     webhookTimeoutMs: 15000,
     requireIdentity: true,
@@ -299,20 +233,20 @@ export async function initializeOverlayServices(
   setupCrossServiceEvents(
     overlayManager,
     paymentService,
-    brc22Service as any,
-    brc24Service as any,
-    brc64Service as any,
-    brc88Service as any,
+    brc22Service,
+    brc24Service,
+    brc64Service,
+    brc88Service,
     brc26Service,
   );
 
   return {
     overlayManager,
     paymentService,
-    brc22Service: brc22Service as any,
-    brc24Service: brc24Service as any,
-    brc64Service: brc64Service as any,
-    brc88Service: brc88Service as any,
+    brc22Service,
+    brc24Service,
+    brc64Service,
+    brc88Service,
     brc26Service,
     // D24 Agent Marketplace Services
     agentRegistry,
@@ -327,10 +261,10 @@ export async function initializeOverlayServices(
 function setupCrossServiceEvents(
   overlayManager: OverlayManager,
   paymentService: OverlayPaymentService,
-  brc22Service: BRC22SubmitService | null,
-  brc24Service: BRC24LookupService | null,
-  brc64Service: BRC64HistoryService | null,
-  brc88Service: BRC88SHIPSLAPService | null,
+  brc22Service: PostgreSQLBRC22SubmitService,
+  brc24Service: PostgreSQLBRC24LookupService,
+  brc64Service: PostgreSQLBRC64HistoryService,
+  brc88Service: PostgreSQLBRC88SHIPSLAPService,
   brc26Service: BRC26UHRPService,
 ): void {
   // === Overlay Manager Events ===
@@ -368,73 +302,63 @@ function setupCrossServiceEvents(
 
   // === BRC-22 Service Events ===
 
-  if (brc22Service) {
-    // Forward BRC-22 UTXO admissions to overlay for publishing
-    brc22Service.on('manifest-utxo-admitted', async (event) => {
-      // Publish asset data to overlay network
-      try {
-        const asset = await extractAssetFromUTXO(event);
-        if (asset) {
-          await overlayManager.publishAsset(asset);
-        }
-      } catch (error) {
-        console.error('Failed to publish asset from BRC-22 admission:', error);
+  // Forward BRC-22 UTXO admissions to overlay for publishing
+  brc22Service.on('manifest-utxo-admitted', async (event) => {
+    // Publish asset data to overlay network
+    try {
+      const asset = await extractAssetFromUTXO(event);
+      if (asset) {
+        await overlayManager.publishAsset(asset);
       }
-    });
+    } catch (error) {
+      console.error('Failed to publish asset from BRC-22 admission:', error);
+    }
+  });
 
-    // Forward transaction processing to history service
-    brc22Service.on('transaction-processed', (event) => {
-      if (brc64Service) {
-        brc64Service.emit('transaction-for-history', event);
-      }
-    });
-  }
+  // Forward transaction processing to history service
+  brc22Service.on('transaction-processed', (event) => {
+    brc64Service.emit('transaction-for-history', event);
+  });
 
   // === BRC-24 Service Events ===
 
-  if (brc24Service) {
-    // Forward lookup results to overlay for caching/sharing
-    brc24Service.on('lookup-processed', (event) => {
-      overlayManager.emit('lookup-completed', event);
-    });
-  }
+  // Forward lookup results to overlay for caching/sharing
+  brc24Service.on('lookup-processed', (event) => {
+    overlayManager.emit('lookup-completed', event);
+  });
 
   // === BRC-64 Service Events ===
 
-  if (brc64Service) {
-    // Forward history captures for lineage visualization
-    brc64Service.on('history-captured', (event) => {
-      overlayManager.emit('lineage-updated', event);
-    });
+  // Forward history captures for lineage visualization
+  brc64Service.on('history-captured', (event) => {
+    overlayManager.emit('lineage-updated', event);
+  });
 
-    // Forward lineage graph updates
-    brc64Service.on('lineage-built', (event) => {
-      overlayManager.emit('lineage-graph-updated', event);
-    });
-  }
+  // Forward lineage graph updates
+  brc64Service.on('lineage-built', (event) => {
+    overlayManager.emit('lineage-graph-updated', event);
+  });
 
   // === BRC-88 Service Events ===
 
-  if (brc88Service) {
-    // Forward peer discoveries to overlay manager
-    brc88Service.on('peer-discovered', (peer) => {
-      overlayManager.emit('overlay-peer-discovered', peer);
-    });
+  // Forward peer discoveries to overlay manager
+  brc88Service.on('peer-discovered', (peer) => {
+    overlayManager.emit('overlay-peer-discovered', peer);
+  });
 
-    // Forward service advertisements
-    brc88Service.on('ship-advertisement-created', (event) => {
-      overlayManager.emit('service-advertised', { type: 'SHIP', ...event });
-    });
+  // Forward service advertisements
+  brc88Service.on('ship-advertisement-created', (event) => {
+    overlayManager.emit('service-advertised', { type: 'SHIP', ...event });
+  });
 
-    brc88Service.on('slap-advertisement-created', (event) => {
-      overlayManager.emit('service-advertised', { type: 'SLAP', ...event });
-    });
+  brc88Service.on('slap-advertisement-created', (event) => {
+    overlayManager.emit('service-advertised', { type: 'SLAP', ...event });
+  });
 
-    // Handle peer synchronization
-    brc88Service.on('peer-synced', (peer) => {
-      overlayManager.emit('peer-synchronized', peer);
-    });
-  }
+  // Handle peer synchronization
+  brc88Service.on('peer-synced', (peer) => {
+    overlayManager.emit('peer-synchronized', peer);
+  });
 
   // === BRC-26 UHRP Service Events ===
 
@@ -500,37 +424,33 @@ function setupCrossServiceEvents(
   });
 
   // When BRC-24 lookup is requested, also search overlay network
-  if (brc24Service) {
-    brc24Service.on('lookup-processed', async (event) => {
-      try {
-        // Also search overlay network for additional results
-        const overlayResults = await overlayManager.searchData({
-          classification: 'public',
-          limit: 10,
-        });
-        // Merge results if needed
-      } catch (error) {
-        console.error('Failed to cross-search overlay:', error);
-      }
-    });
-  }
+  brc24Service.on('lookup-processed', async (event) => {
+    try {
+      // Also search overlay network for additional results
+      const overlayResults = await overlayManager.searchData({
+        classification: 'public',
+        limit: 10,
+      });
+      // Merge results if needed
+    } catch (error) {
+      console.error('Failed to cross-search overlay:', error);
+    }
+  });
 
   // When SHIP/SLAP services are advertised, update BRC-24 providers
-  if (brc88Service && brc24Service) {
-    brc88Service.on('slap-advertisement-received', (event) => {
-      // Add discovered lookup providers to BRC-24 service
-      const provider = {
-        providerId: event.advertisement.serviceId,
-        name: `Remote Service: ${event.advertisement.serviceId}`,
-        description: `Lookup service from ${event.advertisement.domainName}`,
-        processQuery: async (query: any) => {
-          // In production, make HTTP request to remote service
-          return [];
-        },
-      };
-      // brc24Service.addLookupProvider(provider); // Uncomment when remote providers are implemented
-    });
-  }
+  brc88Service.on('slap-advertisement-received', (event) => {
+    // Add discovered lookup providers to BRC-24 service
+    const provider = {
+      providerId: event.advertisement.serviceId,
+      name: `Remote Service: ${event.advertisement.serviceId}`,
+      description: `Lookup service from ${event.advertisement.domainName}`,
+      processQuery: async (query: any) => {
+        // In production, make HTTP request to remote service
+        return [];
+      },
+    };
+    // brc24Service.addLookupProvider(provider); // Uncomment when remote providers are implemented
+  });
 
   console.log('[OVERLAY] Cross-service event handling configured');
 }

@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import type { Request, Response, Router } from 'express';
 import { Router as makeRouter } from 'express';
 
@@ -16,16 +15,12 @@ import {
   type SPVEnvelope,
 } from '../spv/verify-envelope';
 
-// This new factory function connects directly to the database
-// instead of a generic 'repo'.
-export function submitReceiverRouter(
-  db: Database.Database,
-  opts: {
-    headersFile: string;
-    minConfs: number;
-    bodyMaxSize: number;
-  },
-): Router {
+// This factory function uses the singleton database pattern like other routers
+export function submitReceiverRouter(opts: {
+  headersFile: string;
+  minConfs: number;
+  bodyMaxSize: number;
+}): Router {
   const router = makeRouter();
   const { headersFile, minConfs, bodyMaxSize } = opts;
   let headersIdx: HeadersIndex | null = null;
@@ -184,7 +179,7 @@ export function submitReceiverRouter(
           // Ingest the OpenLineage event (async, don't block response)
           setImmediate(() => {
             try {
-              ingestOpenLineageEvent(db, openLineageEvent);
+              ingestOpenLineageEvent(openLineageEvent);
             } catch (olError) {
               console.warn('OpenLineage event emission failed:', olError);
             }
@@ -220,15 +215,12 @@ export function submitReceiverRouter(
 
 // Wrapper for server.ts compatibility - provides default parameters
 export function submitReceiverRouterWrapper(): Router {
-  // Initialize SQLite database (fallback for compatibility)
-  const db = new Database(':memory:');
-
-  // Default options
+  // Default options using environment variables
   const opts = {
     headersFile: process.env.HEADERS_FILE || 'data/headers/headers-mainnet.json',
     minConfs: parseInt(process.env.MIN_CONFIRMATIONS || '6'),
     bodyMaxSize: parseInt(process.env.BODY_MAX_SIZE || '10485760'), // 10MB
   };
 
-  return submitReceiverRouter(db, opts);
+  return submitReceiverRouter(opts);
 }

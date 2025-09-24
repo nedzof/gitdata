@@ -43,7 +43,6 @@
     "postman:agents": "newman run postman/BSV-Overlay-Network-API.postman_collection.json -e postman/BSV-Overlay-Network.postman_environment.json --folder \"🤖 Agent Marketplace (D24)\" --reporters cli,junit --reporter-junit-export test-results/newman-agents.xml --delay-request 250",
     "newman": "newman run postman/collection.postman_collection.json -e postman/env.postman_environment.json --reporters cli,junit --reporter-junit-export test-results/newman.xml",
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/server.ts",
     "wallet": "tsx src/mock/wallet-stub.ts",
     "setup:database": "tsx scripts/setup-database.ts",
     "test:hybrid": "npm run test:integration"
@@ -67,13 +66,11 @@
     "zod": "^4.1.9"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^4.17.0",
     "@types/node": "^20.0.0",
     "@types/supertest": "^2.0.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
-    "better-sqlite3": "^12.2.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-import": "^2.29.0",
