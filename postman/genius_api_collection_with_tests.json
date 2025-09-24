@@ -1,0 +1,757 @@
+{
+   "info":{
+      "name":"Gitdata Overlay API (MVP) — Full Suite + Tests",
+      "postmanid":"0e9b2d4e-90a3-4a09-b6d4-99b1d0c0abcd",
+      "description":"SPV-first, vendor-neutral overlay API for verifiable data lineage on BSV.\nThis collection includes tests and variable chaining for:\n- submit → bundle → resolve\n- ready → advisory flip → ready false\n- price → pay → data\n- producer registry, pricing, revenue, dashboard\n- ops (health, metrics)\nVariables are pulled from the environment and then refined via collection variables as the run proceeds.",
+      "schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+   },
+   "variable":[
+      {
+         "key":"baseUrl",
+         "value":"https://overlay.example.com"
+      },
+      {
+         "key":"versionId",
+         "value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+         "key":"manifestHash",
+         "value":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+         "key":"contentHash",
+         "value":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      {
+         "key":"producerId",
+         "value":"02abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef"
+      },
+      {
+         "key":"datasetId",
+         "value":"org.example.dataset"
+      },
+      {
+         "key":"resource",
+         "value":"manifest:{{manifestHash}}"
+      },
+      {
+         "key":"class",
+         "value":"gold"
+      },
+      {
+         "key":"quantity",
+         "value":"1048576"
+      },
+      {
+         "key":"receiptId",
+         "value":"rctdemo123"
+      },
+      {
+         "key":"period",
+         "value":"30d"
+      }
+   ],
+   "item":[
+      {
+         "name":"Core Lineage",
+         "item":[
+            {
+               "name":"Submit (DLM1 Tx + Manifest)",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/submit",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "submit"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"rawTx\": \"0100000001deadbeef…\", \n \"manifest\": {\n \"type\": \"datasetVersionManifest\",\n \"datasetId\": \"{{datasetId}}\",\n \"description\": \"10k MRI scans (anonymized)\",\n \"content\": {\n \"contentHash\": \"{{contentHash}}\",\n \"sizeBytes\": 123456789,\n \"mimeType\": \"application/octet-stream\"\n },\n \"lineage\": {\n \"parents\": []\n },\n \"provenance\": {\n \"producer\": { \"identityKey\": \"{{producerId}}\" },\n \"createdAt\": \"2025-09-17T12:00:00Z\",\n \"locations\": [ { \"type\": \"https\", \"uri\": \"https://data.example.com/archive.tar.zst\" } ]\n },\n \"policy\": {\n \"license\": \"CC-BY-4.0\",\n \"classification\": \"public\",\n \"piiflags\": []\n },\n \"signatures\": {\n \"producer\": {\n \"publicKey\": \"{{producerId}}\",\n \"signature\": \"3045022100cafebabefeed…\"\n }\n }\n }\n}"
+                  }
+               },
+               "response":[
+                  {
+                     "name":"200 Accepted",
+                     "originalRequest":{
+                        "method":"POST",
+                        "url":"{{baseUrl}}/submit"
+                     },
+                     "status":"OK",
+                     "code":200,
+                     "body":"{\n \"admitted\": [\n {\n \"txo\": \"abcd…1234:0\",\n \"type\": \"DLM1\",\n \"versionId\": \"{{manifestHash}}\"\n }\n ]\n}"
+                  }
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status is 200\", function () { pm.response.to.have.status(200); });",
+                           "const json = pm.response.json();",
+                           "pm.test(\"Has admitted array\", function(){ pm.expect(json).to.have.property('admitted'); pm.expect(json.admitted).to.be.an('array').that.is.not.empty; });",
+                           "const dlm = json.admitted.find(x => x.type === 'DLM1');",
+                           "if (dlm && dlm.versionId) {",
+                           " pm.collectionVariables.set('versionId', dlm.versionId.toLowerCase());",
+                           " // if manifestHash env was not set, derive it",
+                           " pm.collectionVariables.set('manifestHash', dlm.versionId.toLowerCase());",
+                           " pm.collectionVariables.set('resource', manifest:${dlm.versionId.toLowerCase()});",
+                           "}",
+                           "pm.test(\"DLM1 admitted\", function(){ pm.expect(dlm).to.be.an('object'); });"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            },
+            {
+               "name":"Bundle (Lineage Bundle)",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/bundle?versionId={{versionId}}&depth=10",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "bundle"
+                     ],
+                     "query":[
+                        {
+                           "key":"versionId",
+                           "value":"{{versionId}}"
+                        },
+                        {
+                           "key":"depth",
+                           "value":"10"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.test(\"Bundle type\", () => pm.expect(json.bundleType).to.eql('datasetLineageBundle'));",
+                           "pm.test(\"Has target/graph\", () => { pm.expect(json).to.have.property('target'); pm.expect(json).to.have.property('graph'); });",
+                           "pm.test(\"Has manifests & proofs\", () => { pm.expect(json.manifests).to.be.an('array'); pm.expect(json.proofs).to.be.an('array'); });",
+                           "// cache confsUsed/bestHeight for diagnostics",
+                           "if (json.confsUsed) pm.collectionVariables.set('confsUsed', json.confsUsed);",
+                           "if (json.bestHeight) pm.collectionVariables.set('bestHeight', json.bestHeight);"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            },
+            {
+               "name":"Resolve (Versions/Parents)",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/resolve?versionId={{versionId}}&limit=25",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "resolve"
+                     ],
+                     "query":[
+                        {
+                           "key":"versionId",
+                           "value":"{{versionId}}"
+                        },
+                        {
+                           "key":"limit",
+                           "value":"25"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.test(\"Has versions array\", () => pm.expect(json.versions).to.be.an('array'));"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            }
+         ]
+      },
+      {
+         "name":"Policy & Advisory (Flip Scenario)",
+         "item":[
+            {
+               "name":"Ready (before advisory) — expect true",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/ready",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "ready"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"versionId\": \"{{versionId}}\",\n \"policy\": {\n \"minConfs\": 1,\n \"classificationAllowList\": [\"public\",\"clinical-research\"],\n \"allowRecalled\": false\n }\n}"
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.test(\"ready is boolean\", () => pm.expect(json.ready).to.be.a('boolean'));",
+                           "pm.collectionVariables.set('readybefore', String(json.ready));",
+                           "pm.test(\"Expected ready TRUE before advisory\", () => pm.expect(json.ready).to.eql(true));"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            },
+            {
+               "name":"Issue Advisory (recall)",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/advisories",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "advisories"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"versionId\": \"{{versionId}}\",\n \"severity\": \"CRITICAL\",\n \"reason\": \"Data inconsistency discovered in source\",\n \"issuerKey\": \"{{producerId}}\",\n \"issuedAt\": \"2025-09-17T12:30:00Z\",\n \"signature\": \"3045022100feedbead…\"\n}"
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.test(\"Advisory ok\", () => pm.expect(json.status).to.eql('ok'));"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            },
+            {
+               "name":"Ready (after advisory) — expect false",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/ready",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "ready"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"versionId\": \"{{versionId}}\",\n \"policy\": {\n \"minConfs\": 1,\n \"classificationAllowList\": [\"public\",\"clinical-research\"],\n \"allowRecalled\": false\n }\n}"
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.collectionVariables.set('ready_after', String(json.ready));",
+                           "pm.test(\"Expected ready FALSE after advisory\", () => pm.expect(json.ready).to.eql(false));",
+                           "pm.test(\"Has reason\", () => pm.expect(json.reasons).to.be.an('array').that.is.not.empty);"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            },
+            {
+               "name":"List Advisories for Version",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/advisories?versionId={{versionId}}",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "advisories"
+                     ],
+                     "query":[
+                        {
+                           "key":"versionId",
+                           "value":"{{versionId}}"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.test(\"Advisories array\", () => pm.expect(json).to.be.an('array'));",
+                           "pm.test(\"Contains our advisory\", () => { if (json.length) { pm.expect(json[0]).to.have.property('versionId'); } });"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            }
+         ]
+      },
+      {
+         "name":"Payments & Access",
+         "item":[
+            {
+               "name":"Price (per-producer rule)",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/price?resource={{resource}}&class={{class}}",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "price"
+                     ],
+                     "query":[
+                        {
+                           "key":"resource",
+                           "value":"{{resource}}"
+                        },
+                        {
+                           "key":"class",
+                           "value":"{{class}}"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.test(\"Has unit/price\", () => { pm.expect(json.unit).to.be.a('string'); pm.expect(json.price).to.be.a('number'); });",
+                           "pm.collectionVariables.set('quotedPrice', String(json.price));",
+                           "pm.collectionVariables.set('quoteExpires', json.expiresAt || '');"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            },
+            {
+               "name":"Pay (get receipt)",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/pay",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "pay"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"resource\": \"{{resource}}\",\n \"quantity\": {{quantity}},\n \"attrs\": { \"priority\": \"{{class}}\" },\n \"payer\": \"agent:molecula\"\n}"
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.test(\"Has receiptId\", () => pm.expect(json.receiptId).to.be.a('string'));",
+                           "pm.collectionVariables.set('receiptId', json.receiptId);"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            },
+            {
+               "name":"Data (stream with receipt)",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/v1/data?contentHash={{contentHash}}&receiptId={{receiptId}}",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "v1",
+                        "data"
+                     ],
+                     "query":[
+                        {
+                           "key":"contentHash",
+                           "value":"{{contentHash}}"
+                        },
+                        {
+                           "key":"receiptId",
+                           "value":"{{receiptId}}"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "const s = pm.response.code;",
+                           "pm.test(\"Status 200/402/403\", () => pm.expect([200,402,403]).to.include(s));",
+                           "if (s === 200) {",
+                           " pm.test(\"Streamed bytes (cannot assert body here)\", () => true);",
+                           "} else if (s === 402) {",
+                           " pm.test(\"Payment required/insufficient bandwidth\", () => true);",
+                           "} else if (s === 403) {",
+                           " pm.test(\"Invalid or missing receipt\", () => true);",
+                           "}"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            }
+         ]
+      },
+      {
+         "name":"Producers",
+         "item":[
+            {
+               "name":"Register Producer",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/producers/register",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "producers",
+                        "register"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"identityKey\": \"{{producerId}}\",\n \"payoutTarget\": \"paymail@example.com\",\n \"displayName\": \"Demo Producer\",\n \"contact\": \"https://example.com/contact\",\n \"attrs\": { \"enterprise\": true }\n}"
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.test(\"Registered ok\", () => pm.expect(json.status).to.eql('ok'));"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            },
+            {
+               "name":"Upsert Price Rule",
+               "request":{
+                  "method":"POST",
+                  "header":[
+                     {
+                        "key":"Content-Type",
+                        "value":"application/json"
+                     }
+                  ],
+                  "url":{
+                     "raw":"{{baseUrl}}/producers/price",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "producers",
+                        "price"
+                     ]
+                  },
+                  "body":{
+                     "mode":"raw",
+                     "raw":"{\n \"producerId\": \"{{producerId}}\",\n \"pattern\": \"manifest:{{manifestHash}}\",\n \"unit\": \"sat/byte\",\n \"basePrice\": 0.00002,\n \"tiers\": { \"gold\": 1.5, \"silver\": 1.2 },\n \"requiredAttrs\": []\n}"
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.test(\"Rule ok\", () => pm.expect(json.status).to.eql('ok'));"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            },
+            {
+               "name":"Producer Revenue",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/producers/revenue?producerId={{producerId}}&period={{period}}&limit=50&offset=0",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "producers",
+                        "revenue"
+                     ],
+                     "query":[
+                        {
+                           "key":"producerId",
+                           "value":"{{producerId}}"
+                        },
+                        {
+                           "key":"period",
+                           "value":"{{period}}"
+                        },
+                        {
+                           "key":"limit",
+                           "value":"50"
+                        },
+                        {
+                           "key":"offset",
+                           "value":"0"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.test(\"Has totals\", () => pm.expect(json).to.have.property('totals'));",
+                           "pm.test(\"Events array\", () => pm.expect(json.events).to.be.an('array'));"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            },
+            {
+               "name":"Producer Dashboard",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/producers/dashboard?producerId={{producerId}}",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "producers",
+                        "dashboard"
+                     ],
+                     "query":[
+                        {
+                           "key":"producerId",
+                           "value":"{{producerId}}"
+                        }
+                     ]
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+                           "const json = pm.response.json();",
+                           "pm.test(\"Has profile & pricebook\", () => { pm.expect(json).to.have.property('profile'); pm.expect(json).to.have.property('pricebook'); });"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            }
+         ]
+      },
+      {
+         "name":"Ops",
+         "item":[
+            {
+               "name":"Health",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/health",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "health"
+                     ]
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                           "pm.test(\"ok==true\", () => pm.expect(pm.response.json().ok).to.eql(true));"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            },
+            {
+               "name":"Metrics",
+               "request":{
+                  "method":"GET",
+                  "url":{
+                     "raw":"{{baseUrl}}/metrics",
+                     "host":[
+                        "{{baseUrl}}"
+                     ],
+                     "path":[
+                        "metrics"
+                     ]
+                  }
+               },
+               "response":[
+                  
+               ],
+               "event":[
+                  {
+                     "listen":"test",
+                     "script":{
+                        "exec":[
+                           "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                           "pm.test(\"JSON object\", () => pm.expect(pm.response.json()).to.be.an('object'));"
+                        ],
+                        "type":"text/javascript"
+                     }
+                  }
+               ]
+            }
+         ]
+      }
+   ]
+}

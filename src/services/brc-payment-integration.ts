@@ -244,7 +244,7 @@ export class BRC31IdentityVerificationService {
       console.error('❌ Identity verification failed:', error);
       return {
         success: false,
-        reason: 'Identity verification error: ' + error.message,
+        reason: 'Identity verification error: ' + (error as Error).message,
         trustScore: 0,
       };
     }
@@ -453,7 +453,7 @@ export class BRCPaymentIntegrationService {
         success: false,
         identityVerified: false,
         trustScore: 0,
-        reason: 'BRC integration error: ' + error.message,
+        reason: 'BRC integration error: ' + (error as Error).message,
       };
     }
   }

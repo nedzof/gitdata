@@ -227,7 +227,7 @@ class BRC22SubmitService extends EventEmitter {
         status: 'error',
         error: {
           code: 'ERR_PROCESSING_FAILED',
-          description: error.message,
+          description: (error as Error).message,
         },
       };
     }

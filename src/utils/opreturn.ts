@@ -1,4 +1,4 @@
-import assert from 'assert';
+import * as assert from 'assert';
 
 export type Hex = string;
 
@@ -36,7 +36,7 @@ function readVarInt(buf: Buffer, o: { i: number }): bigint {
   const lo = buf.readUInt32LE(o.i);
   const hi = buf.readUInt32LE(o.i + 4);
   o.i += 8;
-  return (BigInt(hi) << 32n) + BigInt(lo);
+  return (BigInt(hi) << BigInt(32)) + BigInt(lo);
 }
 
 function readSlice(buf: Buffer, o: { i: number }, n: number): Buffer {
@@ -160,7 +160,7 @@ export function findOpReturnOutputs(rawTxHex: Hex): OpReturnOutput[] {
     // value (8 bytes LE)
     const lo = tx.readUInt32LE(o.i);
     const hi = tx.readUInt32LE(o.i + 4);
-    const satoshis = (BigInt(hi) << 32n) + BigInt(lo);
+    const satoshis = (BigInt(hi) << BigInt(32)) + BigInt(lo);
     o.i += 8;
 
     const scriptLen = Number(readVarInt(tx, o));

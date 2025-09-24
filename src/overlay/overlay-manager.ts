@@ -159,7 +159,7 @@ class OverlayManager extends EventEmitter {
       this.subscriptionManager.addSubscription(topic);
       this.emit('subscribed', topic);
     } catch (error) {
-      throw new Error(`Failed to subscribe to topic ${topic}: ${error.message}`);
+      throw new Error(`Failed to subscribe to topic ${topic}: ${(error as Error).message}`);
     }
   }
 
@@ -176,7 +176,7 @@ class OverlayManager extends EventEmitter {
       this.subscriptionManager.removeSubscription(topic);
       this.emit('unsubscribed', topic);
     } catch (error) {
-      throw new Error(`Failed to unsubscribe from topic ${topic}: ${error.message}`);
+      throw new Error(`Failed to unsubscribe from topic ${topic}: ${(error as Error).message}`);
     }
   }
 
@@ -206,7 +206,7 @@ class OverlayManager extends EventEmitter {
       this.emit('asset-published', { topic, asset, messageId });
       return messageId;
     } catch (error) {
-      throw new Error(`Failed to publish asset: ${error.message}`);
+      throw new Error(`Failed to publish asset: ${(error as Error).message}`);
     }
   }
 
@@ -250,7 +250,7 @@ class OverlayManager extends EventEmitter {
       // In a real implementation, you'd wait for responses or use a callback pattern
       return await this.getCachedSearchResults(query);
     } catch (error) {
-      throw new Error(`Failed to search overlay data: ${error.message}`);
+      throw new Error(`Failed to search overlay data: ${(error as Error).message}`);
     }
   }
 

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+// Using modern database abstraction instead of SQLite
 
 import {
   upsertDeclaration,
@@ -13,13 +13,12 @@ import { decodeDLM1 } from '../dlm1/codec';
 import { findFirstOpReturn } from '../utils/opreturn';
 
 export async function ingestSubmission(opts: {
-  db: Database.Database;
   manifest: any;
   txid: string;
   rawTx: string;
   envelopeJson?: any; // optional SPV envelope already verified upstream
 }): Promise<{ versionId: string; opretVout: number | null; tag: 'DLM1' | 'TRN1' | 'UNKNOWN' }> {
-  const { db, manifest, txid, rawTx, envelopeJson } = opts;
+  const { manifest, txid, rawTx, envelopeJson } = opts;
 
   // 1) Derive canonical IDs (throws if explicit versionId mismatches canonical)
   const { versionId, manifestHash } = deriveManifestIds(manifest);
@@ -38,7 +37,7 @@ export async function ingestSubmission(opts: {
     // Optional producer metadata from manifest
     const name: string | undefined = manifest?.provenance?.producer?.name || undefined;
     const website: string | undefined = manifest?.provenance?.producer?.website || undefined;
-    producerId = upsertProducer(db, { identity_key: identityKey, name, website });
+    producerId = await upsertProducer({ identity_key: identityKey, name, website });
   }
 
   // 3) Parse OP_RETURN and try to decode on-chain DLM1 (consistency check)

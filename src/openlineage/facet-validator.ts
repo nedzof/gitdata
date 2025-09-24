@@ -223,7 +223,7 @@ export class FacetValidator {
         const errors = validator.errors || [];
         for (const error of errors) {
           result.errors.push(
-            `Schema validation error in ${fullName}: ${error.instancePath} ${error.message}`,
+            `Schema validation error in ${fullName}: ${error.instancePath} ${(error as Error).message}`,
           );
         }
       }

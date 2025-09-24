@@ -160,10 +160,10 @@ import { OverlayRuleEngine } from '../agents/overlay-rule-engine';
 export interface GitdataOverlayServices {
   overlayManager: OverlayManager;
   paymentService: OverlayPaymentService;
-  brc22Service: BRC22SubmitService;
-  brc24Service: BRC24LookupService;
-  brc64Service: BRC64HistoryService;
-  brc88Service: BRC88SHIPSLAPService;
+  brc22Service: PostgreSQLBRC22SubmitService;
+  brc24Service: PostgreSQLBRC24LookupService;
+  brc64Service: PostgreSQLBRC64HistoryService;
+  brc88Service: PostgreSQLBRC88SHIPSLAPService;
   brc26Service: BRC26UHRPService;
   // D24 Agent Marketplace Services
   agentRegistry: OverlayAgentRegistry;

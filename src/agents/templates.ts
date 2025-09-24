@@ -192,7 +192,7 @@ export async function generateContract(
       },
     };
   } catch (error) {
-    return { success: false, error: `Template generation failed: ${error.message}` };
+    return { success: false, error: `Template generation failed: ${(error as Error).message}` };
   }
 }
 

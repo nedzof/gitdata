@@ -673,7 +673,7 @@
         `💥 Network Error\n\n` +
         `Failed to connect to BSV Overlay Network.\n` +
         `Please check your connection and try again.\n\n` +
-        `Error: ${error.message}`
+        `Error: ${(error as Error).message}`
       );
     }
   }

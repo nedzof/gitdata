@@ -289,7 +289,7 @@ class BRC24LookupService extends EventEmitter {
         status: 'error',
         error: {
           code: 'ERR_LOOKUP_FAILED',
-          description: error.message,
+          description: (error as Error).message,
         },
       };
     }

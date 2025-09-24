@@ -3,10 +3,10 @@
  * Handles BSV native payments, SPV verification, and transaction management
  */
 
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
 
-import type { Pool } from 'pg';
+import { getHybridDatabase } from '../db/hybrid';
 
 export interface BSVTransaction {
   txid: string;
@@ -48,19 +48,17 @@ export interface SPVProof {
 }
 
 export class BSVPaymentProcessor extends EventEmitter {
-  private database: Pool;
+  private database = getHybridDatabase();
   private minConfirmations: number;
   private network: string;
 
   constructor(
-    database: Pool,
     config: {
       minConfirmations?: number;
       network?: string;
     } = {},
   ) {
     super();
-    this.database = database;
     this.minConfirmations = config.minConfirmations || 6;
     this.network = config.network || 'mainnet';
   }
@@ -102,7 +100,7 @@ export class BSVPaymentProcessor extends EventEmitter {
         confirmations: 0,
         outputs: [],
         totalAmount: 0,
-        reason: 'Payment processing error: ' + error.message,
+        reason: 'Payment processing error: ' + (error as Error).message,
       };
     }
   }
@@ -112,10 +110,8 @@ export class BSVPaymentProcessor extends EventEmitter {
    */
   private parseTransaction(rawTx: string): BSVTransaction {
     // Simplified transaction parsing - in production would use proper BSV library
-    const txid = crypto
-      .createHash('sha256')
-      .update(crypto.createHash('sha256').update(Buffer.from(rawTx, 'hex')))
-      .digest('hex');
+    const firstHash = crypto.createHash('sha256').update(Buffer.from(rawTx, 'hex')).digest();
+    const txid = crypto.createHash('sha256').update(firstHash).digest('hex');
 
     // Mock parsing for demonstration
     const transaction: BSVTransaction = {

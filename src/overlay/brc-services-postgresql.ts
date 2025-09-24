@@ -7,6 +7,93 @@ import { walletService } from '../lib/wallet';
 
 import type { DatabaseAdapter } from './brc26-uhrp';
 
+// ==================== Query Builder Helper ====================
+
+interface TableColumn {
+  name: string;
+  type: string;
+  constraints?: string[];
+}
+
+interface TableDefinition {
+  name: string;
+  columns: TableColumn[];
+  constraints?: string[];
+}
+
+class QueryBuilder {
+  static createTable(table: TableDefinition): string {
+    const columns = table.columns.map(col => {
+      const constraints = col.constraints ? ` ${col.constraints.join(' ')}` : '';
+      return `  ${col.name} ${col.type}${constraints}`;
+    }).join(',\n');
+
+    const tableConstraints = table.constraints ? `,\n  ${table.constraints.join(',\n  ')}` : '';
+
+    return `CREATE TABLE IF NOT EXISTS ${table.name} (\n${columns}${tableConstraints}\n)`;
+  }
+
+  static select(table: string, columns: string[] = ['*'], where?: Record<string, any>): { query: string; params: any[] } {
+    const cols = columns.join(', ');
+    let query = `SELECT ${cols} FROM ${table}`;
+    const params: any[] = [];
+
+    if (where) {
+      const conditions = Object.keys(where).map((key, index) => {
+        params.push(where[key]);
+        return `${key} = $${index + 1}`;
+      });
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    return { query, params };
+  }
+
+  static insert(table: string, data: Record<string, any>, onConflict?: string): { query: string; params: any[] } {
+    const keys = Object.keys(data);
+    const placeholders = keys.map((_, index) => `$${index + 1}`);
+    const params = Object.values(data);
+
+    let query = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders.join(', ')})`;
+
+    if (onConflict) {
+      query += ` ${onConflict}`;
+    }
+
+    return { query, params };
+  }
+
+  static update(table: string, data: Record<string, any>, where: Record<string, any>): { query: string; params: any[] } {
+    const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+    const params = [...Object.values(data)];
+
+    const whereClause = Object.keys(where).map((key, index) => {
+      params.push(where[key]);
+      return `${key} = $${params.length}`;
+    }).join(' AND ');
+
+    const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
+    return { query, params };
+  }
+
+  static delete(table: string, where: Record<string, any>): { query: string; params: any[] } {
+    const params: any[] = [];
+    const conditions = Object.keys(where).map((key, index) => {
+      params.push(where[key]);
+      return `${key} = $${index + 1}`;
+    });
+
+    const query = `DELETE FROM ${table} WHERE ${conditions.join(' AND ')}`;
+    return { query, params };
+  }
+
+  static createIndex(indexName: string, table: string, columns: string[], unique: boolean = false): string {
+    const uniqueClause = unique ? 'UNIQUE ' : '';
+    const columnsStr = columns.join(', ');
+    return `CREATE ${uniqueClause}INDEX IF NOT EXISTS ${indexName} ON ${table}(${columnsStr})`;
+  }
+}
+
 // ==================== BRC-22: Transaction Submission ====================
 
 export interface BRC22Transaction {
@@ -67,44 +154,48 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
   }
 
   private async setupDatabase(): Promise<void> {
-    await this.database.execute(`
-      CREATE TABLE IF NOT EXISTS brc22_utxos (
-        id SERIAL PRIMARY KEY,
-        utxo_id TEXT UNIQUE NOT NULL,
-        topic TEXT NOT NULL,
-        txid TEXT NOT NULL,
-        vout INTEGER NOT NULL,
-        output_script TEXT NOT NULL,
-        satoshis BIGINT NOT NULL,
-        admitted_at BIGINT NOT NULL,
-        spent_at BIGINT,
-        spent_by_txid TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(topic, txid, vout)
-      )
-    `);
+    const utxosTable: TableDefinition = {
+      name: 'brc22_utxos',
+      columns: [
+        { name: 'id', type: 'SERIAL', constraints: ['PRIMARY KEY'] },
+        { name: 'utxo_id', type: 'TEXT', constraints: ['UNIQUE NOT NULL'] },
+        { name: 'topic', type: 'TEXT', constraints: ['NOT NULL'] },
+        { name: 'txid', type: 'TEXT', constraints: ['NOT NULL'] },
+        { name: 'vout', type: 'INTEGER', constraints: ['NOT NULL'] },
+        { name: 'output_script', type: 'TEXT', constraints: ['NOT NULL'] },
+        { name: 'satoshis', type: 'BIGINT', constraints: ['NOT NULL'] },
+        { name: 'admitted_at', type: 'BIGINT', constraints: ['NOT NULL'] },
+        { name: 'spent_at', type: 'BIGINT' },
+        { name: 'spent_by_txid', type: 'TEXT' },
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
+      ],
+      constraints: ['UNIQUE(topic, txid, vout)']
+    };
 
-    await this.database.execute(`
-      CREATE TABLE IF NOT EXISTS brc22_transactions (
-        id SERIAL PRIMARY KEY,
-        txid TEXT UNIQUE NOT NULL,
-        raw_tx TEXT NOT NULL,
-        topics_json TEXT NOT NULL,
-        inputs_json TEXT,
-        mapi_responses_json TEXT,
-        proof TEXT,
-        processed_at BIGINT NOT NULL,
-        status TEXT DEFAULT 'success',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    const transactionsTable: TableDefinition = {
+      name: 'brc22_transactions',
+      columns: [
+        { name: 'id', type: 'SERIAL', constraints: ['PRIMARY KEY'] },
+        { name: 'txid', type: 'TEXT', constraints: ['UNIQUE NOT NULL'] },
+        { name: 'raw_tx', type: 'TEXT', constraints: ['NOT NULL'] },
+        { name: 'topics_json', type: 'TEXT', constraints: ['NOT NULL'] },
+        { name: 'inputs_json', type: 'TEXT' },
+        { name: 'mapi_responses_json', type: 'TEXT' },
+        { name: 'proof', type: 'TEXT' },
+        { name: 'processed_at', type: 'BIGINT', constraints: ['NOT NULL'] },
+        { name: 'status', type: 'TEXT', constraints: ["DEFAULT 'success'"] },
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
+      ]
+    };
 
-    await this.database.execute(`
-      CREATE INDEX IF NOT EXISTS idx_brc22_utxos_topic ON brc22_utxos(topic);
-      CREATE INDEX IF NOT EXISTS idx_brc22_utxos_spent ON brc22_utxos(spent_at);
-      CREATE INDEX IF NOT EXISTS idx_brc22_utxos_txid_vout ON brc22_utxos(txid, vout);
-      CREATE INDEX IF NOT EXISTS idx_brc22_transactions_processed ON brc22_transactions(processed_at);
-    `);
+    await this.database.execute(QueryBuilder.createTable(utxosTable));
+    await this.database.execute(QueryBuilder.createTable(transactionsTable));
+
+    // Create indexes for better performance
+    await this.database.execute(QueryBuilder.createIndex('idx_brc22_utxos_topic', 'brc22_utxos', ['topic']));
+    await this.database.execute(QueryBuilder.createIndex('idx_brc22_utxos_spent', 'brc22_utxos', ['spent_at']));
+    await this.database.execute(QueryBuilder.createIndex('idx_brc22_utxos_txid_vout', 'brc22_utxos', ['txid', 'vout']));
+    await this.database.execute(QueryBuilder.createIndex('idx_brc22_transactions_processed', 'brc22_transactions', ['processed_at']));
   }
 
   private setupDefaultTopicManagers(): void {
@@ -165,7 +256,7 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
         status: 'error',
         error: {
           code: 'PROCESSING_ERROR',
-          description: error.message,
+          description: (error as Error).message,
         },
       };
     }
@@ -196,19 +287,24 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
   ): Promise<void> {
     const utxoId = `${txid}:${vout}`;
 
-    await this.database.execute(
-      `
-      INSERT INTO brc22_utxos
-      (utxo_id, topic, txid, vout, output_script, satoshis, admitted_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (utxo_id) DO UPDATE SET
-        topic = EXCLUDED.topic,
-        output_script = EXCLUDED.output_script,
-        satoshis = EXCLUDED.satoshis,
-        admitted_at = EXCLUDED.admitted_at
-    `,
-      [utxoId, topic, txid, vout, output.script, output.satoshis, Date.now()],
-    );
+    const utxoData = {
+      utxo_id: utxoId,
+      topic: topic,
+      txid: txid,
+      vout: vout,
+      output_script: output.script,
+      satoshis: output.satoshis,
+      admitted_at: Date.now()
+    };
+
+    const onConflict = `ON CONFLICT (utxo_id) DO UPDATE SET
+      topic = EXCLUDED.topic,
+      output_script = EXCLUDED.output_script,
+      satoshis = EXCLUDED.satoshis,
+      admitted_at = EXCLUDED.admitted_at`;
+
+    const { query, params } = QueryBuilder.insert('brc22_utxos', utxoData, onConflict);
+    await this.database.execute(query, params);
 
     this.trackedUTXOs.get(topic)?.add(utxoId);
 
@@ -218,25 +314,22 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
   }
 
   private async storeTransactionRecord(transaction: BRC22Transaction, txid: string): Promise<void> {
-    await this.database.execute(
-      `
-      INSERT INTO brc22_transactions
-      (txid, raw_tx, topics_json, inputs_json, mapi_responses_json, proof, processed_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (txid) DO UPDATE SET
-        topics_json = EXCLUDED.topics_json,
-        processed_at = EXCLUDED.processed_at
-    `,
-      [
-        txid,
-        transaction.rawTx,
-        JSON.stringify(transaction.topics),
-        JSON.stringify(transaction.inputs),
-        JSON.stringify(transaction.mapiResponses || []),
-        transaction.proof || null,
-        Date.now(),
-      ],
-    );
+    const transactionData = {
+      txid: txid,
+      raw_tx: transaction.rawTx,
+      topics_json: JSON.stringify(transaction.topics),
+      inputs_json: JSON.stringify(transaction.inputs),
+      mapi_responses_json: JSON.stringify(transaction.mapiResponses || []),
+      proof: transaction.proof || null,
+      processed_at: Date.now()
+    };
+
+    const onConflict = `ON CONFLICT (txid) DO UPDATE SET
+      topics_json = EXCLUDED.topics_json,
+      processed_at = EXCLUDED.processed_at`;
+
+    const { query, params } = QueryBuilder.insert('brc22_transactions', transactionData, onConflict);
+    await this.database.execute(query, params);
   }
 
   async getUTXOsByTopic(topic: string): Promise<
@@ -471,7 +564,7 @@ export class PostgreSQLBRC24LookupService extends EventEmitter {
       return {
         status: 'error',
         results: [],
-        error: { code: 'LOOKUP_ERROR', description: error.message },
+        error: { code: 'LOOKUP_ERROR', description: (error as Error).message },
       };
     }
   }

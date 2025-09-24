@@ -116,7 +116,7 @@ export async function publishArtifactToDLM1(
 
     return { success: true, versionId: result.versionId };
   } catch (error) {
-    return { success: false, error: `Publishing failed: ${error.message}` };
+    return { success: false, error: `Publishing failed: ${(error as Error).message}` };
   }
 }
 
@@ -156,7 +156,7 @@ export async function publishContractArtifact(
       versionId: publishResult.versionId,
     };
   } catch (error) {
-    return { success: false, error: `Contract publishing failed: ${error.message}` };
+    return { success: false, error: `Contract publishing failed: ${(error as Error).message}` };
   }
 }
 
