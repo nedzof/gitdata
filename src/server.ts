@@ -18,6 +18,7 @@ import { d06PaymentProcessingRouter } from './routes/d06-payment-processing';
 import { d06RevenueManagementRouter } from './routes/d06-revenue-management';
 import d07StreamingQuotasRouter from './routes/d07-streaming-quotas';
 import { d22OverlayStorageRouter } from './routes/d22-overlay-storage';
+import createD21Routes from './d21/routes.js';
 import { dataRouter } from './routes/data';
 import { healthRouter } from './routes/health';
 import { identityRouter } from './routes/identity';
@@ -105,6 +106,8 @@ app.use('/v1', paymentsRouter());
 app.use('/v1', d06PaymentProcessingRouter());
 app.use('/v1', d06AgentPaymentsRouter());
 app.use('/v1', d06RevenueManagementRouter());
+
+// D21 routes will be mounted after database initialization
 
 // Storage and file management
 app.use('/v1', storageRouter());
@@ -302,8 +305,46 @@ async function initializeBRC31Services() {
     // Mount BRC-31 router
     app.use('/overlay', brc31RouterInstance.router);
 
+    // Initialize D21 BSV Native Payment Extensions
+    const databaseAdapter = {
+      query: async (sql: string, params: any[] = []) => {
+        const client = await dbPool.connect();
+        try {
+          const result = await client.query(sql, params);
+          return result.rows;
+        } finally {
+          client.release();
+        }
+      },
+      queryOne: async (sql: string, params: any[] = []) => {
+        const client = await dbPool.connect();
+        try {
+          const result = await client.query(sql, params);
+          return result.rows[0] || null;
+        } finally {
+          client.release();
+        }
+      },
+      execute: async (sql: string, params: any[] = []) => {
+        const client = await dbPool.connect();
+        try {
+          await client.query(sql, params);
+        } finally {
+          client.release();
+        }
+      },
+      getClient: async () => {
+        return await dbPool.connect();
+      },
+    };
+
+    // Mount D21 routes
+    const d21Routes = createD21Routes(databaseAdapter);
+    app.use('/v1/d21', d21Routes);
+
     console.log('✅ BRC-31 authentication services initialized');
     console.log('✅ BRC-41 payment services initialized');
+    console.log('✅ D21 BSV Native Payment Extensions initialized');
     console.log('✅ Enhanced BRC-31 overlay endpoints available at /overlay');
     console.log(`✅ Database schema initialized for identity tracking`);
     console.log(`✅ Database schema initialized for payment tracking`);
