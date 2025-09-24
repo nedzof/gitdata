@@ -7,6 +7,111 @@ import { walletService } from '../lib/wallet';
 
 import type { DatabaseAdapter } from './brc26-uhrp';
 
+// ==================== Query Builder Helper ====================
+
+interface TableColumn {
+  name: string;
+  type: string;
+  constraints?: string[];
+}
+
+interface TableDefinition {
+  name: string;
+  columns: TableColumn[];
+  constraints?: string[];
+}
+
+class QueryBuilder {
+  static insert(table: string, data: Record<string, any>, onConflict?: string): { query: string; params: any[] } {
+    const keys = Object.keys(data);
+    const placeholders = keys.map((_, index) => `$${index + 1}`);
+    const params = Object.values(data);
+
+    let query = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders.join(', ')})`;
+
+    if (onConflict) {
+      query += ` ${onConflict}`;
+    }
+
+    return { query, params };
+  }
+
+  static update(table: string, data: Record<string, any>, where: Record<string, any>): { query: string; params: any[] } {
+    const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+    const params = [...Object.values(data)];
+
+    const whereClause = Object.keys(where).map((key, index) => {
+      params.push(where[key]);
+      return `${key} = $${params.length}`;
+    }).join(' AND ');
+
+    const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
+    return { query, params };
+  }
+
+  static selectWithOptions(
+    table: string,
+    options: {
+      columns?: string[];
+      where?: Record<string, any>;
+      orderBy?: string;
+      orderDirection?: 'ASC' | 'DESC';
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): { query: string; params: any[] } {
+    const columns = options.columns || ['*'];
+    const cols = columns.join(', ');
+    let query = `SELECT ${cols} FROM ${table}`;
+    const params: any[] = [];
+
+    if (options.where) {
+      const conditions = Object.keys(options.where).map((key, index) => {
+        params.push(options.where![key]);
+        return `${key} = $${index + 1}`;
+      });
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    if (options.orderBy) {
+      query += ` ORDER BY ${options.orderBy}`;
+      if (options.orderDirection) {
+        query += ` ${options.orderDirection}`;
+      }
+    }
+
+    if (options.limit) {
+      query += ` LIMIT ${options.limit}`;
+    }
+
+    if (options.offset) {
+      query += ` OFFSET ${options.offset}`;
+    }
+
+    return { query, params };
+  }
+
+  static count(table: string, where?: Record<string, any>): { query: string; params: any[] } {
+    let query = `SELECT COUNT(*) as count FROM ${table}`;
+    const params: any[] = [];
+
+    if (where) {
+      const conditions = Object.keys(where).map((key, index) => {
+        params.push(where[key]);
+        return `${key} = $${index + 1}`;
+      });
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    return { query, params };
+  }
+
+  static countWithCondition(table: string, condition: string, params: any[] = []): { query: string; params: any[] } {
+    const query = `SELECT COUNT(*) as count FROM ${table} WHERE ${condition}`;
+    return { query, params };
+  }
+}
+
 export interface BRC22Transaction {
   rawTx: string;
   inputs: Record<string, BRC22Input>;
