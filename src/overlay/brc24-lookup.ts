@@ -3,8 +3,8 @@
 
 import { EventEmitter } from 'events';
 
-import type { DatabaseAdapter } from './brc26-uhrp';
 import type { BRC22SubmitService } from './brc22-submit';
+import type { DatabaseAdapter } from './brc26-uhrp';
 
 // ==================== Query Builder Helper ====================
 
@@ -21,7 +21,11 @@ interface TableDefinition {
 }
 
 class QueryBuilder {
-  static insert(table: string, data: Record<string, any>, onConflict?: string): { query: string; params: any[] } {
+  static insert(
+    table: string,
+    data: Record<string, any>,
+    onConflict?: string,
+  ): { query: string; params: any[] } {
     const keys = Object.keys(data);
     const placeholders = keys.map((_, index) => `$${index + 1}`);
     const params = Object.values(data);
@@ -35,14 +39,22 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static update(table: string, data: Record<string, any>, where: Record<string, any>): { query: string; params: any[] } {
-    const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+  static update(
+    table: string,
+    data: Record<string, any>,
+    where: Record<string, any>,
+  ): { query: string; params: any[] } {
+    const setClause = Object.keys(data)
+      .map((key, index) => `${key} = $${index + 1}`)
+      .join(', ');
     const params = [...Object.values(data)];
 
-    const whereClause = Object.keys(where).map((key, index) => {
-      params.push(where[key]);
-      return `${key} = $${params.length}`;
-    }).join(' AND ');
+    const whereClause = Object.keys(where)
+      .map((key, index) => {
+        params.push(where[key]);
+        return `${key} = $${params.length}`;
+      })
+      .join(' AND ');
 
     const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
     return { query, params };
@@ -57,7 +69,7 @@ class QueryBuilder {
       orderDirection?: 'ASC' | 'DESC';
       limit?: number;
       offset?: number;
-    } = {}
+    } = {},
   ): { query: string; params: any[] } {
     const columns = options.columns || ['*'];
     const cols = columns.join(', ');
@@ -105,7 +117,11 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static countWithCondition(table: string, condition: string, params: any[] = []): { query: string; params: any[] } {
+  static countWithCondition(
+    table: string,
+    condition: string,
+    params: any[] = [],
+  ): { query: string; params: any[] } {
     const query = `SELECT COUNT(*) as count FROM ${table} WHERE ${condition}`;
     return { query, params };
   }
@@ -120,7 +136,7 @@ class QueryBuilder {
       orderDirection?: 'ASC' | 'DESC';
       limit?: number;
       offset?: number;
-    } = {}
+    } = {},
   ): { query: string; params: any[] } {
     const cols = columns.join(', ');
     let query = `SELECT ${cols} FROM ${table} WHERE ${whereCondition}`;
@@ -484,7 +500,7 @@ class BRC24LookupService extends EventEmitter {
       if (utxo) {
         // Get transaction record for additional data
         const { query, params } = QueryBuilder.selectWithOptions('brc22_transactions', {
-          where: { txid: identifier.txid }
+          where: { txid: identifier.txid },
         });
         const txRecord = await this.database.queryOne(query, params);
 
@@ -520,7 +536,7 @@ class BRC24LookupService extends EventEmitter {
       query_json: JSON.stringify(queryRequest.query),
       requester_identity: requesterId || null,
       results_count: resultsCount,
-      processed_at: Date.now()
+      processed_at: Date.now(),
     };
 
     const onConflict = `ON CONFLICT (query_id) DO UPDATE SET
@@ -646,7 +662,12 @@ class BRC24LookupService extends EventEmitter {
 
   // Provider data indexing methods
 
-  private async indexDatasetUTXO(topic: string, txid: string, vout: number, outputScript: string): Promise<void> {
+  private async indexDatasetUTXO(
+    topic: string,
+    txid: string,
+    vout: number,
+    outputScript: string,
+  ): Promise<void> {
     // Extract dataset information from output script and index it
     // This is a simplified implementation
     await this.updateProviderData('dataset_search', topic, `${txid}:${vout}`, outputScript);
@@ -668,12 +689,22 @@ class BRC24LookupService extends EventEmitter {
     );
   }
 
-  private async indexAgentUTXO(topic: string, txid: string, vout: number, outputScript: string): Promise<void> {
+  private async indexAgentUTXO(
+    topic: string,
+    txid: string,
+    vout: number,
+    outputScript: string,
+  ): Promise<void> {
     // Index agent information
     await this.updateProviderData('agent_services', topic, `${txid}:${vout}`, outputScript);
   }
 
-  private async indexLineageUTXO(topic: string, txid: string, vout: number, outputScript: string): Promise<void> {
+  private async indexLineageUTXO(
+    topic: string,
+    txid: string,
+    vout: number,
+    outputScript: string,
+  ): Promise<void> {
     // Index lineage information
     await this.updateProviderData('lineage_tracker', topic, `${txid}:${vout}`, outputScript);
   }
@@ -690,7 +721,7 @@ class BRC24LookupService extends EventEmitter {
       data_key: dataKey,
       data_value: dataValue,
       utxo_count: 1,
-      last_updated: Date.now()
+      last_updated: Date.now(),
     };
 
     const onConflict = `ON CONFLICT (provider_id, topic, data_key) DO UPDATE SET
@@ -732,20 +763,26 @@ class BRC24LookupService extends EventEmitter {
       const recentQueriesQuery = QueryBuilder.countWithCondition(
         'brc24_queries',
         'provider = $1 AND processed_at > $2',
-        [providerId, Date.now() - 3600000] // Last hour
+        [providerId, Date.now() - 3600000], // Last hour
       );
 
       const queriesResult = await this.database.queryOne(queriesQuery.query, queriesQuery.params);
       const queries = queriesResult?.count || 0;
 
-      const recentQueriesResult = await this.database.queryOne(recentQueriesQuery.query, recentQueriesQuery.params);
+      const recentQueriesResult = await this.database.queryOne(
+        recentQueriesQuery.query,
+        recentQueriesQuery.params,
+      );
       const recentQueries = recentQueriesResult?.count || 0;
 
       providerStats[providerId] = { queries, recentQueries };
     }
 
     const totalQueriesQuery = QueryBuilder.count('brc24_queries');
-    const totalQueriesResult = await this.database.queryOne(totalQueriesQuery.query, totalQueriesQuery.params);
+    const totalQueriesResult = await this.database.queryOne(
+      totalQueriesQuery.query,
+      totalQueriesQuery.params,
+    );
     const totalQueries = totalQueriesResult?.count || 0;
 
     const indexedData: Record<string, number> = {};

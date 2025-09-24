@@ -22,7 +22,11 @@ interface TableDefinition {
 }
 
 class QueryBuilder {
-  static insert(table: string, data: Record<string, any>, onConflict?: string): { query: string; params: any[] } {
+  static insert(
+    table: string,
+    data: Record<string, any>,
+    onConflict?: string,
+  ): { query: string; params: any[] } {
     const keys = Object.keys(data);
     const placeholders = keys.map((_, index) => `$${index + 1}`);
     const params = Object.values(data);
@@ -36,14 +40,22 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static update(table: string, data: Record<string, any>, where: Record<string, any>): { query: string; params: any[] } {
-    const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+  static update(
+    table: string,
+    data: Record<string, any>,
+    where: Record<string, any>,
+  ): { query: string; params: any[] } {
+    const setClause = Object.keys(data)
+      .map((key, index) => `${key} = $${index + 1}`)
+      .join(', ');
     const params = [...Object.values(data)];
 
-    const whereClause = Object.keys(where).map((key, index) => {
-      params.push(where[key]);
-      return `${key} = $${params.length}`;
-    }).join(' AND ');
+    const whereClause = Object.keys(where)
+      .map((key, index) => {
+        params.push(where[key]);
+        return `${key} = $${params.length}`;
+      })
+      .join(' AND ');
 
     const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
     return { query, params };
@@ -58,7 +70,7 @@ class QueryBuilder {
       orderDirection?: 'ASC' | 'DESC';
       limit?: number;
       offset?: number;
-    } = {}
+    } = {},
   ): { query: string; params: any[] } {
     const columns = options.columns || ['*'];
     const cols = columns.join(', ');
@@ -106,7 +118,11 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static countWithCondition(table: string, condition: string, params: any[] = []): { query: string; params: any[] } {
+  static countWithCondition(
+    table: string,
+    condition: string,
+    params: any[] = [],
+  ): { query: string; params: any[] } {
     const query = `SELECT COUNT(*) as count FROM ${table} WHERE ${condition}`;
     return { query, params };
   }
@@ -121,7 +137,7 @@ class QueryBuilder {
       orderDirection?: 'ASC' | 'DESC';
       limit?: number;
       offset?: number;
-    } = {}
+    } = {},
   ): { query: string; params: any[] } {
     const cols = columns.join(', ');
     let query = `SELECT ${cols} FROM ${table} WHERE ${whereCondition}`;
@@ -430,7 +446,7 @@ class BRC22SubmitService extends EventEmitter {
       vout: vout,
       output_script: output.script,
       satoshis: output.satoshis,
-      admitted_at: Date.now()
+      admitted_at: Date.now(),
     };
 
     const onConflict = `ON CONFLICT (utxo_id) DO UPDATE SET
@@ -462,13 +478,13 @@ class BRC22SubmitService extends EventEmitter {
   ): Promise<void> {
     const updateData = {
       spent_at: Date.now(),
-      spent_by_txid: spentByTxid
+      spent_by_txid: spentByTxid,
     };
 
     const whereCondition = {
       topic: topic,
       txid: txid,
-      vout: vout
+      vout: vout,
     };
 
     const { query, params } = QueryBuilder.update('brc22_utxos', updateData, whereCondition);
@@ -486,7 +502,7 @@ class BRC22SubmitService extends EventEmitter {
       inputs_json: JSON.stringify(transaction.inputs || {}),
       mapi_responses_json: JSON.stringify(transaction.mapiResponses || []),
       proof: transaction.proof || null,
-      processed_at: Date.now()
+      processed_at: Date.now(),
     };
 
     const onConflict = `ON CONFLICT (txid) DO UPDATE SET
@@ -497,7 +513,11 @@ class BRC22SubmitService extends EventEmitter {
         proof = EXCLUDED.proof,
         processed_at = EXCLUDED.processed_at`;
 
-    const { query, params } = QueryBuilder.insert('brc22_transactions', transactionData, onConflict);
+    const { query, params } = QueryBuilder.insert(
+      'brc22_transactions',
+      transactionData,
+      onConflict,
+    );
     await this.database.execute(query, params);
   }
 
@@ -507,22 +527,24 @@ class BRC22SubmitService extends EventEmitter {
   async getTopicUTXOs(
     topic: string,
     includeSpent: boolean = false,
-  ): Promise<Array<{
-    utxoId: string;
-    txid: string;
-    vout: number;
-    outputScript: string;
-    satoshis: number;
-    admittedAt: number;
-    spentAt?: number;
-    spentByTxid?: string;
-  }>> {
+  ): Promise<
+    Array<{
+      utxoId: string;
+      txid: string;
+      vout: number;
+      outputScript: string;
+      satoshis: number;
+      admittedAt: number;
+      spentAt?: number;
+      spentByTxid?: string;
+    }>
+  > {
     let rows;
     if (includeSpent) {
       const { query, params } = QueryBuilder.selectWithOptions('brc22_utxos', {
         where: { topic },
         orderBy: 'admitted_at',
-        orderDirection: 'DESC'
+        orderDirection: 'DESC',
       });
       rows = await this.database.query(query, params);
     } else {
@@ -533,8 +555,8 @@ class BRC22SubmitService extends EventEmitter {
         [topic],
         {
           orderBy: 'admitted_at',
-          orderDirection: 'DESC'
-        }
+          orderDirection: 'DESC',
+        },
       );
       rows = await this.database.query(query, params);
     }
@@ -560,8 +582,16 @@ class BRC22SubmitService extends EventEmitter {
     const topicStats: Record<string, { active: number; spent: number; total: number }> = {};
 
     for (const [topic] of Array.from(this.topicManagers.entries())) {
-      const activeQuery = QueryBuilder.countWithCondition('brc22_utxos', 'topic = $1 AND spent_at IS NULL', [topic]);
-      const spentQuery = QueryBuilder.countWithCondition('brc22_utxos', 'topic = $1 AND spent_at IS NOT NULL', [topic]);
+      const activeQuery = QueryBuilder.countWithCondition(
+        'brc22_utxos',
+        'topic = $1 AND spent_at IS NULL',
+        [topic],
+      );
+      const spentQuery = QueryBuilder.countWithCondition(
+        'brc22_utxos',
+        'topic = $1 AND spent_at IS NOT NULL',
+        [topic],
+      );
 
       const activeResult = await this.database.queryOne(activeQuery.query, activeQuery.params);
       const active = activeResult?.count || 0;
@@ -580,7 +610,7 @@ class BRC22SubmitService extends EventEmitter {
     const recentQuery = QueryBuilder.countWithCondition(
       'brc22_transactions',
       'processed_at > $1',
-      [Date.now() - 3600000] // Last hour
+      [Date.now() - 3600000], // Last hour
     );
 
     const totalResult = await this.database.queryOne(totalQuery.query, totalQuery.params);

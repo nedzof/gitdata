@@ -3,8 +3,8 @@
 
 import { EventEmitter } from 'events';
 
-import type { D01AData } from './bsv-overlay-service';
 import type { DatabaseAdapter } from './brc26-uhrp';
+import type { D01AData } from './bsv-overlay-service';
 import { BSVOverlayService, OverlayMessage } from './bsv-overlay-service';
 import {
   getOverlayConfig,
@@ -153,7 +153,7 @@ class OverlayManager extends EventEmitter {
           Date.now(),
           Date.now(),
           autoSubscribe,
-        ]
+        ],
       );
 
       this.subscriptionManager.addSubscription(topic);
@@ -200,7 +200,7 @@ class OverlayManager extends EventEmitter {
         (message_id, topic, message_type, data_json, received_at, processed)
         VALUES ($1, $2, $3, $4, $5, $6)
       `,
-        [messageId, topic, 'publish', JSON.stringify(d01aData), Date.now(), true]
+        [messageId, topic, 'publish', JSON.stringify(d01aData), Date.now(), true],
       );
 
       this.emit('asset-published', { topic, asset, messageId });
@@ -273,14 +273,7 @@ class OverlayManager extends EventEmitter {
           data_json = EXCLUDED.data_json,
           received_at = EXCLUDED.received_at
       `,
-        [
-          messageId,
-          event.topic,
-          'data',
-          event.sender,
-          JSON.stringify(event.data),
-          event.timestamp,
-        ]
+        [messageId, event.topic, 'data', event.sender, JSON.stringify(event.data), event.timestamp],
       );
 
       // Update subscription activity
@@ -474,7 +467,7 @@ class OverlayManager extends EventEmitter {
         last_seen = EXCLUDED.last_seen,
         message_count = EXCLUDED.message_count
     `,
-      [peerId, Date.now(), Date.now()]
+      [peerId, Date.now(), Date.now()],
     );
 
     this.emit('peer-connected', peerId);
@@ -488,7 +481,7 @@ class OverlayManager extends EventEmitter {
       `
       UPDATE overlay_peers SET last_seen = $1 WHERE peer_id = $2
     `,
-      [Date.now(), peerId]
+      [Date.now(), peerId],
     );
 
     this.emit('peer-disconnected', peerId);
@@ -508,7 +501,7 @@ class OverlayManager extends EventEmitter {
         ORDER BY received_at DESC
         LIMIT 50
       `,
-        [D01A_TOPICS.SEARCH_RESULTS, Date.now() - 300000] // Last 5 minutes
+        [D01A_TOPICS.SEARCH_RESULTS, Date.now() - 300000], // Last 5 minutes
       );
 
       return results
@@ -542,7 +535,7 @@ class OverlayManager extends EventEmitter {
     const totalMessagesResult = await this.database.queryOne(
       `
       SELECT COUNT(*) as count FROM overlay_messages
-    `
+    `,
     );
     const totalMessages = totalMessagesResult?.count || 0;
 
@@ -551,14 +544,14 @@ class OverlayManager extends EventEmitter {
       SELECT COUNT(*) as count FROM overlay_messages
       WHERE received_at > $1
     `,
-      [Date.now() - 3600000] // Last hour
+      [Date.now() - 3600000], // Last hour
     );
     const recentMessages = recentMessagesResult?.count || 0;
 
     const totalPeersResult = await this.database.queryOne(
       `
       SELECT COUNT(*) as count FROM overlay_peers
-    `
+    `,
     );
     const totalPeers = totalPeersResult?.count || 0;
 
@@ -567,7 +560,7 @@ class OverlayManager extends EventEmitter {
       SELECT COUNT(*) as count FROM overlay_peers
       WHERE last_seen > $1
     `,
-      [Date.now() - 300000] // Last 5 minutes
+      [Date.now() - 300000], // Last 5 minutes
     );
     const activePeers = activePeersResult?.count || 0;
 

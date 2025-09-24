@@ -1,0 +1,431 @@
+"use strict";
+// BRC-64: Overlay Network Transaction History Tracking
+// Implements transaction history tracking with input preservation and lineage traversal
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.BRC64HistoryService = void 0;
+const events_1 = require("events");
+class BRC64HistoryService extends events_1.EventEmitter {
+    constructor(database, brc22Service, brc24Service) {
+        super();
+        this.database = database;
+        this.brc22Service = brc22Service;
+        this.brc24Service = brc24Service;
+        this.setupDatabase();
+        this.setupEventHandlers();
+    }
+    /**
+     * Database tables are now created in the main schema at /src/db/postgresql-schema-complete.sql
+     * This method is kept for compatibility but no longer creates tables
+     */
+    setupDatabase() {
+        // Tables are now created centrally in the main database schema
+        // BRC-64 tables: brc64_historical_inputs, brc64_lineage_edges, brc64_history_cache
+        console.log('BRC-64 database tables managed by central schema');
+    }
+    /**
+     * Set up event handlers for BRC-22 transaction processing
+     */
+    setupEventHandlers() {
+        // Listen for transaction processing to capture inputs
+        this.brc22Service.on('transaction-processed', async (event) => {
+            await this.captureTransactionHistory(event.transaction, event.txid, event.topics);
+        });
+        // Listen for UTXO admissions to build lineage
+        this.brc22Service.on('asset-utxo-admitted', async (event) => {
+            await this.buildLineageRelationships(event.txid, event.vout, 'gitdata.d01a.asset');
+        });
+        // Backward compatibility event handler
+        this.brc22Service.on('manifest-utxo-admitted', async (event) => {
+            await this.buildLineageRelationships(event.txid, event.vout, 'gitdata.d01a.asset');
+        });
+        this.brc22Service.on('payment-utxo-admitted', async (event) => {
+            await this.buildLineageRelationships(event.txid, event.vout, 'gitdata.payment.receipts');
+        });
+        this.brc22Service.on('agent-utxo-admitted', async (event) => {
+            await this.buildLineageRelationships(event.txid, event.vout, 'gitdata.agent.registry');
+        });
+        this.brc22Service.on('lineage-utxo-admitted', async (event) => {
+            await this.buildLineageRelationships(event.txid, event.vout, 'gitdata.lineage.graph');
+        });
+    }
+    /**
+     * Capture transaction history when a transaction is processed
+     */
+    async captureTransactionHistory(transaction, txid, admittedTopics) {
+        try {
+            // Parse transaction inputs
+            const inputs = this.parseTransactionInputs(transaction.rawTx);
+            for (let inputIndex = 0; inputIndex < inputs.length; inputIndex++) {
+                const input = inputs[inputIndex];
+                // Check if this input was a tracked UTXO in any topic
+                for (const [topic, outputIndexes] of Object.entries(admittedTopics)) {
+                    const trackedUTXOs = await this.brc22Service.getTopicUTXOs(topic, true); // Include spent
+                    const sourceUTXO = trackedUTXOs.find((u) => u.txid === input.txid && u.vout === input.vout && u.spentByTxid === txid);
+                    if (sourceUTXO) {
+                        // Store historical input
+                        await this.storeHistoricalInput(txid, inputIndex, sourceUTXO, topic, transaction);
+                    }
+                }
+            }
+            this.emit('history-captured', { txid, inputCount: inputs.length });
+        }
+        catch (error) {
+            console.error('Failed to capture transaction history:', error);
+        }
+    }
+    /**
+     * Store a historical input
+     */
+    async storeHistoricalInput(spendingTxid, inputIndex, sourceUTXO, topic, transaction) {
+        const inputId = `${spendingTxid}:${inputIndex}`;
+        await this.database.execute(`
+      INSERT INTO brc64_historical_inputs
+      (input_id, spending_txid, input_index, source_txid, source_vout, topic,
+       output_script, satoshis, raw_tx, spent_at, original_admitted_at, metadata_json)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ON CONFLICT (input_id) DO UPDATE SET
+        spending_txid = EXCLUDED.spending_txid,
+        input_index = EXCLUDED.input_index,
+        source_txid = EXCLUDED.source_txid,
+        source_vout = EXCLUDED.source_vout,
+        topic = EXCLUDED.topic,
+        output_script = EXCLUDED.output_script,
+        satoshis = EXCLUDED.satoshis,
+        raw_tx = EXCLUDED.raw_tx,
+        spent_at = EXCLUDED.spent_at,
+        original_admitted_at = EXCLUDED.original_admitted_at,
+        metadata_json = EXCLUDED.metadata_json
+    `, [
+            inputId,
+            spendingTxid,
+            inputIndex,
+            sourceUTXO.txid,
+            sourceUTXO.vout,
+            topic,
+            sourceUTXO.outputScript,
+            sourceUTXO.satoshis,
+            transaction.rawTx,
+            Date.now(),
+            sourceUTXO.admittedAt,
+            JSON.stringify({ topics: transaction.topics }),
+        ]);
+    }
+    /**
+     * Build lineage relationships for newly admitted UTXOs
+     */
+    async buildLineageRelationships(txid, vout, topic) {
+        try {
+            const utxoId = `${txid}:${vout}`;
+            // Find inputs that led to this UTXO
+            const parentInputs = await this.database.query(`
+        SELECT * FROM brc64_historical_inputs
+        WHERE spending_txid = $1
+      `, [txid]);
+            for (const parentInput of parentInputs) {
+                const parentUtxoId = `${parentInput.source_txid}:${parentInput.source_vout}`;
+                await this.createLineageEdge(parentUtxoId, utxoId, 'input', topic, txid, {
+                    inputIndex: parentInput.input_index,
+                });
+            }
+            // Find future outputs that spend this UTXO
+            const futureSpends = await this.database.query(`
+        SELECT * FROM brc64_historical_inputs
+        WHERE source_txid = $1 AND source_vout = $2
+      `, [txid, vout]);
+            for (const futureSpend of futureSpends) {
+                const childUtxoId = `${futureSpend.spending_txid}:0`; // Simplified - assume first output
+                await this.createLineageEdge(utxoId, childUtxoId, 'output', topic, futureSpend.spending_txid, { spentAt: futureSpend.spent_at });
+            }
+            this.emit('lineage-built', { utxoId, topic });
+        }
+        catch (error) {
+            console.error('Failed to build lineage relationships:', error);
+        }
+    }
+    /**
+     * Create a lineage edge between two UTXOs
+     */
+    async createLineageEdge(parentUtxo, childUtxo, relationshipType, topic, connectingTxid, metadata) {
+        const edgeId = `${parentUtxo}_${childUtxo}_${relationshipType}`;
+        await this.database.execute(`
+      INSERT INTO brc64_lineage_edges
+      (edge_id, parent_utxo, child_utxo, relationship_type, topic, connecting_txid, timestamp, metadata_json)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (edge_id) DO UPDATE SET
+        parent_utxo = EXCLUDED.parent_utxo,
+        child_utxo = EXCLUDED.child_utxo,
+        relationship_type = EXCLUDED.relationship_type,
+        topic = EXCLUDED.topic,
+        connecting_txid = EXCLUDED.connecting_txid,
+        timestamp = EXCLUDED.timestamp,
+        metadata_json = EXCLUDED.metadata_json
+    `, [
+            edgeId,
+            parentUtxo,
+            childUtxo,
+            relationshipType,
+            topic,
+            connectingTxid,
+            Date.now(),
+            JSON.stringify(metadata || {}),
+        ]);
+    }
+    /**
+     * Query UTXO history
+     */
+    async queryHistory(query) {
+        try {
+            // Check cache first
+            const cacheKey = this.generateCacheKey(query);
+            const cached = await this.getCachedResult(cacheKey);
+            if (cached) {
+                return cached;
+            }
+            const results = [];
+            const visited = new Set();
+            const maxDepth = query.depth || 10;
+            // Start with the requested UTXO
+            await this.traverseHistory(query.utxoId, query.topic, query.direction || 'both', 0, maxDepth, visited, results, query);
+            // Cache the results
+            this.cacheResult(cacheKey, results);
+            return results;
+        }
+        catch (error) {
+            console.error('Failed to query history:', error);
+            return [];
+        }
+    }
+    /**
+     * Recursively traverse UTXO history
+     */
+    async traverseHistory(utxoId, topic, direction, currentDepth, maxDepth, visited, results, query) {
+        if (currentDepth >= maxDepth || visited.has(utxoId)) {
+            return;
+        }
+        visited.add(utxoId);
+        // Get the UTXO details
+        const [txid, vout] = utxoId.split(':');
+        const utxo = await this.getUTXODetails(txid, parseInt(vout), topic);
+        if (!utxo) {
+            return;
+        }
+        // Apply time range filter
+        if (query.timeRange) {
+            const timestamp = utxo.timestamp || 0;
+            if (timestamp < query.timeRange.start || timestamp > query.timeRange.end) {
+                return;
+            }
+        }
+        // Get historical inputs for this UTXO
+        const historicalInputs = await this.getHistoricalInputs(txid);
+        utxo.historicalInputs = historicalInputs;
+        utxo.lineageDepth = currentDepth;
+        // Get parent and child relationships
+        utxo.parentUTXOs = await this.getParentUTXOs(utxoId);
+        utxo.childUTXOs = await this.getChildUTXOs(utxoId);
+        results.push(utxo);
+        // Traverse backward (inputs/parents)
+        if (direction === 'backward' || direction === 'both') {
+            for (const parentUtxoId of utxo.parentUTXOs || []) {
+                await this.traverseHistory(parentUtxoId, topic, direction, currentDepth + 1, maxDepth, visited, results, query);
+            }
+        }
+        // Traverse forward (outputs/children)
+        if (direction === 'forward' || direction === 'both') {
+            for (const childUtxoId of utxo.childUTXOs || []) {
+                await this.traverseHistory(childUtxoId, topic, direction, currentDepth + 1, maxDepth, visited, results, query);
+            }
+        }
+    }
+    /**
+     * Get UTXO details
+     */
+    async getUTXODetails(txid, vout, topic) {
+        // First check active UTXOs
+        const activeUTXOs = await this.brc22Service.getTopicUTXOs(topic, false);
+        let utxo = activeUTXOs.find((u) => u.txid === txid && u.vout === vout);
+        if (!utxo) {
+            // Check spent UTXOs
+            const spentUTXOs = await this.brc22Service.getTopicUTXOs(topic, true);
+            utxo = spentUTXOs.find((u) => u.txid === txid && u.vout === vout);
+        }
+        if (!utxo) {
+            return null;
+        }
+        // Get transaction details
+        const txRecords = await this.database.query(`
+      SELECT * FROM brc22_transactions WHERE txid = $1
+    `, [txid]);
+        const txRecord = txRecords[0];
+        return {
+            txid: utxo.txid,
+            vout: utxo.vout,
+            outputScript: utxo.outputScript,
+            topic,
+            satoshis: utxo.satoshis,
+            rawTx: txRecord?.raw_tx || '',
+            proof: txRecord?.proof || undefined,
+            inputs: txRecord?.inputs_json || undefined,
+            mapiResponses: txRecord?.mapi_responses_json || undefined,
+            spentAt: utxo.spentAt,
+            spentByTxid: utxo.spentByTxid,
+            timestamp: utxo.admittedAt,
+        };
+    }
+    /**
+     * Get historical inputs for a transaction
+     */
+    async getHistoricalInputs(txid) {
+        const inputs = await this.database.query(`
+      SELECT * FROM brc64_historical_inputs
+      WHERE spending_txid = $1
+      ORDER BY input_index
+    `, [txid]);
+        return inputs.map((input) => ({
+            txid: input.source_txid,
+            vout: input.source_vout,
+            outputScript: input.output_script,
+            satoshis: input.satoshis,
+            topic: input.topic,
+            rawTx: input.raw_tx,
+            spentAt: input.spent_at,
+            spentByTxid: input.spending_txid,
+            originalAdmittedAt: input.original_admitted_at,
+        }));
+    }
+    /**
+     * Get parent UTXOs
+     */
+    async getParentUTXOs(utxoId) {
+        const edges = await this.database.query(`
+      SELECT parent_utxo FROM brc64_lineage_edges
+      WHERE child_utxo = $1
+    `, [utxoId]);
+        return edges.map((edge) => edge.parent_utxo);
+    }
+    /**
+     * Get child UTXOs
+     */
+    async getChildUTXOs(utxoId) {
+        const edges = await this.database.query(`
+      SELECT child_utxo FROM brc64_lineage_edges
+      WHERE parent_utxo = $1
+    `, [utxoId]);
+        return edges.map((edge) => edge.child_utxo);
+    }
+    /**
+     * Generate lineage graph
+     */
+    async generateLineageGraph(startUtxoId, topic, maxDepth = 5) {
+        const history = await this.queryHistory({
+            utxoId: startUtxoId,
+            topic,
+            depth: maxDepth,
+            direction: 'both',
+        });
+        const nodes = history.map((utxo) => ({
+            utxoId: `${utxo.txid}:${utxo.vout}`,
+            txid: utxo.txid,
+            vout: utxo.vout,
+            topic: utxo.topic,
+            satoshis: utxo.satoshis,
+            timestamp: utxo.timestamp || 0,
+            status: utxo.spentAt ? 'spent' : 'active',
+            metadata: {
+                lineageDepth: utxo.lineageDepth,
+                historicalInputsCount: utxo.historicalInputs?.length || 0,
+            },
+        }));
+        const edges = [];
+        const utxoIds = history.map((u) => `${u.txid}:${u.vout}`);
+        const parentPlaceholders = utxoIds.map((_, i) => `$${i + 1}`).join(',');
+        const childPlaceholders = utxoIds.map((_, i) => `$${i + utxoIds.length + 1}`).join(',');
+        const edgeRecords = await this.database.query(`
+      SELECT * FROM brc64_lineage_edges
+      WHERE parent_utxo IN (${parentPlaceholders})
+         OR child_utxo IN (${childPlaceholders})
+    `, [...utxoIds, ...utxoIds]);
+        for (const edge of edgeRecords) {
+            edges.push({
+                from: edge.parent_utxo,
+                to: edge.child_utxo,
+                relationship: edge.relationship_type,
+                timestamp: edge.timestamp,
+                txid: edge.connecting_txid,
+            });
+        }
+        return { nodes, edges };
+    }
+    /**
+     * Get history statistics
+     */
+    async getStats() {
+        const historicalInputsResult = await this.database.query(`
+      SELECT COUNT(*) as count FROM brc64_historical_inputs
+    `);
+        const historicalInputs = historicalInputsResult[0]?.count || 0;
+        const lineageEdgesResult = await this.database.query(`
+      SELECT COUNT(*) as count FROM brc64_lineage_edges
+    `);
+        const lineageEdges = lineageEdgesResult[0]?.count || 0;
+        const trackedTransactionsResult = await this.database.query(`
+      SELECT COUNT(DISTINCT spending_txid) as count FROM brc64_historical_inputs
+    `);
+        const trackedTransactions = trackedTransactionsResult[0]?.count || 0;
+        // Cache hit rate calculation would require tracking cache hits/misses
+        const cacheHitRate = 0.75; // Placeholder
+        return {
+            historicalInputs,
+            lineageEdges,
+            trackedTransactions,
+            cacheHitRate,
+        };
+    }
+    // Helper methods
+    parseTransactionInputs(rawTx) {
+        // Simplified input parsing - in production use proper Bitcoin transaction parser
+        return [
+            { txid: 'abc123', vout: 0 },
+            { txid: 'def456', vout: 1 },
+        ];
+    }
+    generateCacheKey(query) {
+        return require('crypto')
+            .createHash('sha256')
+            .update(JSON.stringify(query))
+            .digest('hex')
+            .substring(0, 16);
+    }
+    async getCachedResult(cacheKey) {
+        const results = await this.database.query(`
+      SELECT result_json FROM brc64_history_cache
+      WHERE cache_key = $1 AND expiry > $2
+    `, [cacheKey, Date.now()]);
+        const cached = results[0];
+        return cached ? JSON.parse(cached.result_json) : null;
+    }
+    async cacheResult(cacheKey, results) {
+        const expiry = Date.now() + 30 * 60 * 1000; // 30 minutes
+        await this.database.execute(`
+      INSERT INTO brc64_history_cache
+      (cache_key, query_hash, result_json, expiry)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (cache_key) DO UPDATE SET
+        query_hash = EXCLUDED.query_hash,
+        result_json = EXCLUDED.result_json,
+        expiry = EXCLUDED.expiry
+    `, [cacheKey, cacheKey, JSON.stringify(results), expiry]);
+    }
+    /**
+     * Clean up expired cache entries
+     */
+    async cleanupCache() {
+        await this.database.execute(`
+      DELETE FROM brc64_history_cache WHERE expiry < $1
+    `, [Date.now()]);
+        // PostgreSQL doesn't return changes count easily, return 0 for now
+        return 0;
+    }
+}
+exports.BRC64HistoryService = BRC64HistoryService;
+//# sourceMappingURL=brc64-history.js.map

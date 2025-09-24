@@ -201,7 +201,7 @@ class BRC64HistoryService extends EventEmitter {
         Date.now(),
         sourceUTXO.admittedAt,
         JSON.stringify({ topics: transaction.topics }),
-      ]
+      ],
     );
   }
 
@@ -222,7 +222,7 @@ class BRC64HistoryService extends EventEmitter {
         SELECT * FROM brc64_historical_inputs
         WHERE spending_txid = $1
       `,
-        [txid]
+        [txid],
       );
 
       for (const parentInput of parentInputs) {
@@ -239,7 +239,7 @@ class BRC64HistoryService extends EventEmitter {
         SELECT * FROM brc64_historical_inputs
         WHERE source_txid = $1 AND source_vout = $2
       `,
-        [txid, vout]
+        [txid, vout],
       );
 
       for (const futureSpend of futureSpends) {
@@ -297,7 +297,7 @@ class BRC64HistoryService extends EventEmitter {
         connectingTxid,
         Date.now(),
         JSON.stringify(metadata || {}),
-      ]
+      ],
     );
   }
 
@@ -445,7 +445,7 @@ class BRC64HistoryService extends EventEmitter {
       `
       SELECT * FROM brc22_transactions WHERE txid = $1
     `,
-      [txid]
+      [txid],
     );
     const txRecord = txRecords[0];
 
@@ -475,7 +475,7 @@ class BRC64HistoryService extends EventEmitter {
       WHERE spending_txid = $1
       ORDER BY input_index
     `,
-      [txid]
+      [txid],
     );
 
     return inputs.map((input) => ({
@@ -500,7 +500,7 @@ class BRC64HistoryService extends EventEmitter {
       SELECT parent_utxo FROM brc64_lineage_edges
       WHERE child_utxo = $1
     `,
-      [utxoId]
+      [utxoId],
     );
 
     return edges.map((edge: any) => edge.parent_utxo);
@@ -515,7 +515,7 @@ class BRC64HistoryService extends EventEmitter {
       SELECT child_utxo FROM brc64_lineage_edges
       WHERE parent_utxo = $1
     `,
-      [utxoId]
+      [utxoId],
     );
 
     return edges.map((edge: any) => edge.child_utxo);
@@ -561,7 +561,7 @@ class BRC64HistoryService extends EventEmitter {
       WHERE parent_utxo IN (${parentPlaceholders})
          OR child_utxo IN (${childPlaceholders})
     `,
-      [...utxoIds, ...utxoIds]
+      [...utxoIds, ...utxoIds],
     );
 
     for (const edge of edgeRecords) {
@@ -589,21 +589,21 @@ class BRC64HistoryService extends EventEmitter {
     const historicalInputsResult = await this.database.query(
       `
       SELECT COUNT(*) as count FROM brc64_historical_inputs
-    `
+    `,
     );
     const historicalInputs = historicalInputsResult[0]?.count || 0;
 
     const lineageEdgesResult = await this.database.query(
       `
       SELECT COUNT(*) as count FROM brc64_lineage_edges
-    `
+    `,
     );
     const lineageEdges = lineageEdgesResult[0]?.count || 0;
 
     const trackedTransactionsResult = await this.database.query(
       `
       SELECT COUNT(DISTINCT spending_txid) as count FROM brc64_historical_inputs
-    `
+    `,
     );
     const trackedTransactions = trackedTransactionsResult[0]?.count || 0;
 
@@ -642,7 +642,7 @@ class BRC64HistoryService extends EventEmitter {
       SELECT result_json FROM brc64_history_cache
       WHERE cache_key = $1 AND expiry > $2
     `,
-      [cacheKey, Date.now()]
+      [cacheKey, Date.now()],
     );
     const cached = results[0];
 
@@ -662,7 +662,7 @@ class BRC64HistoryService extends EventEmitter {
         result_json = EXCLUDED.result_json,
         expiry = EXCLUDED.expiry
     `,
-      [cacheKey, cacheKey, JSON.stringify(results), expiry]
+      [cacheKey, cacheKey, JSON.stringify(results), expiry],
     );
   }
 
@@ -674,7 +674,7 @@ class BRC64HistoryService extends EventEmitter {
       `
       DELETE FROM brc64_history_cache WHERE expiry < $1
     `,
-      [Date.now()]
+      [Date.now()],
     );
 
     // PostgreSQL doesn't return changes count easily, return 0 for now

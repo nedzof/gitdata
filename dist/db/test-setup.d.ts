@@ -1,0 +1,57 @@
+export declare class TestDatabase {
+    private agents;
+    private rules;
+    private jobs;
+    private templates;
+    private manifests;
+    private edges;
+    upsertAgent(agent: any): Promise<string>;
+    getAgent(agentId: string): Promise<any>;
+    searchAgents(q?: string, capability?: string, limit?: number, offset?: number): Promise<any[]>;
+    setAgentPing(agentId: string, success: boolean): Promise<void>;
+    createRule(rule: any): Promise<string>;
+    listRules(enabled?: boolean): Promise<any[]>;
+    updateRule(ruleId: string, updates: any): Promise<any>;
+    deleteRule(ruleId: string): Promise<boolean>;
+    listJobs(ruleId?: string, state?: string, limit?: number, offset?: number): Promise<any[]>;
+    createTemplate(template: any): Promise<string>;
+    getTemplate(templateId: string): Promise<any>;
+    listTemplates(limit?: number, offset?: number): Promise<any[]>;
+    updateTemplate(templateId: string, updates: any): Promise<any>;
+    deleteTemplate(templateId: string): Promise<boolean>;
+    searchManifests(q?: string, limit?: number, offset?: number): Promise<any[]>;
+    listVersionsByDataset(datasetId: string): Promise<any[]>;
+    getParents(versionId: string): Promise<string[]>;
+    clear(): void;
+    prepare(sql: string): {
+        run: (...params: any[]) => {
+            lastInsertRowid: number;
+            changes: number;
+        };
+        get: (...params: any[]) => null;
+        all: (...params: any[]) => never[];
+    };
+    transaction(fn: () => any): any;
+    exec(sql: string): this;
+    close(): Promise<void>;
+}
+export declare function getTestDatabase(): TestDatabase;
+export declare function resetTestDatabase(): void;
+export declare function initSchema(): Promise<TestDatabase>;
+export declare function upsertAgent(agent: any): Promise<string>;
+export declare function getAgent(agentId: string): Promise<any>;
+export declare function searchAgents(q?: string, capability?: string, limit?: number, offset?: number): Promise<any[]>;
+export declare function setAgentPing(agentId: string, success: boolean): Promise<void>;
+export declare function createRule(rule: any): Promise<string>;
+export declare function listRules(enabled?: boolean): Promise<any[]>;
+export declare function updateRule(ruleId: string, updates: any): Promise<any>;
+export declare function deleteRule(ruleId: string): Promise<boolean>;
+export declare function listJobs(ruleId?: string, state?: string, limit?: number, offset?: number): Promise<any[]>;
+export declare function createTemplate(template: any): Promise<string>;
+export declare function getTemplate(templateId: string): Promise<any>;
+export declare function listTemplates(limit?: number, offset?: number): Promise<any[]>;
+export declare function updateTemplate(templateId: string, updates: any): Promise<any>;
+export declare function deleteTemplate(templateId: string): Promise<boolean>;
+export declare function searchManifests(q?: string, limit?: number, offset?: number): Promise<any[]>;
+export declare function listVersionsByDataset(datasetId: string): Promise<any[]>;
+export declare function getParents(versionId: string): Promise<string[]>;

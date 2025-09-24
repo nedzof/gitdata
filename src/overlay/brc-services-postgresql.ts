@@ -23,17 +23,23 @@ interface TableDefinition {
 
 class QueryBuilder {
   static createTable(table: TableDefinition): string {
-    const columns = table.columns.map(col => {
-      const constraints = col.constraints ? ` ${col.constraints.join(' ')}` : '';
-      return `  ${col.name} ${col.type}${constraints}`;
-    }).join(',\n');
+    const columns = table.columns
+      .map((col) => {
+        const constraints = col.constraints ? ` ${col.constraints.join(' ')}` : '';
+        return `  ${col.name} ${col.type}${constraints}`;
+      })
+      .join(',\n');
 
     const tableConstraints = table.constraints ? `,\n  ${table.constraints.join(',\n  ')}` : '';
 
     return `CREATE TABLE IF NOT EXISTS ${table.name} (\n${columns}${tableConstraints}\n)`;
   }
 
-  static select(table: string, columns: string[] = ['*'], where?: Record<string, any>): { query: string; params: any[] } {
+  static select(
+    table: string,
+    columns: string[] = ['*'],
+    where?: Record<string, any>,
+  ): { query: string; params: any[] } {
     const cols = columns.join(', ');
     let query = `SELECT ${cols} FROM ${table}`;
     const params: any[] = [];
@@ -49,7 +55,11 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static insert(table: string, data: Record<string, any>, onConflict?: string): { query: string; params: any[] } {
+  static insert(
+    table: string,
+    data: Record<string, any>,
+    onConflict?: string,
+  ): { query: string; params: any[] } {
     const keys = Object.keys(data);
     const placeholders = keys.map((_, index) => `$${index + 1}`);
     const params = Object.values(data);
@@ -63,14 +73,22 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static update(table: string, data: Record<string, any>, where: Record<string, any>): { query: string; params: any[] } {
-    const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+  static update(
+    table: string,
+    data: Record<string, any>,
+    where: Record<string, any>,
+  ): { query: string; params: any[] } {
+    const setClause = Object.keys(data)
+      .map((key, index) => `${key} = $${index + 1}`)
+      .join(', ');
     const params = [...Object.values(data)];
 
-    const whereClause = Object.keys(where).map((key, index) => {
-      params.push(where[key]);
-      return `${key} = $${params.length}`;
-    }).join(' AND ');
+    const whereClause = Object.keys(where)
+      .map((key, index) => {
+        params.push(where[key]);
+        return `${key} = $${params.length}`;
+      })
+      .join(' AND ');
 
     const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
     return { query, params };
@@ -87,7 +105,12 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static createIndex(indexName: string, table: string, columns: string[], unique: boolean = false): string {
+  static createIndex(
+    indexName: string,
+    table: string,
+    columns: string[],
+    unique: boolean = false,
+  ): string {
     const uniqueClause = unique ? 'UNIQUE ' : '';
     const columnsStr = columns.join(', ');
     return `CREATE ${uniqueClause}INDEX IF NOT EXISTS ${indexName} ON ${table}(${columnsStr})`;
@@ -102,7 +125,7 @@ class QueryBuilder {
       orderDirection?: 'ASC' | 'DESC';
       limit?: number;
       offset?: number;
-    } = {}
+    } = {},
   ): { query: string; params: any[] } {
     const columns = options.columns || ['*'];
     const cols = columns.join(', ');
@@ -150,7 +173,11 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static countWithCondition(table: string, condition: string, params: any[] = []): { query: string; params: any[] } {
+  static countWithCondition(
+    table: string,
+    condition: string,
+    params: any[] = [],
+  ): { query: string; params: any[] } {
     const query = `SELECT COUNT(*) as count FROM ${table} WHERE ${condition}`;
     return { query, params };
   }
@@ -165,7 +192,7 @@ class QueryBuilder {
       orderDirection?: 'ASC' | 'DESC';
       limit?: number;
       offset?: number;
-    } = {}
+    } = {},
   ): { query: string; params: any[] } {
     const cols = columns.join(', ');
     let query = `SELECT ${cols} FROM ${table} WHERE ${whereCondition}`;
@@ -262,9 +289,9 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
         { name: 'admitted_at', type: 'BIGINT', constraints: ['NOT NULL'] },
         { name: 'spent_at', type: 'BIGINT' },
         { name: 'spent_by_txid', type: 'TEXT' },
-        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
       ],
-      constraints: ['UNIQUE(topic, txid, vout)']
+      constraints: ['UNIQUE(topic, txid, vout)'],
     };
 
     const transactionsTable: TableDefinition = {
@@ -279,18 +306,28 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
         { name: 'proof', type: 'TEXT' },
         { name: 'processed_at', type: 'BIGINT', constraints: ['NOT NULL'] },
         { name: 'status', type: 'TEXT', constraints: ["DEFAULT 'success'"] },
-        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
-      ]
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
+      ],
     };
 
     await this.database.execute(QueryBuilder.createTable(utxosTable));
     await this.database.execute(QueryBuilder.createTable(transactionsTable));
 
     // Create indexes for better performance
-    await this.database.execute(QueryBuilder.createIndex('idx_brc22_utxos_topic', 'brc22_utxos', ['topic']));
-    await this.database.execute(QueryBuilder.createIndex('idx_brc22_utxos_spent', 'brc22_utxos', ['spent_at']));
-    await this.database.execute(QueryBuilder.createIndex('idx_brc22_utxos_txid_vout', 'brc22_utxos', ['txid', 'vout']));
-    await this.database.execute(QueryBuilder.createIndex('idx_brc22_transactions_processed', 'brc22_transactions', ['processed_at']));
+    await this.database.execute(
+      QueryBuilder.createIndex('idx_brc22_utxos_topic', 'brc22_utxos', ['topic']),
+    );
+    await this.database.execute(
+      QueryBuilder.createIndex('idx_brc22_utxos_spent', 'brc22_utxos', ['spent_at']),
+    );
+    await this.database.execute(
+      QueryBuilder.createIndex('idx_brc22_utxos_txid_vout', 'brc22_utxos', ['txid', 'vout']),
+    );
+    await this.database.execute(
+      QueryBuilder.createIndex('idx_brc22_transactions_processed', 'brc22_transactions', [
+        'processed_at',
+      ]),
+    );
   }
 
   private setupDefaultTopicManagers(): void {
@@ -389,7 +426,7 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
       vout: vout,
       output_script: output.script,
       satoshis: output.satoshis,
-      admitted_at: Date.now()
+      admitted_at: Date.now(),
     };
 
     const onConflict = `ON CONFLICT (utxo_id) DO UPDATE SET
@@ -416,14 +453,18 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
       inputs_json: JSON.stringify(transaction.inputs),
       mapi_responses_json: JSON.stringify(transaction.mapiResponses || []),
       proof: transaction.proof || null,
-      processed_at: Date.now()
+      processed_at: Date.now(),
     };
 
     const onConflict = `ON CONFLICT (txid) DO UPDATE SET
       topics_json = EXCLUDED.topics_json,
       processed_at = EXCLUDED.processed_at`;
 
-    const { query, params } = QueryBuilder.insert('brc22_transactions', transactionData, onConflict);
+    const { query, params } = QueryBuilder.insert(
+      'brc22_transactions',
+      transactionData,
+      onConflict,
+    );
     await this.database.execute(query, params);
   }
 
@@ -442,7 +483,7 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
       columns: ['utxo_id', 'txid', 'vout', 'output_script', 'satoshis', 'admitted_at', 'spent_at'],
       where: { topic },
       orderBy: 'admitted_at',
-      orderDirection: 'DESC'
+      orderDirection: 'DESC',
     });
 
     const results = await this.database.query(query, params);
@@ -465,8 +506,16 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
     const stats: any = { topics: {}, transactions: { total: 0, recent: 0 } };
 
     for (const [topic] of Array.from(this.topicManagers.entries())) {
-      const activeQuery = QueryBuilder.countWithCondition('brc22_utxos', 'topic = $1 AND spent_at IS NULL', [topic]);
-      const spentQuery = QueryBuilder.countWithCondition('brc22_utxos', 'topic = $1 AND spent_at IS NOT NULL', [topic]);
+      const activeQuery = QueryBuilder.countWithCondition(
+        'brc22_utxos',
+        'topic = $1 AND spent_at IS NULL',
+        [topic],
+      );
+      const spentQuery = QueryBuilder.countWithCondition(
+        'brc22_utxos',
+        'topic = $1 AND spent_at IS NOT NULL',
+        [topic],
+      );
 
       const [activeResult, spentResult] = await Promise.all([
         this.database.queryOne(activeQuery.query, activeQuery.params),
@@ -479,11 +528,9 @@ export class PostgreSQLBRC22SubmitService extends EventEmitter {
     }
 
     const totalQuery = QueryBuilder.count('brc22_transactions');
-    const recentQuery = QueryBuilder.countWithCondition(
-      'brc22_transactions',
-      'processed_at > $1',
-      [Date.now() - 24 * 60 * 60 * 1000]
-    );
+    const recentQuery = QueryBuilder.countWithCondition('brc22_transactions', 'processed_at > $1', [
+      Date.now() - 24 * 60 * 60 * 1000,
+    ]);
 
     const [totalResult, recentResult] = await Promise.all([
       this.database.queryOne(totalQuery.query, totalQuery.params),
@@ -575,15 +622,19 @@ export class PostgreSQLBRC24LookupService extends EventEmitter {
         { name: 'requester_id', type: 'TEXT' },
         { name: 'results_count', type: 'INTEGER', constraints: ['DEFAULT 0'] },
         { name: 'processed_at', type: 'BIGINT', constraints: ['NOT NULL'] },
-        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
-      ]
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
+      ],
     };
 
     await this.database.execute(QueryBuilder.createTable(queriesTable));
 
     // Create indexes for better performance
-    await this.database.execute(QueryBuilder.createIndex('idx_brc24_queries_provider', 'brc24_queries', ['provider']));
-    await this.database.execute(QueryBuilder.createIndex('idx_brc24_queries_processed', 'brc24_queries', ['processed_at']));
+    await this.database.execute(
+      QueryBuilder.createIndex('idx_brc24_queries_provider', 'brc24_queries', ['provider']),
+    );
+    await this.database.execute(
+      QueryBuilder.createIndex('idx_brc24_queries_processed', 'brc24_queries', ['processed_at']),
+    );
   }
 
   private setupDefaultProviders(): void {
@@ -642,7 +693,7 @@ export class PostgreSQLBRC24LookupService extends EventEmitter {
         query_json: JSON.stringify(query),
         requester_id: requesterId || null,
         results_count: results.length,
-        processed_at: Date.now()
+        processed_at: Date.now(),
       };
 
       const { query: insertQuery, params } = QueryBuilder.insert('brc24_queries', queryData);
@@ -736,9 +787,9 @@ export class PostgreSQLBRC64HistoryService extends EventEmitter {
         { name: 'input_script', type: 'TEXT' },
         { name: 'input_satoshis', type: 'BIGINT' },
         { name: 'captured_at', type: 'BIGINT', constraints: ['NOT NULL'] },
-        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
       ],
-      constraints: ['UNIQUE(utxo_id, input_index)']
+      constraints: ['UNIQUE(utxo_id, input_index)'],
     };
 
     const lineageEdgesTable: TableDefinition = {
@@ -750,29 +801,44 @@ export class PostgreSQLBRC64HistoryService extends EventEmitter {
         { name: 'relationship', type: 'VARCHAR(50)', constraints: ['NOT NULL'] },
         { name: 'topic', type: 'TEXT' },
         { name: 'timestamp_created', type: 'BIGINT', constraints: ['NOT NULL'] },
-        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
       ],
-      constraints: ['UNIQUE(parent_utxo, child_utxo)']
+      constraints: ['UNIQUE(parent_utxo, child_utxo)'],
     };
 
     await this.database.execute(QueryBuilder.createTable(historicalInputsTable));
     await this.database.execute(QueryBuilder.createTable(lineageEdgesTable));
 
     // Create indexes for better performance
-    await this.database.execute(QueryBuilder.createIndex('idx_brc64_inputs_utxo', 'brc64_historical_inputs', ['utxo_id']));
-    await this.database.execute(QueryBuilder.createIndex('idx_brc64_edges_parent', 'brc64_lineage_edges', ['parent_utxo']));
-    await this.database.execute(QueryBuilder.createIndex('idx_brc64_edges_child', 'brc64_lineage_edges', ['child_utxo']));
+    await this.database.execute(
+      QueryBuilder.createIndex('idx_brc64_inputs_utxo', 'brc64_historical_inputs', ['utxo_id']),
+    );
+    await this.database.execute(
+      QueryBuilder.createIndex('idx_brc64_edges_parent', 'brc64_lineage_edges', ['parent_utxo']),
+    );
+    await this.database.execute(
+      QueryBuilder.createIndex('idx_brc64_edges_child', 'brc64_lineage_edges', ['child_utxo']),
+    );
   }
 
   async queryHistory(query: HistoryQuery): Promise<HistoricalUTXO[]> {
     // Implementation for history querying
-    const { query: selectQuery, params } = QueryBuilder.selectWithOptions('brc64_historical_inputs', {
-      columns: ['utxo_id', 'input_txid as txid', 'input_vout as vout', "'preserved' as topic", 'captured_at'],
-      where: { utxo_id: query.utxoId },
-      orderBy: 'captured_at',
-      orderDirection: 'DESC',
-      limit: query.depth || 10
-    });
+    const { query: selectQuery, params } = QueryBuilder.selectWithOptions(
+      'brc64_historical_inputs',
+      {
+        columns: [
+          'utxo_id',
+          'input_txid as txid',
+          'input_vout as vout',
+          "'preserved' as topic",
+          'captured_at',
+        ],
+        where: { utxo_id: query.utxoId },
+        orderBy: 'captured_at',
+        orderDirection: 'DESC',
+        limit: query.depth || 10,
+      },
+    );
 
     const results = await this.database.query(selectQuery, params);
 
@@ -804,8 +870,8 @@ export class PostgreSQLBRC64HistoryService extends EventEmitter {
       {
         orderBy: 'timestamp_created',
         orderDirection: 'DESC',
-        limit: maxDepth * 10
-      }
+        limit: maxDepth * 10,
+      },
     );
 
     const edgeResults = await this.database.query(edgeQuery, params);
@@ -892,9 +958,9 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
         { name: 'timestamp_created', type: 'BIGINT', constraints: ['NOT NULL'] },
         { name: 'utxo_id', type: 'TEXT' },
         { name: 'is_active', type: 'BOOLEAN', constraints: ['DEFAULT TRUE'] },
-        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
       ],
-      constraints: ['UNIQUE(advertiser_identity, topic_name)']
+      constraints: ['UNIQUE(advertiser_identity, topic_name)'],
     };
 
     const slapAdsTable: TableDefinition = {
@@ -908,9 +974,9 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
         { name: 'timestamp_created', type: 'BIGINT', constraints: ['NOT NULL'] },
         { name: 'utxo_id', type: 'TEXT' },
         { name: 'is_active', type: 'BOOLEAN', constraints: ['DEFAULT TRUE'] },
-        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
       ],
-      constraints: ['UNIQUE(advertiser_identity, service_id)']
+      constraints: ['UNIQUE(advertiser_identity, service_id)'],
     };
 
     await this.database.execute(QueryBuilder.createTable(shipAdsTable));
@@ -936,7 +1002,7 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
       domain_name: this.domain,
       topic_name: topicName,
       signature: signature,
-      timestamp_created: timestamp
+      timestamp_created: timestamp,
     };
 
     const onConflict = `ON CONFLICT (advertiser_identity, topic_name) DO UPDATE SET
@@ -970,7 +1036,7 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
       domain_name: this.domain,
       service_id: serviceId,
       signature: signature,
-      timestamp_created: timestamp
+      timestamp_created: timestamp,
     };
 
     const onConflict = `ON CONFLICT (advertiser_identity, service_id) DO UPDATE SET
@@ -987,10 +1053,17 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
 
   async getSHIPAdvertisements(): Promise<SHIPAdvertisement[]> {
     const { query, params } = QueryBuilder.selectWithOptions('brc88_ship_ads', {
-      columns: ['advertiser_identity', 'domain_name', 'topic_name', 'signature', 'timestamp_created', 'utxo_id'],
+      columns: [
+        'advertiser_identity',
+        'domain_name',
+        'topic_name',
+        'signature',
+        'timestamp_created',
+        'utxo_id',
+      ],
       where: { is_active: true },
       orderBy: 'timestamp_created',
-      orderDirection: 'DESC'
+      orderDirection: 'DESC',
     });
 
     const results = await this.database.query(query, params);
@@ -1007,10 +1080,17 @@ export class PostgreSQLBRC88SHIPSLAPService extends EventEmitter {
 
   async getSLAPAdvertisements(): Promise<SLAPAdvertisement[]> {
     const { query, params } = QueryBuilder.selectWithOptions('brc88_slap_ads', {
-      columns: ['advertiser_identity', 'domain_name', 'service_id', 'signature', 'timestamp_created', 'utxo_id'],
+      columns: [
+        'advertiser_identity',
+        'domain_name',
+        'service_id',
+        'signature',
+        'timestamp_created',
+        'utxo_id',
+      ],
       where: { is_active: true },
       orderBy: 'timestamp_created',
-      orderDirection: 'DESC'
+      orderDirection: 'DESC',
     });
 
     const results = await this.database.query(query, params);

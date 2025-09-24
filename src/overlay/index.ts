@@ -53,8 +53,12 @@ import {
 } from './brc-services-postgresql';
 import { BRC26UHRPService } from './brc26-uhrp';
 import { getOverlayConfig } from './overlay-config';
+import { StreamingService } from '../streaming/streaming-service';
+import { FederationManager } from './federation-manager';
+import { AdvancedStreamingService } from '../streaming/advanced-streaming-service';
+import crypto from 'crypto';
 
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 
 // Database adapter interface for PostgreSQL support
 interface DatabaseAdapter {
@@ -85,7 +89,6 @@ class PostgreSQLAdapter implements DatabaseAdapter {
     await this.query(sql, params);
   }
 }
-
 
 /**
  * Creates a legacy SQLite-compatible wrapper for PostgreSQL DatabaseAdapter
@@ -156,6 +159,7 @@ function createLegacyWrapper(dbAdapter: DatabaseAdapter): any {
 import { AgentExecutionService } from '../agents/agent-execution-service';
 import { OverlayAgentRegistry } from '../agents/overlay-agent-registry';
 import { OverlayRuleEngine } from '../agents/overlay-rule-engine';
+import { StreamingService } from '../streaming/streaming-service';
 
 export interface GitdataOverlayServices {
   overlayManager: OverlayManager;
@@ -169,6 +173,11 @@ export interface GitdataOverlayServices {
   agentRegistry: OverlayAgentRegistry;
   ruleEngine: OverlayRuleEngine;
   executionService: AgentExecutionService;
+  // Phase 3: Streaming Services
+  streamingService?: StreamingService;
+  // Phase 5: Advanced Features
+  federationManager?: FederationManager;
+  advancedStreamingService?: AdvancedStreamingService;
 }
 
 /**
@@ -226,6 +235,50 @@ export async function initializeOverlayServices(
     requireIdentity: true,
   });
 
+  // Phase 3: Streaming Services (optional)
+  let streamingService: StreamingService | undefined;
+  try {
+    const streamingStorageDir = process.env.STREAMING_STORAGE_DIR || '/tmp/streaming';
+    const myHostId = `host_${myDomain.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
+    const myEndpoint = `http://${myDomain}`;
+
+    streamingService = new StreamingService(dbAdapter, streamingStorageDir, myHostId, myEndpoint, {
+      maxConcurrentTranscodings: 2,
+      p2pEnabled: process.env.STREAMING_P2P_ENABLED !== 'false',
+    });
+
+    console.log('[OVERLAY] ✅ Streaming service initialized for Phase 3 compliance');
+  } catch (error) {
+    console.log('[OVERLAY] ⚠️  Streaming service unavailable (optional):', error.message);
+  }
+
+  // Phase 5: Advanced Features (optional)
+  let federationManager: FederationManager | undefined;
+  let advancedStreamingService: AdvancedStreamingService | undefined;
+
+  try {
+    // Initialize Federation Manager for cross-overlay network support
+    const nodeId = `node_${myDomain.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
+    const federationPrivateKey = process.env.FEDERATION_PRIVATE_KEY || crypto.randomBytes(32).toString('hex');
+
+    federationManager = new FederationManager(dbAdapter, nodeId, federationPrivateKey);
+    await federationManager.initialize();
+
+    console.log('[OVERLAY] ✅ Federation manager initialized for Phase 5 cross-network support');
+  } catch (error) {
+    console.log('[OVERLAY] ⚠️  Federation manager unavailable (optional):', error.message);
+  }
+
+  try {
+    // Initialize Advanced Streaming Service for live streaming and CDN
+    advancedStreamingService = new AdvancedStreamingService(dbAdapter);
+    await advancedStreamingService.initialize();
+
+    console.log('[OVERLAY] ✅ Advanced streaming service initialized for Phase 5 live streaming');
+  } catch (error) {
+    console.log('[OVERLAY] ⚠️  Advanced streaming service unavailable (optional):', error.message);
+  }
+
   // Initialize overlay manager
   await overlayManager.initialize();
 
@@ -252,6 +305,11 @@ export async function initializeOverlayServices(
     agentRegistry,
     ruleEngine,
     executionService,
+    // Phase 3: Streaming Services
+    streamingService,
+    // Phase 5: Advanced Features
+    federationManager,
+    advancedStreamingService,
   };
 }
 

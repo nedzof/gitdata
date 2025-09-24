@@ -1,0 +1,1 @@
+{"version":3,"file":"brc100-types.js","sourceRoot":"","sources":["../../src/lib/brc100-types.ts"],"names":[],"mappings":";AAAA,kDAAkD;AAClD,wCAAwC;;;AA0hBxC,wCAAwC;AACxC,MAAa,WAAY,SAAQ,KAAK;IACpC,YAAY,OAAe,EAAS,IAAa;QAC/C,KAAK,CAAC,OAAO,CAAC,CAAC;QADmB,SAAI,GAAJ,IAAI,CAAS;QAE/C,IAAI,CAAC,IAAI,GAAG,aAAa,CAAC;IAC5B,CAAC;CACF;AALD,kCAKC"}

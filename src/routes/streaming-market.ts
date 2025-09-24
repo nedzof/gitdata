@@ -20,18 +20,22 @@ router.get('/streams', async (req, res) => {
 
     // Use the searchManifests function for basic asset search
     const searchQuery = search as string;
-    const assets = await searchManifests(searchQuery, parseInt(limit as string), parseInt(offset as string));
+    const assets = await searchManifests(
+      searchQuery,
+      parseInt(limit as string),
+      parseInt(offset as string),
+    );
 
     // For now, return basic asset data - streaming metadata would need specific functions
     // TODO: Add streaming-specific search functions to database layer
-    const streams = assets.map(asset => ({
+    const streams = assets.map((asset) => ({
       ...asset,
       stream_status: 'active', // Default for now
       total_packets: 0,
       packets_today: 0,
       active_subscribers: 0,
       latest_sequence: 0,
-      avg_packet_size: 0
+      avg_packet_size: 0,
     }));
 
     res.json({

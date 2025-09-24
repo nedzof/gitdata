@@ -26,6 +26,7 @@ import { metricsRouter } from './routes/metrics';
 import { openlineageRouter } from './routes/openlineage';
 import { overlayRouter } from './routes/overlay';
 import { overlayBrcRouter } from './routes/overlay-brc';
+import { enhancedBRC31OverlayRouter } from './routes/overlay-brc-31';
 import { payRouter } from './routes/pay';
 import { paymentsRouter } from './routes/payments';
 import { priceRouter } from './routes/price';
@@ -113,6 +114,9 @@ app.use('/v1', walletRouter());
 // Overlay network integration
 app.use('/v1', overlayRouter().router);
 app.use('/v1', overlayBrcRouter().router);
+
+// BRC-31 Enhanced Overlay Integration (initialize after database setup)
+let brc31Router: any = null;
 app.use('/v1', submitBuilderRouter());
 app.use('/v1', submitReceiverRouterWrapper());
 
@@ -188,12 +192,139 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// Start server
-const server = app.listen(PORT, () => {
+// Initialize BRC-31 services
+async function initializeBRC31Services() {
+  try {
+    // Import BRC-31 and BRC-41 services
+    const { initializeBRC31Middleware } = await import('./brc31/middleware');
+    const { initializeBRC41PaymentMiddleware } = await import('./brc41/middleware');
+    const { Pool } = await import('pg');
+    const { initializeOverlayServices } = await import('./overlay/index');
+
+    // Create PostgreSQL pool
+    const dbPool = new Pool({
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '5432'),
+      database: process.env.DB_NAME || 'gitdata',
+      user: process.env.DB_USER || 'gitdata',
+      password: process.env.DB_PASSWORD || 'gitdata',
+      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+    });
+
+    // Initialize overlay services (includes database adapter)
+    const overlayServices = await initializeOverlayServices(
+      dbPool,
+      (process.env.NODE_ENV as any) || 'development',
+      process.env.DOMAIN_NAME || 'localhost:8788',
+    );
+
+    // Initialize BRC-31 middleware
+    const brc31Middleware = initializeBRC31Middleware({
+      database: {
+        query: async (sql: string, params: any[] = []) => {
+          const client = await dbPool.connect();
+          try {
+            const result = await client.query(sql, params);
+            return result.rows;
+          } finally {
+            client.release();
+          }
+        },
+        queryOne: async (sql: string, params: any[] = []) => {
+          const client = await dbPool.connect();
+          try {
+            const result = await client.query(sql, params);
+            return result.rows[0] || null;
+          } finally {
+            client.release();
+          }
+        },
+        execute: async (sql: string, params: any[] = []) => {
+          const client = await dbPool.connect();
+          try {
+            await client.query(sql, params);
+          } finally {
+            client.release();
+          }
+        },
+      },
+      enabled: process.env.BRC31_ENABLED !== 'false',
+      serverPrivateKey: process.env.BRC31_SERVER_PRIVATE_KEY,
+    });
+
+    await brc31Middleware.initialize();
+
+    // Initialize BRC-41 payment middleware
+    const brc41PaymentMiddleware = initializeBRC41PaymentMiddleware({
+      database: {
+        query: async (sql: string, params: any[] = []) => {
+          const client = await dbPool.connect();
+          try {
+            const result = await client.query(sql, params);
+            return result.rows;
+          } finally {
+            client.release();
+          }
+        },
+        queryOne: async (sql: string, params: any[] = []) => {
+          const client = await dbPool.connect();
+          try {
+            const result = await client.query(sql, params);
+            return result.rows[0] || null;
+          } finally {
+            client.release();
+          }
+        },
+        execute: async (sql: string, params: any[] = []) => {
+          const client = await dbPool.connect();
+          try {
+            await client.query(sql, params);
+          } finally {
+            client.release();
+          }
+        },
+      },
+      serverPrivateKey:
+        process.env.BRC41_SERVER_PRIVATE_KEY || process.env.BRC31_SERVER_PRIVATE_KEY,
+      enabled: process.env.BRC41_ENABLED !== 'false',
+    });
+
+    await brc41PaymentMiddleware.initialize();
+
+    // Create BRC-31 enhanced router
+    const brc31RouterInstance = enhancedBRC31OverlayRouter();
+    brc31RouterInstance.setOverlayServices?.(overlayServices);
+
+    // Mount BRC-31 router
+    app.use('/overlay', brc31RouterInstance.router);
+
+    console.log('✅ BRC-31 authentication services initialized');
+    console.log('✅ BRC-41 payment services initialized');
+    console.log('✅ Enhanced BRC-31 overlay endpoints available at /overlay');
+    console.log(`✅ Database schema initialized for identity tracking`);
+    console.log(`✅ Database schema initialized for payment tracking`);
+
+    return { overlayServices, brc31Middleware, brc41PaymentMiddleware };
+  } catch (error) {
+    console.error('❌ Failed to initialize BRC-31/BRC-41 services:', error);
+    console.log('⚠️  Continuing without BRC-31 authentication');
+    return null;
+  }
+}
+
+// Start server with BRC-31 initialization
+const server = app.listen(PORT, async () => {
   console.log(`🚀 Gitdata overlay server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔍 API docs: http://localhost:${PORT}/v1/docs`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+
+  // Initialize BRC-31 services asynchronously
+  const brc31Services = await initializeBRC31Services();
+  if (brc31Services) {
+    console.log('🔐 BRC-31 Authrite authentication enabled');
+    console.log('💰 BRC-41 PacketPay payments enabled');
+  }
 });
 
 export { app, server };

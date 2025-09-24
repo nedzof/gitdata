@@ -5,10 +5,9 @@ import { EventEmitter } from 'events';
 
 import { walletService } from '../lib/wallet';
 
-import type { DatabaseAdapter } from './brc26-uhrp';
-
 import type { BRC22SubmitService } from './brc22-submit';
 import type { BRC24LookupService } from './brc24-lookup';
+import type { DatabaseAdapter } from './brc26-uhrp';
 
 export interface SHIPAdvertisement {
   advertiserIdentity: string;
@@ -168,7 +167,14 @@ class BRC88SHIPSLAPService extends EventEmitter {
       });
     } catch (error) {
       console.error('[BRC-88] Synchronization failed:', error);
-      await this.recordSyncAttempt(null, 'full_sync', 'outgoing', 'failed', 0, (error as Error).message);
+      await this.recordSyncAttempt(
+        null,
+        'full_sync',
+        'outgoing',
+        'failed',
+        0,
+        (error as Error).message,
+      );
     }
   }
 
@@ -260,7 +266,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
         JSON.stringify(peerInfo.services),
         Date.now(),
         true,
-      ]
+      ],
     );
 
     this.emit('peer-discovered', serviceNode);
@@ -317,7 +323,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       `
       SELECT sync_attempts FROM brc88_peers WHERE peer_identity = $1
     `,
-      [peer.identity]
+      [peer.identity],
     );
     const currentAttempts = result[0]?.sync_attempts || 0;
 
@@ -334,7 +340,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
         'disconnected',
         newAttempts < 5, // Deactivate after 5 failed attempts
         peer.identity,
-      ]
+      ],
     );
 
     peer.connectionStatus = 'disconnected';
@@ -436,7 +442,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
           SELECT * FROM brc88_ship_ads
           WHERE advertiser_identity = $1 AND topic_name = $2 AND is_active = TRUE
         `,
-          [this.myIdentity, topic]
+          [this.myIdentity, topic],
         );
         const existingAd = result[0];
 
@@ -455,7 +461,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
           SELECT * FROM brc88_slap_ads
           WHERE advertiser_identity = $1 AND service_id = $2 AND is_active = TRUE
         `,
-          [this.myIdentity, provider.providerId]
+          [this.myIdentity, provider.providerId],
         );
         const existingAd = result[0];
 
@@ -554,14 +560,14 @@ class BRC88SHIPSLAPService extends EventEmitter {
     const shipTotalResult = await this.database.query(
       `
       SELECT COUNT(*) as count FROM brc88_ship_ads
-    `
+    `,
     );
     const shipTotal = shipTotalResult[0]?.count || 0;
 
     const shipActiveResult = await this.database.query(
       `
       SELECT COUNT(*) as count FROM brc88_ship_ads WHERE is_active = TRUE
-    `
+    `,
     );
     const shipActive = shipActiveResult[0]?.count || 0;
 
@@ -570,21 +576,21 @@ class BRC88SHIPSLAPService extends EventEmitter {
       SELECT COUNT(*) as count FROM brc88_ship_ads
       WHERE advertiser_identity = $1 AND is_active = TRUE
     `,
-      [myIdentity]
+      [myIdentity],
     );
     const shipOwn = shipOwnResult[0]?.count || 0;
 
     const slapTotalResult = await this.database.query(
       `
       SELECT COUNT(*) as count FROM brc88_slap_ads
-    `
+    `,
     );
     const slapTotal = slapTotalResult[0]?.count || 0;
 
     const slapActiveResult = await this.database.query(
       `
       SELECT COUNT(*) as count FROM brc88_slap_ads WHERE is_active = TRUE
-    `
+    `,
     );
     const slapActive = slapActiveResult[0]?.count || 0;
 
@@ -593,21 +599,21 @@ class BRC88SHIPSLAPService extends EventEmitter {
       SELECT COUNT(*) as count FROM brc88_slap_ads
       WHERE advertiser_identity = $1 AND is_active = TRUE
     `,
-      [myIdentity]
+      [myIdentity],
     );
     const slapOwn = slapOwnResult[0]?.count || 0;
 
     const peersTotalResult = await this.database.query(
       `
       SELECT COUNT(*) as count FROM brc88_peers
-    `
+    `,
     );
     const peersTotal = peersTotalResult[0]?.count || 0;
 
     const peersActiveResult = await this.database.query(
       `
       SELECT COUNT(*) as count FROM brc88_peers WHERE is_active = TRUE
-    `
+    `,
     );
     const peersActive = peersActiveResult[0]?.count || 0;
 
@@ -615,21 +621,21 @@ class BRC88SHIPSLAPService extends EventEmitter {
       `
       SELECT COUNT(*) as count FROM brc88_peers
       WHERE connection_status = 'connected'
-    `
+    `,
     );
     const peersConnected = peersConnectedResult[0]?.count || 0;
 
     const syncAttemptsResult = await this.database.query(
       `
       SELECT COUNT(*) as count FROM brc88_sync_history
-    `
+    `,
     );
     const syncAttempts = syncAttemptsResult[0]?.count || 0;
 
     const syncSuccessesResult = await this.database.query(
       `
       SELECT COUNT(*) as count FROM brc88_sync_history WHERE status = 'success'
-    `
+    `,
     );
     const syncSuccesses = syncSuccessesResult[0]?.count || 0;
 
@@ -688,7 +694,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
         ad.timestamp,
         ad.isRevocation || false,
         !ad.isRevocation,
-      ]
+      ],
     );
   }
 
@@ -718,7 +724,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
         ad.timestamp,
         ad.isRevocation || false,
         !ad.isRevocation,
-      ]
+      ],
     );
   }
 
@@ -783,7 +789,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
         messageCount,
         errorMessage || null,
         Date.now(),
-      ]
+      ],
     );
   }
 
@@ -797,7 +803,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       SET is_active = FALSE
       WHERE timestamp < $1 AND is_active = TRUE
     `,
-      [staleThreshold]
+      [staleThreshold],
     );
 
     // Mark stale SLAP advertisements as inactive
@@ -807,7 +813,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       SET is_active = FALSE
       WHERE timestamp < $1 AND is_active = TRUE
     `,
-      [staleThreshold]
+      [staleThreshold],
     );
 
     // Mark stale peers as inactive
@@ -817,7 +823,7 @@ class BRC88SHIPSLAPService extends EventEmitter {
       SET is_active = FALSE
       WHERE last_seen < $1 AND is_active = TRUE
     `,
-      [staleThreshold]
+      [staleThreshold],
     );
   }
 

@@ -1,0 +1,58 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.healthRouter = healthRouter;
+const express_1 = require("express");
+const db_1 = require("../db");
+function healthRouter() {
+    const router = (0, express_1.Router)();
+    router.get('/health', async (req, res) => {
+        const health = {
+            status: 'ok',
+            timestamp: new Date().toISOString(),
+            database: 'postgresql',
+            cache: 'redis',
+        };
+        try {
+            // Check hybrid database health
+            const hybridDb = (0, db_1.getHybridDatabase)();
+            const dbHealth = await hybridDb.healthCheck();
+            health.database = dbHealth.pg ? 'postgresql:ok' : 'postgresql:error';
+            health.cache = dbHealth.redis ? 'redis:ok' : 'redis:error';
+            if (!dbHealth.pg || !dbHealth.redis) {
+                health.status = 'degraded';
+                return res.status(503).json(health);
+            }
+            return res.status(200).json(health);
+        }
+        catch (error) {
+            health.status = 'error';
+            health.error = String(error);
+            return res.status(503).json(health);
+        }
+    });
+    // Extended health check with database details
+    router.get('/health/db', async (req, res) => {
+        try {
+            const hybridDb = (0, db_1.getHybridDatabase)();
+            const health = await hybridDb.healthCheck();
+            const details = {
+                postgresql: health.pg,
+                redis: health.redis,
+                features: {
+                    hybrid_db: true,
+                    cache_aside: true,
+                    redis_bundles: process.env.USE_REDIS_BUNDLES === 'true',
+                },
+            };
+            const status = health.pg && health.redis ? 200 : 503;
+            return res.status(status).json(details);
+        }
+        catch (error) {
+            return res.status(503).json({
+                error: String(error),
+            });
+        }
+    });
+    return router;
+}
+//# sourceMappingURL=health.js.map

@@ -1,0 +1,266 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.enforceAgentRegistrationPolicy = enforceAgentRegistrationPolicy;
+exports.enforceRuleConcurrency = enforceRuleConcurrency;
+exports.enforceJobCreationPolicy = enforceJobCreationPolicy;
+exports.enforceResourceLimits = enforceResourceLimits;
+exports.enforceAgentSecurityPolicy = enforceAgentSecurityPolicy;
+exports.resetPolicyState = resetPolicyState;
+exports.getPolicyMetrics = getPolicyMetrics;
+// Policy configuration from environment
+const RULES_MAX_CONCURRENCY = Number(process.env.RULES_MAX_CONCURRENCY || 10);
+const AGENTS_MAX_PER_IP = Number(process.env.AGENTS_MAX_PER_IP || 5);
+const JOBS_MAX_PENDING_PER_RULE = Number(process.env.JOBS_MAX_PENDING_PER_RULE || 3);
+// In-memory tracking for rate limits and concurrency
+const agentRegistrations = new Map();
+const currentConcurrency = { running: 0, queued: 0, failed: 0, dead: 0 };
+const runningJobs = new Map(); // ruleId -> count
+// Reset agent registration counts every hour
+const AGENT_RATE_WINDOW = 60 * 60 * 1000; // 1 hour
+function getClientIP(req) {
+    return (req.headers['x-forwarded-for']?.split(',')[0] ||
+        req.socket.remoteAddress ||
+        'unknown');
+}
+function resetExpiredCounts() {
+    const now = Date.now();
+    for (const [ip, data] of agentRegistrations.entries()) {
+        if (now - data.lastReset > AGENT_RATE_WINDOW) {
+            agentRegistrations.delete(ip);
+        }
+    }
+}
+function enforceAgentRegistrationPolicy() {
+    return (req, res, next) => {
+        try {
+            // Skip rate limiting only if explicitly disabled (not in tests that want to test rate limiting)
+            if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits']) {
+                return next();
+            }
+            resetExpiredCounts();
+            const clientIP = getClientIP(req);
+            const now = Date.now();
+            let ipData = agentRegistrations.get(clientIP);
+            if (!ipData) {
+                ipData = { count: 0, lastReset: now };
+                agentRegistrations.set(clientIP, ipData);
+            }
+            // Reset if window expired
+            if (now - ipData.lastReset > AGENT_RATE_WINDOW) {
+                ipData.count = 0;
+                ipData.lastReset = now;
+            }
+            if (ipData.count >= AGENTS_MAX_PER_IP) {
+                return res.status(429).json({
+                    error: 'rate-limit-exceeded',
+                    message: `Maximum ${AGENTS_MAX_PER_IP} agent registrations per IP per hour`,
+                    retryAfter: Math.ceil((AGENT_RATE_WINDOW - (now - ipData.lastReset)) / 1000),
+                });
+            }
+            // Increment counter on successful registration
+            const originalSend = res.send;
+            res.send = function (data) {
+                if (res.statusCode < 300) {
+                    ipData.count++;
+                }
+                return originalSend.call(this, data);
+            };
+            next();
+        }
+        catch (error) {
+            console.error('Policy enforcement error:', error);
+            next(); // Don't block on policy errors
+        }
+    };
+}
+function enforceRuleConcurrency() {
+    return (req, res, next) => {
+        try {
+            // Skip concurrency limits if disabled (PostgreSQL mode uses in-memory tracking)
+            if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits']) {
+                return next();
+            }
+            // Check overall running jobs count using in-memory tracking
+            const runningJobsCount = currentConcurrency.running;
+            if (runningJobsCount >= RULES_MAX_CONCURRENCY) {
+                return res.status(503).json({
+                    error: 'concurrency-limit-exceeded',
+                    message: `Maximum ${RULES_MAX_CONCURRENCY} concurrent jobs allowed`,
+                    currentRunning: runningJobsCount,
+                });
+            }
+            next();
+        }
+        catch (error) {
+            console.error('Concurrency check error:', error);
+            next(); // Don't block on policy errors
+        }
+    };
+}
+function enforceJobCreationPolicy() {
+    return (req, res, next) => {
+        try {
+            // Skip job creation limits if explicitly disabled
+            if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-rate-limits']) {
+                return next();
+            }
+            const ruleId = req.params.id || req.body?.ruleId;
+            if (ruleId) {
+                // Check pending jobs for this rule using in-memory tracking
+                const pendingCount = runningJobs.get(ruleId) || 0;
+                if (pendingCount >= JOBS_MAX_PENDING_PER_RULE) {
+                    return res.status(429).json({
+                        error: 'job-queue-limit-exceeded',
+                        message: `Maximum ${JOBS_MAX_PENDING_PER_RULE} pending jobs per rule`,
+                        ruleId,
+                        pendingCount,
+                    });
+                }
+            }
+            next();
+        }
+        catch (error) {
+            console.error('Job creation policy error:', error);
+            next(); // Don't block on policy errors
+        }
+    };
+}
+function enforceResourceLimits() {
+    return (req, res, next) => {
+        // Skip resource limits only if explicitly disabled
+        if (process.env.DISABLE_RATE_LIMITING === 'true' && !req.headers['x-test-resource-limits']) {
+            return next();
+        }
+        // Check request size limits
+        const contentLength = parseInt(req.headers['content-length'] || '0');
+        const MAX_REQUEST_SIZE = 1024 * 1024; // 1MB
+        if (contentLength > MAX_REQUEST_SIZE) {
+            return res.status(413).json({
+                error: 'request-too-large',
+                message: `Request size ${contentLength} exceeds maximum ${MAX_REQUEST_SIZE} bytes`,
+                maxSize: MAX_REQUEST_SIZE,
+            });
+        }
+        // Check template content limits for contract templates
+        if ((req.path.includes('/templates') || req.originalUrl.includes('/templates')) &&
+            req.body?.content) {
+            const contentSize = Buffer.byteLength(req.body.content, 'utf8');
+            const MAX_TEMPLATE_SIZE = 100 * 1024; // 100KB
+            if (contentSize > MAX_TEMPLATE_SIZE) {
+                return res.status(413).json({
+                    error: 'template-too-large',
+                    message: `Template content size ${contentSize} exceeds maximum ${MAX_TEMPLATE_SIZE} bytes`,
+                    maxSize: MAX_TEMPLATE_SIZE,
+                });
+            }
+        }
+        next();
+    };
+}
+// Enhanced security policy for agent marketplace
+function enforceAgentSecurityPolicy() {
+    return (req, res, next) => {
+        // Validate webhook URLs
+        if (req.body?.webhookUrl) {
+            const url = req.body.webhookUrl;
+            try {
+                const parsed = new URL(url);
+                // Always validate URL scheme (reject dangerous schemes)
+                const allowedSchemes = ['http:', 'https:'];
+                if (!allowedSchemes.includes(parsed.protocol)) {
+                    return res.status(400).json({
+                        error: 'invalid-webhook-url',
+                        message: 'Webhook URLs must use HTTP or HTTPS protocols',
+                    });
+                }
+                // Block localhost/private networks in production (and tests that want to test this)
+                if (process.env.NODE_ENV === 'production' || req.headers['x-test-webhook-validation']) {
+                    const hostname = parsed.hostname;
+                    if (hostname === 'localhost' ||
+                        hostname === '127.0.0.1' ||
+                        hostname.startsWith('192.168.') ||
+                        hostname.startsWith('10.') ||
+                        hostname.startsWith('172.16.') ||
+                        hostname.startsWith('172.17.') ||
+                        hostname.startsWith('172.18.') ||
+                        hostname.startsWith('172.19.') ||
+                        hostname.startsWith('172.2') ||
+                        hostname.startsWith('172.30.') ||
+                        hostname.startsWith('172.31.')) {
+                        return res.status(400).json({
+                            error: 'invalid-webhook-url',
+                            message: 'Webhook URLs cannot point to private networks in production',
+                        });
+                    }
+                }
+                // Require HTTPS in production (and tests that want to test this)
+                if ((process.env.NODE_ENV === 'production' || req.headers['x-test-webhook-validation']) &&
+                    parsed.protocol !== 'https:') {
+                    return res.status(400).json({
+                        error: 'invalid-webhook-url',
+                        message: 'Webhook URLs must use HTTPS in production',
+                    });
+                }
+            }
+            catch (error) {
+                return res.status(400).json({
+                    error: 'invalid-webhook-url',
+                    message: 'Invalid webhook URL format',
+                });
+            }
+        }
+        // Validate agent capabilities
+        if (req.body?.capabilities && Array.isArray(req.body.capabilities)) {
+            const capabilities = req.body.capabilities;
+            const MAX_CAPABILITIES = 20;
+            if (capabilities.length > MAX_CAPABILITIES) {
+                return res.status(400).json({
+                    error: 'too-many-capabilities',
+                    message: `Maximum ${MAX_CAPABILITIES} capabilities allowed`,
+                    provided: capabilities.length,
+                });
+            }
+            // Validate capability names
+            for (const cap of capabilities) {
+                if (typeof cap !== 'string' || cap.length > 50 || !/^[a-zA-Z0-9._-]+$/.test(cap)) {
+                    return res.status(400).json({
+                        error: 'invalid-capability',
+                        message: 'Capability names must be alphanumeric strings under 50 characters',
+                        invalid: cap,
+                    });
+                }
+            }
+        }
+        next();
+    };
+}
+// Reset policy state for testing
+function resetPolicyState() {
+    agentRegistrations.clear();
+    runningJobs.clear();
+}
+// Policy metrics for monitoring
+function getPolicyMetrics() {
+    // PostgreSQL mode uses in-memory tracking only
+    return {
+        jobs: {
+            running: currentConcurrency.running,
+            queued: currentConcurrency.queued,
+            failed: currentConcurrency.failed,
+            dead: currentConcurrency.dead,
+            maxConcurrency: RULES_MAX_CONCURRENCY,
+            concurrencyUtilization: currentConcurrency.running / RULES_MAX_CONCURRENCY,
+        },
+        agents: {
+            maxPerIP: AGENTS_MAX_PER_IP,
+            rateWindowHours: AGENT_RATE_WINDOW / (60 * 60 * 1000),
+            activeRateLimits: agentRegistrations.size,
+        },
+        limits: {
+            maxRequestSize: 1024 * 1024,
+            maxTemplateSize: 100 * 1024,
+            maxPendingJobsPerRule: JOBS_MAX_PENDING_PER_RULE,
+        },
+    };
+}
+//# sourceMappingURL=policy.js.map

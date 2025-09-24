@@ -20,7 +20,11 @@ interface TableDefinition {
 }
 
 class QueryBuilder {
-  static insert(table: string, data: Record<string, any>, onConflict?: string): { query: string; params: any[] } {
+  static insert(
+    table: string,
+    data: Record<string, any>,
+    onConflict?: string,
+  ): { query: string; params: any[] } {
     const keys = Object.keys(data);
     const placeholders = keys.map((_, index) => `$${index + 1}`);
     const params = Object.values(data);
@@ -34,14 +38,22 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static update(table: string, data: Record<string, any>, where: Record<string, any>): { query: string; params: any[] } {
-    const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+  static update(
+    table: string,
+    data: Record<string, any>,
+    where: Record<string, any>,
+  ): { query: string; params: any[] } {
+    const setClause = Object.keys(data)
+      .map((key, index) => `${key} = $${index + 1}`)
+      .join(', ');
     const params = [...Object.values(data)];
 
-    const whereClause = Object.keys(where).map((key, index) => {
-      params.push(where[key]);
-      return `${key} = $${params.length}`;
-    }).join(' AND ');
+    const whereClause = Object.keys(where)
+      .map((key, index) => {
+        params.push(where[key]);
+        return `${key} = $${params.length}`;
+      })
+      .join(' AND ');
 
     const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
     return { query, params };
@@ -56,7 +68,7 @@ class QueryBuilder {
       orderDirection?: 'ASC' | 'DESC';
       limit?: number;
       offset?: number;
-    } = {}
+    } = {},
   ): { query: string; params: any[] } {
     const columns = options.columns || ['*'];
     const cols = columns.join(', ');
@@ -104,7 +116,11 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static countWithCondition(table: string, condition: string, params: any[] = []): { query: string; params: any[] } {
+  static countWithCondition(
+    table: string,
+    condition: string,
+    params: any[] = [],
+  ): { query: string; params: any[] } {
     const query = `SELECT COUNT(*) as count FROM ${table} WHERE ${condition}`;
     return { query, params };
   }
@@ -119,7 +135,7 @@ class QueryBuilder {
       orderDirection?: 'ASC' | 'DESC';
       limit?: number;
       offset?: number;
-    } = {}
+    } = {},
   ): { query: string; params: any[] } {
     const cols = columns.join(', ');
     let query = `SELECT ${cols} FROM ${table} WHERE ${whereCondition}`;
@@ -145,14 +161,14 @@ class QueryBuilder {
   static deleteWithCondition(
     table: string,
     whereCondition: string,
-    params: any[] = []
+    params: any[] = [],
   ): { query: string; params: any[] } {
     const query = `DELETE FROM ${table} WHERE ${whereCondition}`;
     return { query, params };
   }
 
   static createTable(tableDef: TableDefinition): string {
-    const columns = tableDef.columns.map(col => {
+    const columns = tableDef.columns.map((col) => {
       let columnDef = `${col.name} ${col.type}`;
       if (col.constraints && col.constraints.length > 0) {
         columnDef += ' ' + col.constraints.join(' ');
@@ -279,11 +295,11 @@ export class StreamingService extends EventEmitter {
         { name: 'chunk_size', type: 'INTEGER', constraints: ['DEFAULT 1048576'] },
         { name: 'total_chunks', type: 'INTEGER', constraints: ['NOT NULL'] },
         { name: 'transcoded', type: 'BOOLEAN', constraints: ['DEFAULT FALSE'] },
-        { name: 'transcoding_status', type: 'VARCHAR(20)', constraints: ['DEFAULT \'pending\''] },
+        { name: 'transcoding_status', type: 'VARCHAR(20)', constraints: ["DEFAULT 'pending'"] },
         { name: 'metadata_json', type: 'TEXT' },
-        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
       ],
-      constraints: ['UNIQUE(content_hash)']
+      constraints: ['UNIQUE(content_hash)'],
     };
     await this.database.execute(QueryBuilder.createTable(streamingContentTable));
 
@@ -297,9 +313,9 @@ export class StreamingService extends EventEmitter {
         { name: 'chunk_hash', type: 'TEXT', constraints: ['UNIQUE NOT NULL'] },
         { name: 'size_bytes', type: 'INTEGER', constraints: ['NOT NULL'] },
         { name: 'local_path', type: 'TEXT', constraints: ['NOT NULL'] },
-        { name: 'uploaded_at', type: 'BIGINT', constraints: ['NOT NULL'] }
+        { name: 'uploaded_at', type: 'BIGINT', constraints: ['NOT NULL'] },
       ],
-      constraints: ['UNIQUE(content_hash, chunk_index)']
+      constraints: ['UNIQUE(content_hash, chunk_index)'],
     };
     await this.database.execute(QueryBuilder.createTable(contentChunksTable));
 
@@ -317,9 +333,9 @@ export class StreamingService extends EventEmitter {
         { name: 'playlist_url', type: 'TEXT' },
         { name: 'file_path', type: 'TEXT' },
         { name: 'transcoding_completed', type: 'BOOLEAN', constraints: ['DEFAULT FALSE'] },
-        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
       ],
-      constraints: ['UNIQUE(content_hash, profile_id)']
+      constraints: ['UNIQUE(content_hash, profile_id)'],
     };
     await this.database.execute(QueryBuilder.createTable(streamingProfilesTable));
 
@@ -335,13 +351,13 @@ export class StreamingService extends EventEmitter {
         { name: 'total_size', type: 'BIGINT', constraints: ['NOT NULL'] },
         { name: 'chunk_size', type: 'INTEGER', constraints: ['NOT NULL'] },
         { name: 'total_chunks', type: 'INTEGER', constraints: ['NOT NULL'] },
-        { name: 'uploaded_chunks_json', type: 'TEXT', constraints: ['DEFAULT \'[]\''] },
+        { name: 'uploaded_chunks_json', type: 'TEXT', constraints: ["DEFAULT '[]'"] },
         { name: 'enable_streaming', type: 'BOOLEAN', constraints: ['DEFAULT FALSE'] },
-        { name: 'streaming_profiles_json', type: 'TEXT', constraints: ['DEFAULT \'[]\''] },
-        { name: 'status', type: 'VARCHAR(20)', constraints: ['DEFAULT \'pending\''] },
+        { name: 'streaming_profiles_json', type: 'TEXT', constraints: ["DEFAULT '[]'"] },
+        { name: 'status', type: 'VARCHAR(20)', constraints: ["DEFAULT 'pending'"] },
         { name: 'created_at', type: 'BIGINT', constraints: ['NOT NULL'] },
-        { name: 'expires_at', type: 'BIGINT', constraints: ['NOT NULL'] }
-      ]
+        { name: 'expires_at', type: 'BIGINT', constraints: ['NOT NULL'] },
+      ],
     };
     await this.database.execute(QueryBuilder.createTable(uploadSessionsTable));
 
@@ -354,13 +370,13 @@ export class StreamingService extends EventEmitter {
         { name: 'content_hash', type: 'TEXT', constraints: ['NOT NULL'] },
         { name: 'source_file', type: 'TEXT', constraints: ['NOT NULL'] },
         { name: 'target_profiles_json', type: 'TEXT', constraints: ['NOT NULL'] },
-        { name: 'status', type: 'VARCHAR(20)', constraints: ['DEFAULT \'pending\''] },
+        { name: 'status', type: 'VARCHAR(20)', constraints: ["DEFAULT 'pending'"] },
         { name: 'progress', type: 'INTEGER', constraints: ['DEFAULT 0'] },
         { name: 'started_at', type: 'BIGINT' },
         { name: 'completed_at', type: 'BIGINT' },
         { name: 'error_message', type: 'TEXT' },
-        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] }
-      ]
+        { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
+      ],
     };
     await this.database.execute(QueryBuilder.createTable(transcodingJobsTable));
 
@@ -410,10 +426,13 @@ export class StreamingService extends EventEmitter {
       streaming_profiles_json: JSON.stringify(session.streamingProfiles),
       status: session.status,
       created_at: session.createdAt,
-      expires_at: session.expiresAt
+      expires_at: session.expiresAt,
     };
 
-    const { query: insertSessionQuery, params: insertSessionParams } = QueryBuilder.insert('uhrp_upload_sessions', sessionData);
+    const { query: insertSessionQuery, params: insertSessionParams } = QueryBuilder.insert(
+      'uhrp_upload_sessions',
+      sessionData,
+    );
     await this.database.execute(insertSessionQuery, insertSessionParams);
 
     this.uploadSessions.set(uploadId, session);
@@ -464,7 +483,7 @@ export class StreamingService extends EventEmitter {
       return { success: true, chunkHash, message: 'Chunk uploaded successfully' };
     } catch (error) {
       console.error(`[STREAMING] Failed to upload chunk ${chunkIndex}:`, error);
-      return { success: false, chunkHash: '', message: error.message };
+      return { success: false, chunkHash: '', message: (error as Error).message };
     }
   }
 
@@ -509,10 +528,13 @@ export class StreamingService extends EventEmitter {
       is_streamable: session.enableStreaming,
       chunk_size: session.chunkSize,
       total_chunks: session.totalChunks,
-      transcoded: false
+      transcoded: false,
     };
 
-    const { query: insertContentQuery, params: insertContentParams } = QueryBuilder.insert('uhrp_streaming_content', contentData);
+    const { query: insertContentQuery, params: insertContentParams } = QueryBuilder.insert(
+      'uhrp_streaming_content',
+      contentData,
+    );
     await this.database.execute(insertContentQuery, insertContentParams);
 
     // Start transcoding if enabled
@@ -636,11 +658,15 @@ export class StreamingService extends EventEmitter {
   private async updateUploadSession(session: ChunkedUploadSession): Promise<void> {
     const updateData = {
       uploaded_chunks_json: JSON.stringify(Array.from(session.uploadedChunks)),
-      status: session.status
+      status: session.status,
     };
     const whereCondition = { upload_id: session.uploadId };
 
-    const { query: updateQuery, params: updateParams } = QueryBuilder.update('uhrp_upload_sessions', updateData, whereCondition);
+    const { query: updateQuery, params: updateParams } = QueryBuilder.update(
+      'uhrp_upload_sessions',
+      updateData,
+      whereCondition,
+    );
     await this.database.execute(updateQuery, updateParams);
   }
 
@@ -670,7 +696,7 @@ export class StreamingService extends EventEmitter {
     const { query: deleteQuery, params: deleteParams } = QueryBuilder.deleteWithCondition(
       'uhrp_upload_sessions',
       'expires_at < $1',
-      [now]
+      [now],
     );
     await this.database.execute(deleteQuery, deleteParams);
   }

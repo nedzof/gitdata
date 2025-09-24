@@ -1,0 +1,85 @@
+"use strict";
+/**
+ * Rate limits per route using a simple token bucket per (ip, routeKey).
+ * Configure via RATE_LIMITS_JSON, e.g.:
+ *   {"submit":200,"bundle":200,"ready":200,"price":200,"data":200,"pay":200}
+ * Units: requests per minute.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.limitsMiddleware = void 0;
+exports.rateLimit = rateLimit;
+function getLimits() {
+    try {
+        const raw = process.env.RATE_LIMITS_JSON;
+        if (raw)
+            return JSON.parse(raw);
+    }
+    catch {
+        // Ignore JSON parse errors and use defaults
+    }
+    // Defaults (permissive for development - 200 requests per minute each)
+    return {
+        submit: 200,
+        bundle: 200,
+        ready: 200,
+        price: 200,
+        data: 200,
+        pay: 200,
+        agents: 200,
+        rules: 200,
+        jobs: 200,
+        models: 200,
+        payments: 200,
+        storage: 200,
+        ingest: 200,
+        policies: 200,
+    };
+}
+const buckets = new Map();
+function takeToken(key, capacity) {
+    const now = Date.now();
+    let b = buckets.get(key);
+    const ratePerMs = capacity / 60000; // capacity per minute
+    if (!b) {
+        b = { tokens: capacity, lastRefillMs: now, capacity, ratePerMs };
+        buckets.set(key, b);
+    }
+    // Refill
+    const elapsed = now - b.lastRefillMs;
+    if (elapsed > 0) {
+        b.tokens = Math.min(b.capacity, b.tokens + elapsed * b.ratePerMs);
+        b.lastRefillMs = now;
+    }
+    if (b.tokens >= 1) {
+        b.tokens -= 1;
+        return true;
+    }
+    return false;
+}
+/** Middleware factory for a given logical route key (e.g., 'submit', 'bundle', 'ready', 'price', 'data', 'pay') */
+function rateLimit(routeKey) {
+    const limits = getLimits();
+    const capacity = Math.max(1, Number(limits[routeKey] || 60));
+    return function (req, res, next) {
+        try {
+            let ip = req.ip || req.socket?.remoteAddress || 'unknown';
+            if (req.headers['x-forwarded-for']) {
+                ip = req.headers['x-forwarded-for'].toString().split(',')[0].trim();
+            }
+            ip = ip.toString();
+            const key = `${routeKey}:${ip}`;
+            if (!takeToken(key, capacity)) {
+                res.setHeader('retry-after', '60');
+                return res.status(429).json({ error: 'rate-limited', hint: `limit=${capacity}/min` });
+            }
+            next();
+        }
+        catch (e) {
+            return res.status(500).json({ error: 'rate-limit-error', message: String(e?.message || e) });
+        }
+    };
+}
+// Alias for server.ts compatibility
+const limitsMiddleware = () => rateLimit('general');
+exports.limitsMiddleware = limitsMiddleware;
+//# sourceMappingURL=limits.js.map

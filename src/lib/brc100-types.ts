@@ -68,10 +68,13 @@ export interface Wallet {
    * Signs a transaction previously created using createAction.
    */
   signAction: (args: {
-    spends: Record<PositiveIntegerOrZero, {
-      unlockingScript: HexString;
-      sequenceNumber?: PositiveIntegerOrZero;
-    }>;
+    spends: Record<
+      PositiveIntegerOrZero,
+      {
+        unlockingScript: HexString;
+        sequenceNumber?: PositiveIntegerOrZero;
+      }
+    >;
     reference: Base64String;
     options?: {
       acceptDelayedBroadcast?: BooleanDefaultTrue;
@@ -99,9 +102,7 @@ export interface Wallet {
   /**
    * Aborts a transaction that was created but not yet completed.
    */
-  abortAction: (args: {
-    reference: Base64String;
-  }) => Promise<{
+  abortAction: (args: { reference: Base64String }) => Promise<{
     aborted: boolean;
   }>;
 
@@ -539,7 +540,10 @@ declare global {
 
 // Wallet detection and access utilities
 export class WalletError extends Error {
-  constructor(message: string, public code?: string) {
+  constructor(
+    message: string,
+    public code?: string,
+  ) {
     super(message);
     this.name = 'WalletError';
   }

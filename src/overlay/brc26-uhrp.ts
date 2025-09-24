@@ -81,7 +81,11 @@ interface TableDefinition {
 }
 
 class QueryBuilder {
-  static insert(table: string, data: Record<string, any>, onConflict?: string): { query: string; params: any[] } {
+  static insert(
+    table: string,
+    data: Record<string, any>,
+    onConflict?: string,
+  ): { query: string; params: any[] } {
     const keys = Object.keys(data);
     const placeholders = keys.map((_, index) => `$${index + 1}`);
     const params = Object.values(data);
@@ -95,14 +99,22 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static update(table: string, data: Record<string, any>, where: Record<string, any>): { query: string; params: any[] } {
-    const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+  static update(
+    table: string,
+    data: Record<string, any>,
+    where: Record<string, any>,
+  ): { query: string; params: any[] } {
+    const setClause = Object.keys(data)
+      .map((key, index) => `${key} = $${index + 1}`)
+      .join(', ');
     const params = [...Object.values(data)];
 
-    const whereClause = Object.keys(where).map((key, index) => {
-      params.push(where[key]);
-      return `${key} = $${params.length}`;
-    }).join(' AND ');
+    const whereClause = Object.keys(where)
+      .map((key, index) => {
+        params.push(where[key]);
+        return `${key} = $${params.length}`;
+      })
+      .join(' AND ');
 
     const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
     return { query, params };
@@ -117,7 +129,7 @@ class QueryBuilder {
       orderDirection?: 'ASC' | 'DESC';
       limit?: number;
       offset?: number;
-    } = {}
+    } = {},
   ): { query: string; params: any[] } {
     const columns = options.columns || ['*'];
     const cols = columns.join(', ');
@@ -165,7 +177,11 @@ class QueryBuilder {
     return { query, params };
   }
 
-  static countWithCondition(table: string, condition: string, params: any[] = []): { query: string; params: any[] } {
+  static countWithCondition(
+    table: string,
+    condition: string,
+    params: any[] = [],
+  ): { query: string; params: any[] } {
     const query = `SELECT COUNT(*) as count FROM ${table} WHERE ${condition}`;
     return { query, params };
   }
@@ -180,7 +196,7 @@ class QueryBuilder {
       orderDirection?: 'ASC' | 'DESC';
       limit?: number;
       offset?: number;
-    } = {}
+    } = {},
   ): { query: string; params: any[] } {
     const cols = columns.join(', ');
     let query = `SELECT ${cols} FROM ${table} WHERE ${whereCondition}`;
@@ -339,7 +355,7 @@ class BRC26UHRPService extends EventEmitter {
         'uhrp_content',
         ['*'],
         'expires_at > $1',
-        [Date.now()]
+        [Date.now()],
       );
       const content = await this.database.query(query, params);
 
@@ -429,7 +445,7 @@ class BRC26UHRPService extends EventEmitter {
         download_count: content.downloadCount,
         local_path: content.localPath,
         is_public: content.isPublic,
-        metadata_json: content.metadata ? JSON.stringify(content.metadata) : null
+        metadata_json: content.metadata ? JSON.stringify(content.metadata) : null,
       };
 
       const { query, params } = QueryBuilder.insert('uhrp_content', contentData);
@@ -547,8 +563,8 @@ class BRC26UHRPService extends EventEmitter {
         {
           orderBy: 'uploaded_at',
           orderDirection: 'DESC',
-          limit: query.limit
-        }
+          limit: query.limit,
+        },
       );
 
       const results = await this.database.query(selectQuery, selectParams);
@@ -591,8 +607,8 @@ class BRC26UHRPService extends EventEmitter {
         [contentHash, Date.now()],
         {
           orderBy: 'advertised_at',
-          orderDirection: 'DESC'
-        }
+          orderDirection: 'DESC',
+        },
       );
       const advertisements = await this.database.query(query, params);
 
@@ -692,7 +708,14 @@ class BRC26UHRPService extends EventEmitter {
           return { success: true, content, buffer };
         } catch (error) {
           console.warn(`[UHRP] Download failed from ${ad.url}:`, (error as Error).message);
-          await this.recordDownload(contentHash, ad.publicKey, ad.url, false, 0, (error as Error).message);
+          await this.recordDownload(
+            contentHash,
+            ad.publicKey,
+            ad.url,
+            false,
+            0,
+            (error as Error).message,
+          );
         }
       }
 
@@ -718,7 +741,7 @@ class BRC26UHRPService extends EventEmitter {
       // For increment operations, we need to use raw SQL
       await this.database.execute(
         'UPDATE uhrp_content SET download_count = download_count + 1 WHERE content_hash = $1',
-        [contentHash]
+        [contentHash],
       );
 
       return await fs.readFile(content.localPath);
@@ -846,7 +869,7 @@ class BRC26UHRPService extends EventEmitter {
       signature: ad.signature,
       utxo_id: ad.utxoId,
       advertised_at: ad.advertisedAt,
-      is_active: ad.isActive
+      is_active: ad.isActive,
     };
 
     const onConflict = `ON CONFLICT (public_key, content_hash)
@@ -858,7 +881,11 @@ class BRC26UHRPService extends EventEmitter {
         advertised_at = EXCLUDED.advertised_at,
         is_active = EXCLUDED.is_active`;
 
-    const { query, params } = QueryBuilder.insert('uhrp_advertisements', advertisementData, onConflict);
+    const { query, params } = QueryBuilder.insert(
+      'uhrp_advertisements',
+      advertisementData,
+      onConflict,
+    );
     await this.database.execute(query, params);
   }
 
@@ -873,8 +900,8 @@ class BRC26UHRPService extends EventEmitter {
       publicKeys,
       {
         orderBy: 'reputation',
-        orderDirection: 'DESC'
-      }
+        orderDirection: 'DESC',
+      },
     );
     const hosts = await this.database.query(query, params);
 
@@ -905,7 +932,7 @@ class BRC26UHRPService extends EventEmitter {
       downloaded_at: Date.now(),
       success: success,
       error_message: errorMessage || null,
-      download_time_ms: downloadTimeMs
+      download_time_ms: downloadTimeMs,
     };
 
     const { query, params } = QueryBuilder.insert('uhrp_downloads', downloadData);
@@ -923,7 +950,7 @@ class BRC26UHRPService extends EventEmitter {
       const adUpdateData = { is_active: false };
       const adResult = await this.database.execute(
         'UPDATE uhrp_advertisements SET is_active = FALSE WHERE expiry_time < $1 AND is_active = TRUE',
-        [now]
+        [now],
       );
 
       // Remove expired content files
@@ -931,7 +958,7 @@ class BRC26UHRPService extends EventEmitter {
         'uhrp_content',
         ['content_hash', 'local_path'],
         'expires_at < $1',
-        [now]
+        [now],
       );
       const expiredContent = await this.database.query(expiredQuery, expiredParams);
 
@@ -947,10 +974,7 @@ class BRC26UHRPService extends EventEmitter {
       }
 
       // Remove expired content records
-      await this.database.execute(
-        'DELETE FROM uhrp_content WHERE expires_at < $1',
-        [now]
-      );
+      await this.database.execute('DELETE FROM uhrp_content WHERE expires_at < $1', [now]);
 
       return {
         contentRemoved,

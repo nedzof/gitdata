@@ -238,14 +238,8 @@ export function getOverlayConfig(
 
     case 'test':
       return {
-        topics: [
-          D01A_TOPICS.DATA_ASSET,
-          D01A_TOPICS.PAYMENT_RECEIPTS,
-          D01A_TOPICS.LINEAGE_GRAPH,
-        ],
-        advertiseTopics: [
-          D01A_TOPICS.DATA_ASSET,
-        ],
+        topics: [D01A_TOPICS.DATA_ASSET, D01A_TOPICS.PAYMENT_RECEIPTS, D01A_TOPICS.LINEAGE_GRAPH],
+        advertiseTopics: [D01A_TOPICS.DATA_ASSET],
         peerDiscovery: {
           lookupServices: ['https://overlay.powping.com'],
           timeout: 30000,
