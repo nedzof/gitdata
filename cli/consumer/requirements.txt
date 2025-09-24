@@ -1,0 +1,46 @@
+# BSV Overlay Network Consumer CLI Requirements
+# Python dependencies for the D14 Consumer CLI
+
+# Core dependencies
+aiohttp>=3.8.0
+asyncpg>=0.27.0
+aiofiles>=23.0.0
+
+# CLI and configuration
+argparse  # built-in
+configparser  # built-in
+
+# Cryptography and security
+cryptography>=40.0.0
+pycryptodome>=3.18.0
+
+# Data handling
+orjson>=3.8.0  # Fast JSON parsing
+pydantic>=1.10.0  # Data validation
+
+# Database
+asyncpg>=0.27.0  # PostgreSQL async client
+SQLAlchemy>=2.0.0  # Optional ORM support
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.10.0
+
+# Development tools
+black>=23.0.0  # Code formatting
+flake8>=6.0.0  # Linting
+mypy>=1.0.0  # Type checking
+
+# Optional performance enhancements
+uvloop>=0.17.0  # Fast event loop (Unix only)
+cchardet>=2.1.7  # Fast character encoding detection
+
+# Logging and monitoring
+structlog>=23.0.0  # Structured logging
+prometheus-client>=0.16.0  # Metrics export
+
+# Utilities
+click>=8.0.0  # Alternative CLI framework
+rich>=13.0.0  # Rich terminal output
+tqdm>=4.65.0  # Progress bars

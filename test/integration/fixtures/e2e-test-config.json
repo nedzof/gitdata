@@ -1,0 +1,316 @@
+{
+  "testEnvironment": {
+    "name": "E2E Producer-Consumer Integration Tests",
+    "version": "1.0.0",
+    "description": "Configuration for comprehensive BRC stack integration testing"
+  },
+  "services": {
+    "overlayNetwork": {
+      "baseUrl": "http://localhost:3000",
+      "healthEndpoint": "/health",
+      "timeout": 30000
+    },
+    "database": {
+      "host": "localhost",
+      "port": 5432,
+      "name": "overlay_test",
+      "user": "postgres",
+      "password": "password"
+    },
+    "redis": {
+      "host": "localhost",
+      "port": 6379,
+      "db": 0
+    }
+  },
+  "testData": {
+    "streams": {
+      "market_data_stream": {
+        "type": "financial",
+        "contentType": "application/json",
+        "packetSize": 1024,
+        "frequency": "real-time",
+        "pricing": {
+          "basePrice": 100,
+          "currency": "BSV",
+          "unit": "per-packet"
+        }
+      },
+      "sensor_telemetry_stream": {
+        "type": "iot",
+        "contentType": "application/cbor",
+        "packetSize": 512,
+        "frequency": "5s",
+        "pricing": {
+          "basePrice": 50,
+          "currency": "BSV",
+          "unit": "per-packet"
+        }
+      },
+      "video_content_stream": {
+        "type": "media",
+        "contentType": "video/mp4",
+        "packetSize": 8192,
+        "frequency": "30fps",
+        "pricing": {
+          "basePrice": 1000,
+          "currency": "BSV",
+          "unit": "per-second"
+        }
+      },
+      "document_publishing_stream": {
+        "type": "document",
+        "contentType": "application/pdf",
+        "packetSize": 4096,
+        "frequency": "on-demand",
+        "pricing": {
+          "basePrice": 500,
+          "currency": "BSV",
+          "unit": "per-document"
+        }
+      }
+    },
+    "paymentAmounts": {
+      "micro": 10,
+      "small": 100,
+      "medium": 1000,
+      "large": 10000,
+      "premium": 100000
+    },
+    "testIdentities": {
+      "producer": {
+        "count": 5,
+        "capabilities": [
+          "content-publishing",
+          "streaming",
+          "micropayments",
+          "analytics"
+        ]
+      },
+      "consumer": {
+        "count": 10,
+        "capabilities": [
+          "content-access",
+          "streaming-consumption",
+          "micropayments"
+        ]
+      }
+    }
+  },
+  "brcStandards": {
+    "BRC-22": {
+      "name": "Transaction Submission",
+      "endpoints": ["/api/transactions/submit", "/api/transactions/{id}/status"],
+      "testScenarios": [
+        "basic_transaction_submission",
+        "transaction_status_tracking",
+        "bulk_transaction_processing"
+      ]
+    },
+    "BRC-24": {
+      "name": "Lookup Services",
+      "endpoints": ["/api/lookup/register", "/api/lookup/search"],
+      "testScenarios": [
+        "content_registration",
+        "content_discovery",
+        "metadata_queries",
+        "pagination_handling"
+      ]
+    },
+    "BRC-26": {
+      "name": "UHRP Content Storage",
+      "endpoints": ["/api/content/publish", "/api/content/retrieve"],
+      "testScenarios": [
+        "content_publishing",
+        "content_retrieval",
+        "multi_node_distribution",
+        "content_integrity_verification"
+      ]
+    },
+    "BRC-31": {
+      "name": "Identity Authentication",
+      "endpoints": [
+        "/api/identity/register",
+        "/api/identity/challenge",
+        "/api/identity/authenticate"
+      ],
+      "testScenarios": [
+        "identity_registration",
+        "authentication_challenges",
+        "certificate_validation",
+        "identity_verification"
+      ]
+    },
+    "BRC-41": {
+      "name": "PacketPay HTTP Micropayments",
+      "endpoints": [
+        "/api/payments/quote",
+        "/api/payments/submit",
+        "/api/payments/{id}/status"
+      ],
+      "testScenarios": [
+        "payment_quoting",
+        "micropayment_processing",
+        "payment_status_tracking",
+        "receipt_generation"
+      ]
+    },
+    "BRC-64": {
+      "name": "History Tracking",
+      "endpoints": [
+        "/api/analytics/track",
+        "/api/analytics/history",
+        "/api/analytics/lineage"
+      ],
+      "testScenarios": [
+        "event_tracking",
+        "usage_analytics",
+        "content_lineage",
+        "historical_reports"
+      ]
+    },
+    "BRC-88": {
+      "name": "Service Discovery",
+      "endpoints": ["/api/services/advertise", "/api/services/discover"],
+      "testScenarios": [
+        "service_advertisement",
+        "service_discovery",
+        "capability_matching",
+        "geographic_filtering"
+      ]
+    },
+    "D21": {
+      "name": "BSV Native Payments",
+      "endpoints": ["/api/payments/native-bsv"],
+      "testScenarios": [
+        "native_payment_processing",
+        "arc_integration",
+        "premium_content_access"
+      ]
+    },
+    "D22": {
+      "name": "Storage Backend",
+      "endpoints": [
+        "/api/storage/distribute",
+        "/api/storage/availability"
+      ],
+      "testScenarios": [
+        "multi_node_distribution",
+        "availability_checking",
+        "load_balancing",
+        "geographic_replication"
+      ]
+    }
+  },
+  "testScenarios": {
+    "realWorldWorkflows": [
+      {
+        "name": "complete_producer_consumer_workflow",
+        "description": "Full end-to-end workflow from producer registration to consumer content access",
+        "steps": [
+          "producer_identity_registration",
+          "service_advertisement",
+          "content_publishing",
+          "consumer_service_discovery",
+          "payment_processing",
+          "content_access",
+          "analytics_tracking"
+        ],
+        "expectedBRCs": ["BRC-31", "BRC-88", "BRC-26", "BRC-24", "BRC-41", "BRC-64"]
+      },
+      {
+        "name": "multi_stream_real_time_scenario",
+        "description": "Multiple concurrent streams with real-time micropayments",
+        "steps": [
+          "multiple_stream_setup",
+          "concurrent_subscriptions",
+          "real_time_payments",
+          "stream_quality_management",
+          "session_analytics"
+        ],
+        "expectedBRCs": ["BRC-31", "BRC-88", "BRC-41", "BRC-64", "D21"]
+      },
+      {
+        "name": "premium_content_with_native_payments",
+        "description": "High-value content access using BSV native payments",
+        "steps": [
+          "premium_service_advertisement",
+          "content_discovery",
+          "native_bsv_payment",
+          "secure_content_delivery",
+          "transaction_confirmation"
+        ],
+        "expectedBRCs": ["BRC-31", "BRC-24", "D21", "BRC-26", "BRC-22"]
+      },
+      {
+        "name": "distributed_storage_replication",
+        "description": "Content distribution across multiple storage nodes",
+        "steps": [
+          "multi_node_content_publishing",
+          "replication_verification",
+          "availability_monitoring",
+          "failover_testing",
+          "consistency_validation"
+        ],
+        "expectedBRCs": ["BRC-26", "D22", "BRC-64"]
+      }
+    ],
+    "stressTests": [
+      {
+        "name": "high_volume_micropayments",
+        "description": "Process large volumes of micropayments concurrently",
+        "parameters": {
+          "concurrentPayments": 1000,
+          "paymentAmount": 10,
+          "duration": "60s"
+        }
+      },
+      {
+        "name": "massive_content_distribution",
+        "description": "Distribute large amounts of content across nodes",
+        "parameters": {
+          "contentItems": 10000,
+          "averageSize": "1MB",
+          "replicationFactor": 3
+        }
+      }
+    ]
+  },
+  "monitoring": {
+    "metrics": {
+      "responseTime": {
+        "p50": "< 100ms",
+        "p95": "< 500ms",
+        "p99": "< 1000ms"
+      },
+      "successRate": {
+        "target": "> 99%",
+        "critical": "> 95%"
+      },
+      "throughput": {
+        "paymentsPerSecond": 100,
+        "contentAccessPerSecond": 50,
+        "streamingSessionsPerSecond": 10
+      }
+    },
+    "alerts": {
+      "errorRate": "> 5%",
+      "responseTime": "> 2000ms",
+      "serviceUnavailable": "any BRC service down"
+    }
+  },
+  "cleanup": {
+    "testData": {
+      "retentionPeriod": "1h",
+      "autoCleanup": true
+    },
+    "tempFiles": {
+      "directory": "./test/fixtures/e2e-data",
+      "autoRemove": true
+    },
+    "databases": {
+      "resetAfterTests": true,
+      "backupBeforeReset": false
+    }
+  }
+}
