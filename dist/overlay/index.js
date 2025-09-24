@@ -1,6 +1,9 @@
 "use strict";
 // BSV Overlay Integration Entry Point
 // Exports all overlay services and utilities including BRC standards
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TOPIC_CLASSIFICATION = exports.TopicSubscriptionManager = exports.TopicGenerator = exports.D01A_TOPICS = exports.getOverlayConfig = exports.AgentExecutionService = exports.OverlayRuleEngine = exports.OverlayAgentRegistry = exports.BRC26UHRPService = exports.BRC88SHIPSLAPService = exports.BRC64HistoryService = exports.BRC24LookupService = exports.BRC22SubmitService = exports.OverlayPaymentService = exports.OverlayManager = exports.BSVOverlayService = void 0;
 exports.initializeOverlayServices = initializeOverlayServices;
@@ -38,6 +41,10 @@ const overlay_manager_2 = require("./overlay-manager");
 const overlay_payments_2 = require("./overlay-payments");
 const brc_services_postgresql_1 = require("./brc-services-postgresql");
 const brc26_uhrp_2 = require("./brc26-uhrp");
+const streaming_service_1 = require("../streaming/streaming-service");
+const federation_manager_1 = require("./federation-manager");
+const advanced_streaming_service_1 = require("../streaming/advanced-streaming-service");
+const crypto_1 = __importDefault(require("crypto"));
 class PostgreSQLAdapter {
     constructor(pool) {
         this.pool = pool;
@@ -160,6 +167,44 @@ async function initializeOverlayServices(database, environment = 'development', 
         webhookTimeoutMs: 15000,
         requireIdentity: true,
     });
+    // Phase 3: Streaming Services (optional)
+    let streamingService;
+    try {
+        const streamingStorageDir = process.env.STREAMING_STORAGE_DIR || '/tmp/streaming';
+        const myHostId = `host_${myDomain.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
+        const myEndpoint = `http://${myDomain}`;
+        streamingService = new streaming_service_1.StreamingService(dbAdapter, streamingStorageDir, myHostId, myEndpoint, {
+            maxConcurrentTranscodings: 2,
+            p2pEnabled: process.env.STREAMING_P2P_ENABLED !== 'false',
+        });
+        console.log('[OVERLAY] ✅ Streaming service initialized for Phase 3 compliance');
+    }
+    catch (error) {
+        console.log('[OVERLAY] ⚠️  Streaming service unavailable (optional):', error.message);
+    }
+    // Phase 5: Advanced Features (optional)
+    let federationManager;
+    let advancedStreamingService;
+    try {
+        // Initialize Federation Manager for cross-overlay network support
+        const nodeId = `node_${myDomain.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
+        const federationPrivateKey = process.env.FEDERATION_PRIVATE_KEY || crypto_1.default.randomBytes(32).toString('hex');
+        federationManager = new federation_manager_1.FederationManager(dbAdapter, nodeId, federationPrivateKey);
+        await federationManager.initialize();
+        console.log('[OVERLAY] ✅ Federation manager initialized for Phase 5 cross-network support');
+    }
+    catch (error) {
+        console.log('[OVERLAY] ⚠️  Federation manager unavailable (optional):', error.message);
+    }
+    try {
+        // Initialize Advanced Streaming Service for live streaming and CDN
+        advancedStreamingService = new advanced_streaming_service_1.AdvancedStreamingService(dbAdapter);
+        await advancedStreamingService.initialize();
+        console.log('[OVERLAY] ✅ Advanced streaming service initialized for Phase 5 live streaming');
+    }
+    catch (error) {
+        console.log('[OVERLAY] ⚠️  Advanced streaming service unavailable (optional):', error.message);
+    }
     // Initialize overlay manager
     await overlayManager.initialize();
     // Set up cross-service event handling
@@ -176,6 +221,11 @@ async function initializeOverlayServices(database, environment = 'development', 
         agentRegistry,
         ruleEngine,
         executionService,
+        // Phase 3: Streaming Services
+        streamingService,
+        // Phase 5: Advanced Features
+        federationManager,
+        advancedStreamingService,
     };
 }
 /**

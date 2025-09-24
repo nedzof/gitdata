@@ -10,6 +10,7 @@ import * as path from 'path';
 
 import type { WalletClient } from '@bsv/sdk';
 import type { Pool } from 'pg';
+import { D22StorageSchema } from '../db/schema-d22-overlay-storage.js';
 
 // Type definitions for UHRP Storage
 export interface ContentMetadata {

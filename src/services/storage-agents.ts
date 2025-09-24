@@ -8,6 +8,7 @@ import { createHash, randomBytes } from 'crypto';
 
 import type { WalletClient } from '@bsv/sdk';
 import type { Pool } from 'pg';
+import { D22StorageSchema } from '../db/schema-d22-overlay-storage.js';
 
 import type {
   StorageLocation,

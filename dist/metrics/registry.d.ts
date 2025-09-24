@@ -18,11 +18,11 @@ export declare function snapshotMetrics(): {
     uptimeSec: number;
     requestsTotal: number;
     requestsByRoute: {
+        data: number;
         submit: number;
         bundle: number;
         ready: number;
         price: number;
-        data: number;
         pay: number;
         agents: number;
         rules: number;

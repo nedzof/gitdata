@@ -217,14 +217,8 @@ function getOverlayConfig(env = 'development') {
             };
         case 'test':
             return {
-                topics: [
-                    exports.D01A_TOPICS.DATA_ASSET,
-                    exports.D01A_TOPICS.PAYMENT_RECEIPTS,
-                    exports.D01A_TOPICS.LINEAGE_GRAPH,
-                ],
-                advertiseTopics: [
-                    exports.D01A_TOPICS.DATA_ASSET,
-                ],
+                topics: [exports.D01A_TOPICS.DATA_ASSET, exports.D01A_TOPICS.PAYMENT_RECEIPTS, exports.D01A_TOPICS.LINEAGE_GRAPH],
+                advertiseTopics: [exports.D01A_TOPICS.DATA_ASSET],
                 peerDiscovery: {
                     lookupServices: ['https://overlay.powping.com'],
                     timeout: 30000,

@@ -1,0 +1,1113 @@
+{
+  "info": {
+    "name": "BSV Overlay Network - Complete Workflows",
+    "description": "Comprehensive workflow collections for BSV Overlay Network testing and integration. Includes authentication flows, file operations, payment processing, and streaming workflows.",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8788",
+      "type": "string",
+      "description": "BSV Overlay Network base URL"
+    },
+    {
+      "key": "identity_key",
+      "value": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+      "type": "string",
+      "description": "Your BSV identity public key"
+    },
+    {
+      "key": "jwt_token",
+      "value": "",
+      "type": "string",
+      "description": "JWT token from authentication (auto-populated)"
+    },
+    {
+      "key": "content_hash",
+      "value": "",
+      "type": "string",
+      "description": "Content hash from file upload (auto-populated)"
+    },
+    {
+      "key": "payment_id",
+      "value": "",
+      "type": "string",
+      "description": "Payment ID from payment request (auto-populated)"
+    },
+    {
+      "key": "stream_id",
+      "value": "",
+      "type": "string",
+      "description": "Stream ID from live stream creation (auto-populated)"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global pre-request script",
+          "console.log('🚀 BSV Overlay Network API Request');",
+          "console.log('Endpoint:', pm.request.url.toString());",
+          "console.log('Method:', pm.request.method);",
+          "",
+          "// Add timestamp to all requests",
+          "pm.globals.set('timestamp', new Date().toISOString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test script",
+          "const responseTime = pm.response.responseTime;",
+          "console.log('⏱️ Response Time:', responseTime + 'ms');",
+          "",
+          "// Basic response validation",
+          "pm.test('Response time is acceptable', function () {",
+          "    pm.expect(responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "pm.test('Response has valid JSON', function () {",
+          "    pm.response.to.be.json;",
+          "});",
+          "",
+          "// Log response status",
+          "if (pm.response.code >= 400) {",
+          "    console.error('❌ Request failed:', pm.response.json());",
+          "} else {",
+          "    console.log('✅ Request successful');",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "🚀 Complete Integration Workflow",
+      "description": "End-to-end workflow demonstrating all overlay network features",
+      "item": [
+        {
+          "name": "1. System Status Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/status",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "status"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Overlay network is enabled', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.enabled).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test('Network is connected', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.connected).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test('All BRC services available', function () {",
+                  "    const response = pm.response.json();",
+                  "    const requiredServices = ['brc22', 'brc24', 'brc26', 'brc31', 'brc41'];",
+                  "    requiredServices.forEach(service => {",
+                  "        pm.expect(response.services).to.have.property(service);",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. BRC-31 Authentication",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Authrite",
+                "value": "1.0"
+              },
+              {
+                "key": "X-Authrite-Identity-Key",
+                "value": "{{identity_key}}"
+              },
+              {
+                "key": "X-Authrite-Nonce",
+                "value": "{{$randomHex}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identityKey\": \"{{identity_key}}\",\n  \"nonce\": \"{{$randomHex}}\",\n  \"certificates\": [],\n  \"requestedCapabilities\": [\"read\", \"write\", \"file-upload\", \"admin\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/overlay/brc31/authenticate",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "brc31", "authenticate"]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generate client nonce",
+                  "const nonce = CryptoJS.lib.WordArray.random(16).toString();",
+                  "pm.collectionVariables.set('client_nonce', nonce);",
+                  "console.log('Generated nonce:', nonce);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Authentication successful', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.token).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('JWT token received', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.token).to.match(/^[A-Za-z0-9-_]+\\.[A-Za-z0-9-_]+\\.[A-Za-z0-9-_]+$/);",
+                  "});",
+                  "",
+                  "pm.test('Required capabilities granted', function () {",
+                  "    const response = pm.response.json();",
+                  "    const capabilities = response.capabilities;",
+                  "    pm.expect(capabilities).to.include('read');",
+                  "    pm.expect(capabilities).to.include('write');",
+                  "    pm.expect(capabilities).to.include('file-upload');",
+                  "});",
+                  "",
+                  "// Store JWT token for subsequent requests",
+                  "const response = pm.response.json();",
+                  "if (response.success && response.token) {",
+                  "    pm.collectionVariables.set('jwt_token', response.token);",
+                  "    console.log('✅ JWT token stored for authenticated requests');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. BRC-26 File Upload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-BSV-Identity",
+                "value": "{{identity_key}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "text",
+                  "value": "{\"message\": \"Hello BSV Overlay Network!\", \"timestamp\": \"{{timestamp}}\", \"test\": true}",
+                  "description": "Test JSON file content"
+                },
+                {
+                  "key": "metadata",
+                  "value": "{\"description\": \"Postman test upload\", \"category\": \"demo\", \"tags\": [\"test\", \"postman\", \"workflow\"]}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/overlay/files/upload",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "files", "upload"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('File upload successful', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.contentHash).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('Content hash is valid SHA-256', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.contentHash).to.match(/^[a-f0-9]{64}$/);",
+                  "});",
+                  "",
+                  "pm.test('Download URL provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.downloadUrl).to.be.a('string');",
+                  "    pm.expect(response.downloadUrl).to.include('/overlay/files/download/');",
+                  "});",
+                  "",
+                  "// Store content hash for subsequent requests",
+                  "const response = pm.response.json();",
+                  "if (response.success && response.contentHash) {",
+                  "    pm.collectionVariables.set('content_hash', response.contentHash);",
+                  "    console.log('✅ Content hash stored:', response.contentHash);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. BRC-26 File Download",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/octet-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/files/download/{{content_hash}}",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "files", "download", "{{content_hash}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('File download successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Content-Hash header matches', function () {",
+                  "    const expectedHash = pm.collectionVariables.get('content_hash');",
+                  "    const actualHash = pm.response.headers.get('X-Content-Hash');",
+                  "    pm.expect(actualHash).to.eql(expectedHash);",
+                  "});",
+                  "",
+                  "pm.test('Downloaded content is valid JSON', function () {",
+                  "    try {",
+                  "        const content = JSON.parse(pm.response.text());",
+                  "        pm.expect(content.message).to.eql('Hello BSV Overlay Network!');",
+                  "    } catch (e) {",
+                  "        pm.expect.fail('Downloaded content is not valid JSON');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. BRC-26 Content Resolution",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/files/resolve/{{content_hash}}",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "files", "resolve", "{{content_hash}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Content resolution successful', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.exists).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test('Metadata includes upload info', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.metadata).to.have.property('size');",
+                  "    pm.expect(response.metadata).to.have.property('uploadedAt');",
+                  "    pm.expect(response.metadata).to.have.property('uploader');",
+                  "});",
+                  "",
+                  "pm.test('Storage information provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.storage).to.have.property('replicas');",
+                  "    pm.expect(response.storage).to.have.property('availability');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. BRC-24 UTXO Lookup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-BSV-Identity",
+                "value": "{{identity_key}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"utxo-tracker\",\n  \"query\": {\n    \"topic\": \"gitdata.manifest\",\n    \"limit\": 10,\n    \"filters\": {\n      \"satoshis\": { \"min\": 546 },\n      \"confirmations\": { \"min\": 1 }\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/overlay/lookup",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "lookup"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Lookup query successful', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.provider).to.eql('utxo-tracker');",
+                  "});",
+                  "",
+                  "pm.test('Results array provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.results).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Pagination info included', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.pagination).to.have.property('limit');",
+                  "    pm.expect(response.pagination).to.have.property('total');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. BRC-41 Payment Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-BSV-Identity",
+                "value": "{{identity_key}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"service\": \"premium-lookup\",\n  \"satoshis\": 1000,\n  \"description\": \"Premium lookup service access\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/overlay/brc41/request-payment",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "brc41", "request-payment"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Payment request created', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.paymentId).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('Payment details correct', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.satoshis).to.eql(1000);",
+                  "    pm.expect(response.service).to.eql('premium-lookup');",
+                  "});",
+                  "",
+                  "// Store payment ID for completion",
+                  "const response = pm.response.json();",
+                  "if (response.success && response.paymentId) {",
+                  "    pm.collectionVariables.set('payment_id', response.paymentId);",
+                  "    console.log('✅ Payment ID stored:', response.paymentId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8. Get BRC Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-BSV-Identity",
+                "value": "{{identity_key}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/brc-stats",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "brc-stats"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('BRC statistics retrieved', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test('All BRC standards represented', function () {",
+                  "    const response = pm.response.json();",
+                  "    const expectedBRCs = ['brc22', 'brc24', 'brc26', 'brc31', 'brc41'];",
+                  "    expectedBRCs.forEach(brc => {",
+                  "        pm.expect(response).to.have.property(brc);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('Statistics include usage metrics', function () {",
+                  "    const response = pm.response.json();",
+                  "    if (response.brc22) {",
+                  "        pm.expect(response.brc22).to.have.property('totalSubmissions');",
+                  "    }",
+                  "    if (response.brc26) {",
+                  "        pm.expect(response.brc26).to.have.property('totalUploads');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🎬 Streaming Workflow",
+      "description": "Live streaming and content transcoding workflow",
+      "item": [
+        {
+          "name": "1. Create Live Stream",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-BSV-Identity",
+                "value": "{{identity_key}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman Test Stream\",\n  \"description\": \"Live stream created via Postman workflow\",\n  \"qualities\": [\"720p\", \"1080p\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/overlay/streaming/live/create",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "streaming", "live", "create"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Live stream created', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.stream).to.have.property('streamId');",
+                  "});",
+                  "",
+                  "pm.test('Stream configuration correct', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.stream.title).to.eql('Postman Test Stream');",
+                  "    pm.expect(response.stream.qualities).to.include('720p');",
+                  "    pm.expect(response.stream.qualities).to.include('1080p');",
+                  "});",
+                  "",
+                  "// Store stream ID",
+                  "const response = pm.response.json();",
+                  "if (response.success && response.stream.streamId) {",
+                  "    pm.collectionVariables.set('stream_id', response.stream.streamId);",
+                  "    console.log('✅ Stream ID stored:', response.stream.streamId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Start Live Stream",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-BSV-Identity",
+                "value": "{{identity_key}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/streaming/live/{{stream_id}}/start",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "streaming", "live", "{{stream_id}}", "start"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Stream started successfully', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.status).to.eql('live');",
+                  "});",
+                  "",
+                  "pm.test('Stream URLs provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.urls).to.have.property('rtmp');",
+                  "    pm.expect(response.urls).to.have.property('hls');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Get Stream Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-BSV-Identity",
+                "value": "{{identity_key}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/streaming/live/{{stream_id}}/analytics",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "streaming", "live", "{{stream_id}}", "analytics"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Analytics retrieved', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.analytics).to.be.an('object');",
+                  "});",
+                  "",
+                  "pm.test('Analytics include viewer metrics', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.analytics).to.have.property('viewers');",
+                  "    pm.expect(response.analytics).to.have.property('duration');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Stop Live Stream",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-BSV-Identity",
+                "value": "{{identity_key}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/streaming/live/{{stream_id}}/stop",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "streaming", "live", "{{stream_id}}", "stop"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Stream stopped successfully', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.status).to.eql('stopped');",
+                  "});",
+                  "",
+                  "pm.test('Final analytics provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.finalAnalytics).to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🌐 Federation Workflow",
+      "description": "Cross-overlay network federation testing",
+      "item": [
+        {
+          "name": "1. Check Federation Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/federation/status",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "federation", "status"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Federation status retrieved', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.federation).to.be.an('object');",
+                  "});",
+                  "",
+                  "pm.test('Federation configuration valid', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.federation).to.have.property('enabled');",
+                  "    pm.expect(response.federation).to.have.property('nodeId');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Discover Federation Nodes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/federation/nodes",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "federation", "nodes"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Node discovery successful', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.nodes).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Node information includes required fields', function () {",
+                  "    const response = pm.response.json();",
+                  "    if (response.nodes.length > 0) {",
+                  "        const node = response.nodes[0];",
+                  "        pm.expect(node).to.have.property('nodeId');",
+                  "        pm.expect(node).to.have.property('endpoint');",
+                  "        pm.expect(node).to.have.property('capabilities');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Discover Global Content",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/federation/content/discover/{{content_hash}}",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "federation", "content", "discover", "{{content_hash}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Global content discovery successful', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test('Content locations provided', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.locations).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🔧 Service Discovery Workflow",
+      "description": "BRC-88 service discovery and advertisement",
+      "item": [
+        {
+          "name": "1. Get SHIP Advertisements",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/services/ship",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "services", "ship"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('SHIP advertisements retrieved', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.services).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Service advertisements have required fields', function () {",
+                  "    const response = pm.response.json();",
+                  "    if (response.services.length > 0) {",
+                  "        const service = response.services[0];",
+                  "        pm.expect(service).to.have.property('serviceId');",
+                  "        pm.expect(service).to.have.property('endpoint');",
+                  "        pm.expect(service).to.have.property('capabilities');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Get SLAP Services",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/services/slap",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "services", "slap"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('SLAP services retrieved', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.services).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('SLAP services include lookup providers', function () {",
+                  "    const response = pm.response.json();",
+                  "    if (response.services.length > 0) {",
+                  "        const service = response.services[0];",
+                  "        pm.expect(service).to.have.property('type');",
+                  "        pm.expect(service).to.have.property('endpoint');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Advertise Service",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-BSV-Identity",
+                "value": "{{identity_key}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"postman-test-service\",\n  \"type\": \"custom-processor\",\n  \"endpoint\": \"https://api.example.com/processor\",\n  \"capabilities\": [\"data-processing\", \"file-conversion\"],\n  \"pricing\": {\n    \"model\": \"per-request\",\n    \"satoshis\": 100\n  },\n  \"metadata\": {\n    \"description\": \"Test service advertised via Postman\",\n    \"version\": \"1.0.0\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/overlay/services/ship/advertise",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "services", "ship", "advertise"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Service advertisement successful', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.eql(true);",
+                  "    pm.expect(response.serviceId).to.eql('postman-test-service');",
+                  "});",
+                  "",
+                  "pm.test('Advertisement includes expiration', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.advertisement).to.have.property('expiresAt');",
+                  "    pm.expect(response.advertisement).to.have.property('renewalUrl');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "❌ Error Handling Tests",
+      "description": "Test error conditions and edge cases",
+      "item": [
+        {
+          "name": "Invalid Content Hash",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/files/resolve/invalid-hash-format",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "files", "resolve", "invalid-hash-format"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Returns 400 for invalid hash format', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('Error message explains hash format requirements', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.error).to.eql('invalid-hash-format');",
+                  "    pm.expect(response.message).to.include('64-character hexadecimal');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "File Not Found",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/octet-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/overlay/files/download/0000000000000000000000000000000000000000000000000000000000000000",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "files", "download", "0000000000000000000000000000000000000000000000000000000000000000"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Returns 404 for non-existent file', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('Error message indicates file not found', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.error).to.eql('file-not-found');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unauthenticated Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"utxo-tracker\",\n  \"query\": {\n    \"topic\": \"private.data\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/overlay/lookup",
+              "host": ["{{base_url}}"],
+              "path": ["overlay", "lookup"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Returns 401 for unauthenticated request', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('Error message indicates authentication required', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.error).to.include('identity-required');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -3,6 +3,7 @@
  */
 import express from 'express';
 
+import { setupSwaggerUI } from './docs/swagger-setup';
 import { auditLogger } from './middleware/audit';
 import { rateLimit, limitsMiddleware } from './middleware/limits';
 import { metricsMiddleware } from './middleware/metrics';
@@ -77,6 +78,9 @@ app.use(express.static('./ui/build'));
 app.use(auditLogger());
 app.use(metricsMiddleware());
 app.use(limitsMiddleware());
+
+// D20 Phase 1: Setup API documentation
+setupSwaggerUI(app);
 
 // Health and readiness checks
 app.use(healthRouter());

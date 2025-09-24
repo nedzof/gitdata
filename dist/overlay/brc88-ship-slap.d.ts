@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
-import type { DatabaseAdapter } from './brc26-uhrp';
 import type { BRC22SubmitService } from './brc22-submit';
 import type { BRC24LookupService } from './brc24-lookup';
+import type { DatabaseAdapter } from './brc26-uhrp';
 export interface SHIPAdvertisement {
     advertiserIdentity: string;
     domainName: string;

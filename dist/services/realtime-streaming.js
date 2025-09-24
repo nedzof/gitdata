@@ -89,9 +89,7 @@ class RealtimeStreamingService {
     `, [confirmation_status, confirmations, block_height, confirmed_at, txid]);
         if (confirmations > 0) {
             // Get the updated packet
-            const result = await this.db.query('SELECT * FROM realtime_packets WHERE txid = $1', [
-                txid,
-            ]);
+            const result = await this.db.query('SELECT * FROM realtime_packets WHERE txid = $1', [txid]);
             if (result.rows.length > 0) {
                 const packet = result.rows[0];
                 // Trigger confirmed delivery

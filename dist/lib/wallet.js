@@ -57,7 +57,7 @@ class WalletService {
                 return metanetWallet || null;
             }
             // Debug: Log all available window properties that might be wallets
-            const windowProps = Object.keys(win).filter(key => key.toLowerCase().includes('wallet') ||
+            const windowProps = Object.keys(win).filter((key) => key.toLowerCase().includes('wallet') ||
                 key.toLowerCase().includes('metanet') ||
                 key.toLowerCase().includes('bsv'));
             console.log('🔍 Available wallet-related window properties:', windowProps);
@@ -89,14 +89,14 @@ class WalletService {
             }
             // Get public key for authentication
             const publicKeyResult = await wallet.getPublicKey({
-                identityKey: true
+                identityKey: true,
             });
             // Authenticate with the backend BRC-31 identity system
             await this.authenticateWithBackend(wallet, publicKeyResult.publicKey);
             this.walletConnection = {
                 wallet,
                 isConnected: true,
-                publicKey: publicKeyResult.publicKey
+                publicKey: publicKeyResult.publicKey,
             };
             this.notifyConnectionChange(true);
             return this.walletConnection;
@@ -171,11 +171,11 @@ class WalletService {
                     merkleRoot: 'mock-merkle',
                     time: Date.now(),
                     bits: 0x1d00ffff,
-                    nonce: 12345
+                    nonce: 12345,
                 }),
                 getNetwork: async () => 'testnet',
                 getVersion: async () => ({ version: '1.0.0', implementation: 'mock-test-wallet' }),
-                isAvailable: async () => true
+                isAvailable: async () => true,
             };
         }
         return this.walletConnection?.wallet ?? null;
@@ -196,10 +196,10 @@ class WalletService {
         }
         try {
             const result = await wallet.getPublicKey({
-                identityKey: true
+                identityKey: true,
             });
             return {
-                publicKey: result.publicKey
+                publicKey: result.publicKey,
             };
         }
         catch (error) {
@@ -217,14 +217,16 @@ class WalletService {
         try {
             const result = await wallet.createAction({
                 description: args.description,
-                outputs: [{
+                outputs: [
+                    {
                         script: args.recipientScript,
                         satoshis: args.amount,
                         description: `Purchase of data version ${args.versionId}`,
                         basket: 'purchases',
-                        tags: ['data-purchase', `version:${args.versionId}`]
-                    }],
-                labels: ['data-purchase', 'gitdata-purchase']
+                        tags: ['data-purchase', `version:${args.versionId}`],
+                    },
+                ],
+                labels: ['data-purchase', 'gitdata-purchase'],
             });
             return result;
         }
@@ -470,7 +472,7 @@ class WalletService {
                 labels: ['data-purchase', 'gitdata-purchase'],
                 labelQueryMode: 'any',
                 includeOutputs: true,
-                includeLabels: true
+                includeLabels: true,
             });
             return result.actions;
         }
@@ -490,12 +492,12 @@ class WalletService {
             const result = await wallet.listOutputs({
                 basket: 'default',
                 includeCustomInstructions: true,
-                includeTags: true
+                includeTags: true,
             });
             const balance = result.outputs.reduce((sum, output) => sum + output.satoshis, 0);
             return {
                 balance,
-                outputs: result.outputs
+                outputs: result.outputs,
             };
         }
         catch (error) {
@@ -521,13 +523,13 @@ class WalletService {
                 data: btoa(message), // Convert to base64
                 protocolID: [2, 'gitdata-identity'],
                 keyID: 'identity',
-                privilegedReason: 'Authenticate API request with Gitdata platform'
+                privilegedReason: 'Authenticate API request with Gitdata platform',
             });
             return {
                 'X-Identity-Key': this.walletConnection.publicKey,
                 'X-Nonce': nonce,
                 'X-Signature': signResult.signature,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
             };
         }
         catch (error) {
@@ -547,7 +549,7 @@ class WalletService {
                 data: btoa(data), // Convert to base64
                 protocolID: [2, protocolID],
                 keyID: 'identity',
-                privilegedReason: 'Authenticate with Gitdata platform'
+                privilegedReason: 'Authenticate with Gitdata platform',
             });
             return result.signature;
         }
@@ -568,7 +570,7 @@ class WalletService {
                 plaintext: btoa(data), // Convert to base64
                 protocolID: [2, protocolID],
                 keyID: 'storage',
-                counterparty: 'self'
+                counterparty: 'self',
             });
             return result.ciphertext;
         }
@@ -589,7 +591,7 @@ class WalletService {
                 ciphertext,
                 protocolID: [2, protocolID],
                 keyID: 'storage',
-                counterparty: 'self'
+                counterparty: 'self',
             });
             return atob(result.plaintext); // Convert from base64
         }
@@ -721,7 +723,7 @@ class WalletService {
             // Fallback version info
             return {
                 version: '1.0.0',
-                implementation: 'Unknown BRC-100 Wallet'
+                implementation: 'Unknown BRC-100 Wallet',
             };
         }
         catch (error) {
@@ -750,17 +752,17 @@ class WalletService {
             const initResponse = await fetch('http://localhost:8787/identity/wallet/connect', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
                     walletType: this.detectWalletType(wallet),
-                    capabilities: ['sign', 'pay', 'identity']
-                })
+                    capabilities: ['sign', 'pay', 'identity'],
+                }),
             });
             if (!initResponse.ok) {
                 throw new Error(`Failed to initialize session: ${initResponse.statusText}`);
             }
-            const { sessionId } = await initResponse.json();
+            const { sessionId } = (await initResponse.json());
             // Step 2: Create verification signature
             const nonce = this.generateNonce();
             const message = `wallet_verification:${sessionId}`;
@@ -770,23 +772,23 @@ class WalletService {
                 data: btoa(messageWithNonce), // Convert to base64
                 protocolID: [2, 'gitdata-identity'],
                 keyID: 'identity',
-                privilegedReason: 'Verify wallet ownership for Gitdata platform'
+                privilegedReason: 'Verify wallet ownership for Gitdata platform',
             });
             // Step 3: Verify with backend
             const verifyResponse = await fetch('http://localhost:8787/identity/wallet/verify', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
                     sessionId,
                     identityKey: publicKey,
                     signature: signResult.signature,
-                    nonce
-                })
+                    nonce,
+                }),
             });
             if (!verifyResponse.ok) {
-                const errorData = await verifyResponse.json();
+                const errorData = (await verifyResponse.json());
                 throw new Error(`Authentication failed: ${errorData.error || verifyResponse.statusText}`);
             }
             console.log('Successfully authenticated with backend identity system');
@@ -829,13 +831,13 @@ class WalletService {
     generateNonce() {
         const array = new Uint8Array(16);
         crypto.getRandomValues(array);
-        return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+        return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join('');
     }
     /**
      * Notifies all listeners of connection state changes
      */
     notifyConnectionChange(connected) {
-        this.connectionListeners.forEach(listener => {
+        this.connectionListeners.forEach((listener) => {
             try {
                 listener(connected);
             }
@@ -874,7 +876,7 @@ class WalletService {
             'proveCertificate',
             'relinquishCertificate',
             'discoverByIdentityKey',
-            'discoverByAttributes'
+            'discoverByAttributes',
         ];
         const optionalMethods = [
             // Authentication & Network Methods (6) - optional but recommended
@@ -885,7 +887,7 @@ class WalletService {
             'getNetwork',
             'getVersion',
             // Utility Methods (2)
-            'isAvailable'
+            'isAvailable',
         ];
         let missingRequired = 0;
         let missingOptional = 0;

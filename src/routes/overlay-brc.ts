@@ -78,7 +78,58 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
 
   // ==================== Core Overlay Routes ====================
 
-  // Get comprehensive overlay network status
+  /**
+   * @swagger
+   * /overlay/status:
+   *   get:
+   *     tags: [System]
+   *     summary: Get overlay network status
+   *     description: Returns comprehensive status information about the BSV overlay network including service availability and statistics
+   *     responses:
+   *       200:
+   *         description: Overlay network status
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 enabled:
+   *                   type: boolean
+   *                   example: true
+   *                 connected:
+   *                   type: boolean
+   *                   example: true
+   *                 stats:
+   *                   type: object
+   *                   description: Network statistics
+   *                 environment:
+   *                   type: string
+   *                   example: "development"
+   *                 services:
+   *                   type: object
+   *                   properties:
+   *                     brc22:
+   *                       type: string
+   *                       example: "Transaction Submission"
+   *                     brc24:
+   *                       type: string
+   *                       example: "Lookup Services"
+   *                     brc26:
+   *                       type: string
+   *                       example: "File Storage (UHRP)"
+   *                     brc31:
+   *                       type: string
+   *                       example: "Authentication"
+   *                     brc41:
+   *                       type: string
+   *                       example: "Payment Processing"
+   *       503:
+   *         description: Overlay network unavailable
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   */
   router.get('/status', (req: Request, res: Response) => {
     if (!overlayServices) {
       return res.json({
@@ -152,6 +203,59 @@ export function enhancedOverlayRouter(): EnhancedOverlayRouter {
 
   // ==================== BRC-22: Transaction Submission ====================
 
+  /**
+   * @swagger
+   * /overlay/submit:
+   *   post:
+   *     tags: [BRC-22]
+   *     summary: Submit transaction to overlay network
+   *     description: Submit a BSV transaction to the overlay network with topic-based UTXO tracking according to BRC-22 specification
+   *     security:
+   *       - BSVIdentity: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/BRC22Transaction'
+   *     responses:
+   *       200:
+   *         description: Transaction submitted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               allOf:
+   *                 - $ref: '#/components/schemas/SuccessResponse'
+   *                 - type: object
+   *                   properties:
+   *                     result:
+   *                       type: object
+   *                       description: Submission result details
+   *       400:
+   *         description: Invalid transaction format
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       429:
+   *         description: Rate limit exceeded
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       500:
+   *         description: Submission failed
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       503:
+   *         description: Overlay network unavailable
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   */
   router.post(
     '/submit',
     requireOverlay,

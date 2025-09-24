@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -8,6 +41,7 @@ exports.server = exports.app = void 0;
  * Main server entry point for the Gitdata overlay application
  */
 const express_1 = __importDefault(require("express"));
+const swagger_setup_1 = require("./docs/swagger-setup");
 const audit_1 = require("./middleware/audit");
 const limits_1 = require("./middleware/limits");
 const metrics_1 = require("./middleware/metrics");
@@ -30,6 +64,7 @@ const metrics_2 = require("./routes/metrics");
 const openlineage_1 = require("./routes/openlineage");
 const overlay_1 = require("./routes/overlay");
 const overlay_brc_1 = require("./routes/overlay-brc");
+const overlay_brc_31_1 = require("./routes/overlay-brc-31");
 const pay_1 = require("./routes/pay");
 const payments_1 = require("./routes/payments");
 const price_1 = require("./routes/price");
@@ -76,6 +111,8 @@ app.use(express_1.default.static('./ui/build'));
 app.use((0, audit_1.auditLogger)());
 app.use((0, metrics_1.metricsMiddleware)());
 app.use((0, limits_1.limitsMiddleware)());
+// D20 Phase 1: Setup API documentation
+(0, swagger_setup_1.setupSwaggerUI)(app);
 // Health and readiness checks
 app.use((0, health_1.healthRouter)());
 app.use((0, ready_1.readyRouter)());
@@ -106,6 +143,8 @@ app.use('/v1', (0, wallet_1.walletRouter)());
 // Overlay network integration
 app.use('/v1', (0, overlay_1.overlayRouter)().router);
 app.use('/v1', (0, overlay_brc_1.overlayBrcRouter)().router);
+// BRC-31 Enhanced Overlay Integration (initialize after database setup)
+let brc31Router = null;
 app.use('/v1', (0, submit_builder_1.submitBuilderRouter)());
 app.use('/v1', (0, submit_receiver_1.submitReceiverRouterWrapper)());
 // Data lineage and provenance
@@ -170,12 +209,129 @@ process.on('SIGINT', () => {
     console.log('SIGINT received, shutting down gracefully');
     process.exit(0);
 });
-// Start server
-const server = app.listen(PORT, () => {
+// Initialize BRC-31 services
+async function initializeBRC31Services() {
+    try {
+        // Import BRC-31 and BRC-41 services
+        const { initializeBRC31Middleware } = await Promise.resolve().then(() => __importStar(require('./brc31/middleware')));
+        const { initializeBRC41PaymentMiddleware } = await Promise.resolve().then(() => __importStar(require('./brc41/middleware')));
+        const { Pool } = await Promise.resolve().then(() => __importStar(require('pg')));
+        const { initializeOverlayServices } = await Promise.resolve().then(() => __importStar(require('./overlay/index')));
+        // Create PostgreSQL pool
+        const dbPool = new Pool({
+            host: process.env.DB_HOST || 'localhost',
+            port: parseInt(process.env.DB_PORT || '5432'),
+            database: process.env.DB_NAME || 'gitdata',
+            user: process.env.DB_USER || 'gitdata',
+            password: process.env.DB_PASSWORD || 'gitdata',
+            ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+        });
+        // Initialize overlay services (includes database adapter)
+        const overlayServices = await initializeOverlayServices(dbPool, process.env.NODE_ENV || 'development', process.env.DOMAIN_NAME || 'localhost:8788');
+        // Initialize BRC-31 middleware
+        const brc31Middleware = initializeBRC31Middleware({
+            database: {
+                query: async (sql, params = []) => {
+                    const client = await dbPool.connect();
+                    try {
+                        const result = await client.query(sql, params);
+                        return result.rows;
+                    }
+                    finally {
+                        client.release();
+                    }
+                },
+                queryOne: async (sql, params = []) => {
+                    const client = await dbPool.connect();
+                    try {
+                        const result = await client.query(sql, params);
+                        return result.rows[0] || null;
+                    }
+                    finally {
+                        client.release();
+                    }
+                },
+                execute: async (sql, params = []) => {
+                    const client = await dbPool.connect();
+                    try {
+                        await client.query(sql, params);
+                    }
+                    finally {
+                        client.release();
+                    }
+                },
+            },
+            enabled: process.env.BRC31_ENABLED !== 'false',
+            serverPrivateKey: process.env.BRC31_SERVER_PRIVATE_KEY,
+        });
+        await brc31Middleware.initialize();
+        // Initialize BRC-41 payment middleware
+        const brc41PaymentMiddleware = initializeBRC41PaymentMiddleware({
+            database: {
+                query: async (sql, params = []) => {
+                    const client = await dbPool.connect();
+                    try {
+                        const result = await client.query(sql, params);
+                        return result.rows;
+                    }
+                    finally {
+                        client.release();
+                    }
+                },
+                queryOne: async (sql, params = []) => {
+                    const client = await dbPool.connect();
+                    try {
+                        const result = await client.query(sql, params);
+                        return result.rows[0] || null;
+                    }
+                    finally {
+                        client.release();
+                    }
+                },
+                execute: async (sql, params = []) => {
+                    const client = await dbPool.connect();
+                    try {
+                        await client.query(sql, params);
+                    }
+                    finally {
+                        client.release();
+                    }
+                },
+            },
+            serverPrivateKey: process.env.BRC41_SERVER_PRIVATE_KEY || process.env.BRC31_SERVER_PRIVATE_KEY,
+            enabled: process.env.BRC41_ENABLED !== 'false',
+        });
+        await brc41PaymentMiddleware.initialize();
+        // Create BRC-31 enhanced router
+        const brc31RouterInstance = (0, overlay_brc_31_1.enhancedBRC31OverlayRouter)();
+        brc31RouterInstance.setOverlayServices?.(overlayServices);
+        // Mount BRC-31 router
+        app.use('/overlay', brc31RouterInstance.router);
+        console.log('✅ BRC-31 authentication services initialized');
+        console.log('✅ BRC-41 payment services initialized');
+        console.log('✅ Enhanced BRC-31 overlay endpoints available at /overlay');
+        console.log(`✅ Database schema initialized for identity tracking`);
+        console.log(`✅ Database schema initialized for payment tracking`);
+        return { overlayServices, brc31Middleware, brc41PaymentMiddleware };
+    }
+    catch (error) {
+        console.error('❌ Failed to initialize BRC-31/BRC-41 services:', error);
+        console.log('⚠️  Continuing without BRC-31 authentication');
+        return null;
+    }
+}
+// Start server with BRC-31 initialization
+const server = app.listen(PORT, async () => {
     console.log(`🚀 Gitdata overlay server running on port ${PORT}`);
     console.log(`📊 Health check: http://localhost:${PORT}/health`);
     console.log(`🔍 API docs: http://localhost:${PORT}/v1/docs`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+    // Initialize BRC-31 services asynchronously
+    const brc31Services = await initializeBRC31Services();
+    if (brc31Services) {
+        console.log('🔐 BRC-31 Authrite authentication enabled');
+        console.log('💰 BRC-41 PacketPay payments enabled');
+    }
 });
 exports.server = server;
 //# sourceMappingURL=server.js.map

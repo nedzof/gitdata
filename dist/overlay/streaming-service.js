@@ -4,6 +4,110 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.StreamingService = void 0;
 const events_1 = require("events");
+class QueryBuilder {
+    static insert(table, data, onConflict) {
+        const keys = Object.keys(data);
+        const placeholders = keys.map((_, index) => `$${index + 1}`);
+        const params = Object.values(data);
+        let query = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders.join(', ')})`;
+        if (onConflict) {
+            query += ` ${onConflict}`;
+        }
+        return { query, params };
+    }
+    static update(table, data, where) {
+        const setClause = Object.keys(data)
+            .map((key, index) => `${key} = $${index + 1}`)
+            .join(', ');
+        const params = [...Object.values(data)];
+        const whereClause = Object.keys(where)
+            .map((key, index) => {
+            params.push(where[key]);
+            return `${key} = $${params.length}`;
+        })
+            .join(' AND ');
+        const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
+        return { query, params };
+    }
+    static selectWithOptions(table, options = {}) {
+        const columns = options.columns || ['*'];
+        const cols = columns.join(', ');
+        let query = `SELECT ${cols} FROM ${table}`;
+        const params = [];
+        if (options.where) {
+            const conditions = Object.keys(options.where).map((key, index) => {
+                params.push(options.where[key]);
+                return `${key} = $${index + 1}`;
+            });
+            query += ` WHERE ${conditions.join(' AND ')}`;
+        }
+        if (options.orderBy) {
+            query += ` ORDER BY ${options.orderBy}`;
+            if (options.orderDirection) {
+                query += ` ${options.orderDirection}`;
+            }
+        }
+        if (options.limit) {
+            query += ` LIMIT ${options.limit}`;
+        }
+        if (options.offset) {
+            query += ` OFFSET ${options.offset}`;
+        }
+        return { query, params };
+    }
+    static count(table, where) {
+        let query = `SELECT COUNT(*) as count FROM ${table}`;
+        const params = [];
+        if (where) {
+            const conditions = Object.keys(where).map((key, index) => {
+                params.push(where[key]);
+                return `${key} = $${index + 1}`;
+            });
+            query += ` WHERE ${conditions.join(' AND ')}`;
+        }
+        return { query, params };
+    }
+    static countWithCondition(table, condition, params = []) {
+        const query = `SELECT COUNT(*) as count FROM ${table} WHERE ${condition}`;
+        return { query, params };
+    }
+    static selectWithCustomWhere(table, columns, whereCondition, params = [], options = {}) {
+        const cols = columns.join(', ');
+        let query = `SELECT ${cols} FROM ${table} WHERE ${whereCondition}`;
+        if (options.orderBy) {
+            query += ` ORDER BY ${options.orderBy}`;
+            if (options.orderDirection) {
+                query += ` ${options.orderDirection}`;
+            }
+        }
+        if (options.limit) {
+            query += ` LIMIT ${options.limit}`;
+        }
+        if (options.offset) {
+            query += ` OFFSET ${options.offset}`;
+        }
+        return { query, params };
+    }
+    static deleteWithCondition(table, whereCondition, params = []) {
+        const query = `DELETE FROM ${table} WHERE ${whereCondition}`;
+        return { query, params };
+    }
+    static createTable(tableDef) {
+        const columns = tableDef.columns.map((col) => {
+            let columnDef = `${col.name} ${col.type}`;
+            if (col.constraints && col.constraints.length > 0) {
+                columnDef += ' ' + col.constraints.join(' ');
+            }
+            return columnDef;
+        });
+        let createStatement = `CREATE TABLE IF NOT EXISTS ${tableDef.name} (\n  ${columns.join(',\n  ')}`;
+        if (tableDef.constraints && tableDef.constraints.length > 0) {
+            createStatement += ',\n  ' + tableDef.constraints.join(',\n  ');
+        }
+        createStatement += '\n)';
+        return createStatement;
+    }
+}
 /**
  * Streaming Service for BRC-26 UHRP
  * Handles chunked uploads, video transcoding, and streaming delivery
@@ -31,85 +135,95 @@ class StreamingService extends events_1.EventEmitter {
      */
     async initializeDatabase() {
         // Streaming content table
-        await this.database.execute(`
-      CREATE TABLE IF NOT EXISTS uhrp_streaming_content (
-        id SERIAL PRIMARY KEY,
-        content_hash TEXT NOT NULL,
-        is_streamable BOOLEAN DEFAULT FALSE,
-        chunk_size INTEGER DEFAULT 1048576,
-        total_chunks INTEGER NOT NULL,
-        transcoded BOOLEAN DEFAULT FALSE,
-        transcoding_status VARCHAR(20) DEFAULT 'pending',
-        metadata_json TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(content_hash)
-      )
-    `);
+        const streamingContentTable = {
+            name: 'uhrp_streaming_content',
+            columns: [
+                { name: 'id', type: 'SERIAL', constraints: ['PRIMARY KEY'] },
+                { name: 'content_hash', type: 'TEXT', constraints: ['NOT NULL'] },
+                { name: 'is_streamable', type: 'BOOLEAN', constraints: ['DEFAULT FALSE'] },
+                { name: 'chunk_size', type: 'INTEGER', constraints: ['DEFAULT 1048576'] },
+                { name: 'total_chunks', type: 'INTEGER', constraints: ['NOT NULL'] },
+                { name: 'transcoded', type: 'BOOLEAN', constraints: ['DEFAULT FALSE'] },
+                { name: 'transcoding_status', type: 'VARCHAR(20)', constraints: ["DEFAULT 'pending'"] },
+                { name: 'metadata_json', type: 'TEXT' },
+                { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
+            ],
+            constraints: ['UNIQUE(content_hash)'],
+        };
+        await this.database.execute(QueryBuilder.createTable(streamingContentTable));
         // Content chunks table
-        await this.database.execute(`
-      CREATE TABLE IF NOT EXISTS uhrp_content_chunks (
-        id SERIAL PRIMARY KEY,
-        content_hash TEXT NOT NULL,
-        chunk_index INTEGER NOT NULL,
-        chunk_hash TEXT UNIQUE NOT NULL,
-        size_bytes INTEGER NOT NULL,
-        local_path TEXT NOT NULL,
-        uploaded_at BIGINT NOT NULL,
-        UNIQUE(content_hash, chunk_index)
-      )
-    `);
+        const contentChunksTable = {
+            name: 'uhrp_content_chunks',
+            columns: [
+                { name: 'id', type: 'SERIAL', constraints: ['PRIMARY KEY'] },
+                { name: 'content_hash', type: 'TEXT', constraints: ['NOT NULL'] },
+                { name: 'chunk_index', type: 'INTEGER', constraints: ['NOT NULL'] },
+                { name: 'chunk_hash', type: 'TEXT', constraints: ['UNIQUE NOT NULL'] },
+                { name: 'size_bytes', type: 'INTEGER', constraints: ['NOT NULL'] },
+                { name: 'local_path', type: 'TEXT', constraints: ['NOT NULL'] },
+                { name: 'uploaded_at', type: 'BIGINT', constraints: ['NOT NULL'] },
+            ],
+            constraints: ['UNIQUE(content_hash, chunk_index)'],
+        };
+        await this.database.execute(QueryBuilder.createTable(contentChunksTable));
         // Streaming profiles table
-        await this.database.execute(`
-      CREATE TABLE IF NOT EXISTS uhrp_streaming_profiles (
-        id SERIAL PRIMARY KEY,
-        content_hash TEXT NOT NULL,
-        profile_id TEXT NOT NULL,
-        quality VARCHAR(10) NOT NULL,
-        bitrate INTEGER NOT NULL,
-        codec VARCHAR(20) NOT NULL,
-        format VARCHAR(10) NOT NULL,
-        playlist_url TEXT,
-        file_path TEXT,
-        transcoding_completed BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(content_hash, profile_id)
-      )
-    `);
+        const streamingProfilesTable = {
+            name: 'uhrp_streaming_profiles',
+            columns: [
+                { name: 'id', type: 'SERIAL', constraints: ['PRIMARY KEY'] },
+                { name: 'content_hash', type: 'TEXT', constraints: ['NOT NULL'] },
+                { name: 'profile_id', type: 'TEXT', constraints: ['NOT NULL'] },
+                { name: 'quality', type: 'VARCHAR(10)', constraints: ['NOT NULL'] },
+                { name: 'bitrate', type: 'INTEGER', constraints: ['NOT NULL'] },
+                { name: 'codec', type: 'VARCHAR(20)', constraints: ['NOT NULL'] },
+                { name: 'format', type: 'VARCHAR(10)', constraints: ['NOT NULL'] },
+                { name: 'playlist_url', type: 'TEXT' },
+                { name: 'file_path', type: 'TEXT' },
+                { name: 'transcoding_completed', type: 'BOOLEAN', constraints: ['DEFAULT FALSE'] },
+                { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
+            ],
+            constraints: ['UNIQUE(content_hash, profile_id)'],
+        };
+        await this.database.execute(QueryBuilder.createTable(streamingProfilesTable));
         // Upload sessions table
-        await this.database.execute(`
-      CREATE TABLE IF NOT EXISTS uhrp_upload_sessions (
-        id SERIAL PRIMARY KEY,
-        upload_id TEXT UNIQUE NOT NULL,
-        content_hash TEXT,
-        filename TEXT NOT NULL,
-        content_type TEXT NOT NULL,
-        total_size BIGINT NOT NULL,
-        chunk_size INTEGER NOT NULL,
-        total_chunks INTEGER NOT NULL,
-        uploaded_chunks_json TEXT DEFAULT '[]',
-        enable_streaming BOOLEAN DEFAULT FALSE,
-        streaming_profiles_json TEXT DEFAULT '[]',
-        status VARCHAR(20) DEFAULT 'pending',
-        created_at BIGINT NOT NULL,
-        expires_at BIGINT NOT NULL
-      )
-    `);
+        const uploadSessionsTable = {
+            name: 'uhrp_upload_sessions',
+            columns: [
+                { name: 'id', type: 'SERIAL', constraints: ['PRIMARY KEY'] },
+                { name: 'upload_id', type: 'TEXT', constraints: ['UNIQUE NOT NULL'] },
+                { name: 'content_hash', type: 'TEXT' },
+                { name: 'filename', type: 'TEXT', constraints: ['NOT NULL'] },
+                { name: 'content_type', type: 'TEXT', constraints: ['NOT NULL'] },
+                { name: 'total_size', type: 'BIGINT', constraints: ['NOT NULL'] },
+                { name: 'chunk_size', type: 'INTEGER', constraints: ['NOT NULL'] },
+                { name: 'total_chunks', type: 'INTEGER', constraints: ['NOT NULL'] },
+                { name: 'uploaded_chunks_json', type: 'TEXT', constraints: ["DEFAULT '[]'"] },
+                { name: 'enable_streaming', type: 'BOOLEAN', constraints: ['DEFAULT FALSE'] },
+                { name: 'streaming_profiles_json', type: 'TEXT', constraints: ["DEFAULT '[]'"] },
+                { name: 'status', type: 'VARCHAR(20)', constraints: ["DEFAULT 'pending'"] },
+                { name: 'created_at', type: 'BIGINT', constraints: ['NOT NULL'] },
+                { name: 'expires_at', type: 'BIGINT', constraints: ['NOT NULL'] },
+            ],
+        };
+        await this.database.execute(QueryBuilder.createTable(uploadSessionsTable));
         // Transcoding jobs table
-        await this.database.execute(`
-      CREATE TABLE IF NOT EXISTS uhrp_transcoding_jobs (
-        id SERIAL PRIMARY KEY,
-        job_id TEXT UNIQUE NOT NULL,
-        content_hash TEXT NOT NULL,
-        source_file TEXT NOT NULL,
-        target_profiles_json TEXT NOT NULL,
-        status VARCHAR(20) DEFAULT 'pending',
-        progress INTEGER DEFAULT 0,
-        started_at BIGINT,
-        completed_at BIGINT,
-        error_message TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+        const transcodingJobsTable = {
+            name: 'uhrp_transcoding_jobs',
+            columns: [
+                { name: 'id', type: 'SERIAL', constraints: ['PRIMARY KEY'] },
+                { name: 'job_id', type: 'TEXT', constraints: ['UNIQUE NOT NULL'] },
+                { name: 'content_hash', type: 'TEXT', constraints: ['NOT NULL'] },
+                { name: 'source_file', type: 'TEXT', constraints: ['NOT NULL'] },
+                { name: 'target_profiles_json', type: 'TEXT', constraints: ['NOT NULL'] },
+                { name: 'status', type: 'VARCHAR(20)', constraints: ["DEFAULT 'pending'"] },
+                { name: 'progress', type: 'INTEGER', constraints: ['DEFAULT 0'] },
+                { name: 'started_at', type: 'BIGINT' },
+                { name: 'completed_at', type: 'BIGINT' },
+                { name: 'error_message', type: 'TEXT' },
+                { name: 'created_at', type: 'TIMESTAMP', constraints: ['DEFAULT CURRENT_TIMESTAMP'] },
+            ],
+        };
+        await this.database.execute(QueryBuilder.createTable(transcodingJobsTable));
         console.log('[STREAMING] Database tables initialized');
     }
     /**
@@ -135,24 +249,21 @@ class StreamingService extends events_1.EventEmitter {
             status: 'pending',
         };
         // Store in database
-        await this.database.execute(`
-      INSERT INTO uhrp_upload_sessions
-      (upload_id, filename, content_type, total_size, chunk_size, total_chunks,
-       enable_streaming, streaming_profiles_json, status, created_at, expires_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    `, [
-            session.uploadId,
-            session.filename,
-            session.contentType,
-            session.totalSize,
-            session.chunkSize,
-            session.totalChunks,
-            session.enableStreaming,
-            JSON.stringify(session.streamingProfiles),
-            session.status,
-            session.createdAt,
-            session.expiresAt,
-        ]);
+        const sessionData = {
+            upload_id: session.uploadId,
+            filename: session.filename,
+            content_type: session.contentType,
+            total_size: session.totalSize,
+            chunk_size: session.chunkSize,
+            total_chunks: session.totalChunks,
+            enable_streaming: session.enableStreaming,
+            streaming_profiles_json: JSON.stringify(session.streamingProfiles),
+            status: session.status,
+            created_at: session.createdAt,
+            expires_at: session.expiresAt,
+        };
+        const { query: insertSessionQuery, params: insertSessionParams } = QueryBuilder.insert('uhrp_upload_sessions', sessionData);
+        await this.database.execute(insertSessionQuery, insertSessionParams);
         this.uploadSessions.set(uploadId, session);
         this.emit('upload-session-created', session);
         console.log(`[STREAMING] Created upload session: ${uploadId} for ${params.filename}`);
@@ -219,11 +330,15 @@ class StreamingService extends events_1.EventEmitter {
             uploadedAt: Date.now(),
         };
         // Store in streaming content table
-        await this.database.execute(`
-      INSERT INTO uhrp_streaming_content
-      (content_hash, is_streamable, chunk_size, total_chunks, transcoded)
-      VALUES ($1, $2, $3, $4, $5)
-    `, [contentHash, session.enableStreaming, session.chunkSize, session.totalChunks, false]);
+        const contentData = {
+            content_hash: contentHash,
+            is_streamable: session.enableStreaming,
+            chunk_size: session.chunkSize,
+            total_chunks: session.totalChunks,
+            transcoded: false,
+        };
+        const { query: insertContentQuery, params: insertContentParams } = QueryBuilder.insert('uhrp_streaming_content', contentData);
+        await this.database.execute(insertContentQuery, insertContentParams);
         // Start transcoding if enabled
         if (session.enableStreaming && this.isVideoContent(session.contentType)) {
             await this.startTranscoding(contentHash, session.streamingProfiles);
@@ -277,14 +392,11 @@ class StreamingService extends events_1.EventEmitter {
      * Get streaming statistics
      */
     async getStreamingStats() {
+        const contentCountQuery = QueryBuilder.count('uhrp_streaming_content', { is_streamable: true });
+        const chunkCountQuery = QueryBuilder.count('uhrp_content_chunks');
         const [contentCount, chunkCount] = await Promise.all([
-            this.database.queryOne(`
-        SELECT COUNT(*) as count FROM uhrp_streaming_content
-        WHERE is_streamable = TRUE
-      `),
-            this.database.queryOne(`
-        SELECT COUNT(*) as count FROM uhrp_content_chunks
-      `),
+            this.database.queryOne(contentCountQuery.query, contentCountQuery.params),
+            this.database.queryOne(chunkCountQuery.query, chunkCountQuery.params),
         ]);
         return {
             activeSessions: this.uploadSessions.size,
@@ -317,11 +429,13 @@ class StreamingService extends events_1.EventEmitter {
         return contentType.startsWith('video/');
     }
     async updateUploadSession(session) {
-        await this.database.execute(`
-      UPDATE uhrp_upload_sessions
-      SET uploaded_chunks_json = $1, status = $2
-      WHERE upload_id = $3
-    `, [JSON.stringify(Array.from(session.uploadedChunks)), session.status, session.uploadId]);
+        const updateData = {
+            uploaded_chunks_json: JSON.stringify(Array.from(session.uploadedChunks)),
+            status: session.status,
+        };
+        const whereCondition = { upload_id: session.uploadId };
+        const { query: updateQuery, params: updateParams } = QueryBuilder.update('uhrp_upload_sessions', updateData, whereCondition);
+        await this.database.execute(updateQuery, updateParams);
     }
     startCleanupTimer() {
         // Clean up expired upload sessions every hour
@@ -338,9 +452,8 @@ class StreamingService extends events_1.EventEmitter {
             console.log(`[STREAMING] Cleaned up expired session: ${session.uploadId}`);
         }
         // Also clean up from database
-        await this.database.execute(`
-      DELETE FROM uhrp_upload_sessions WHERE expires_at < $1
-    `, [now]);
+        const { query: deleteQuery, params: deleteParams } = QueryBuilder.deleteWithCondition('uhrp_upload_sessions', 'expires_at < $1', [now]);
+        await this.database.execute(deleteQuery, deleteParams);
     }
 }
 exports.StreamingService = StreamingService;

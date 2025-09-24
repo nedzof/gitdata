@@ -16,12 +16,16 @@ class QueryBuilder {
         return { query, params };
     }
     static update(table, data, where) {
-        const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+        const setClause = Object.keys(data)
+            .map((key, index) => `${key} = $${index + 1}`)
+            .join(', ');
         const params = [...Object.values(data)];
-        const whereClause = Object.keys(where).map((key, index) => {
+        const whereClause = Object.keys(where)
+            .map((key, index) => {
             params.push(where[key]);
             return `${key} = $${params.length}`;
-        }).join(' AND ');
+        })
+            .join(' AND ');
         const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
         return { query, params };
     }
@@ -317,7 +321,7 @@ class BRC24LookupService extends events_1.EventEmitter {
             if (utxo) {
                 // Get transaction record for additional data
                 const { query, params } = QueryBuilder.selectWithOptions('brc22_transactions', {
-                    where: { txid: identifier.txid }
+                    where: { txid: identifier.txid },
                 });
                 const txRecord = await this.database.queryOne(query, params);
                 utxos.push({
@@ -345,7 +349,7 @@ class BRC24LookupService extends events_1.EventEmitter {
             query_json: JSON.stringify(queryRequest.query),
             requester_identity: requesterId || null,
             results_count: resultsCount,
-            processed_at: Date.now()
+            processed_at: Date.now(),
         };
         const onConflict = `ON CONFLICT (query_id) DO UPDATE SET
         provider = EXCLUDED.provider,
@@ -448,7 +452,7 @@ class BRC24LookupService extends events_1.EventEmitter {
             data_key: dataKey,
             data_value: dataValue,
             utxo_count: 1,
-            last_updated: Date.now()
+            last_updated: Date.now(),
         };
         const onConflict = `ON CONFLICT (provider_id, topic, data_key) DO UPDATE SET
         data_value = EXCLUDED.data_value,
@@ -474,8 +478,7 @@ class BRC24LookupService extends events_1.EventEmitter {
         const providerStats = {};
         for (const [providerId] of Array.from(this.lookupProviders.entries())) {
             const queriesQuery = QueryBuilder.count('brc24_queries', { provider: providerId });
-            const recentQueriesQuery = QueryBuilder.countWithCondition('brc24_queries', 'provider = $1 AND processed_at > $2', [providerId, Date.now() - 3600000] // Last hour
-            );
+            const recentQueriesQuery = QueryBuilder.countWithCondition('brc24_queries', 'provider = $1 AND processed_at > $2', [providerId, Date.now() - 3600000]);
             const queriesResult = await this.database.queryOne(queriesQuery.query, queriesQuery.params);
             const queries = queriesResult?.count || 0;
             const recentQueriesResult = await this.database.queryOne(recentQueriesQuery.query, recentQueriesQuery.params);

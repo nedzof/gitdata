@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
-import type { DatabaseAdapter } from './brc26-uhrp';
 import type { BRC22SubmitService } from './brc22-submit';
+import type { DatabaseAdapter } from './brc26-uhrp';
 export interface BRC24Query {
     provider: string;
     query: any;

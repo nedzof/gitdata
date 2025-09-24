@@ -22,7 +22,10 @@ import { OverlayManager } from './overlay-manager';
 import { OverlayPaymentService } from './overlay-payments';
 import { PostgreSQLBRC22SubmitService, PostgreSQLBRC24LookupService, PostgreSQLBRC64HistoryService, PostgreSQLBRC88SHIPSLAPService } from './brc-services-postgresql';
 import { BRC26UHRPService } from './brc26-uhrp';
-import { Pool } from 'pg';
+import { StreamingService } from '../streaming/streaming-service';
+import { FederationManager } from './federation-manager';
+import { AdvancedStreamingService } from '../streaming/advanced-streaming-service';
+import type { Pool } from 'pg';
 import { AgentExecutionService } from '../agents/agent-execution-service';
 import { OverlayAgentRegistry } from '../agents/overlay-agent-registry';
 import { OverlayRuleEngine } from '../agents/overlay-rule-engine';
@@ -37,6 +40,9 @@ export interface GitdataOverlayServices {
     agentRegistry: OverlayAgentRegistry;
     ruleEngine: OverlayRuleEngine;
     executionService: AgentExecutionService;
+    streamingService?: StreamingService;
+    federationManager?: FederationManager;
+    advancedStreamingService?: AdvancedStreamingService;
 }
 /**
  * Initialize complete BSV overlay services with BRC standards for Gitdata

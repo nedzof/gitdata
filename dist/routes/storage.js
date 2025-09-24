@@ -295,14 +295,14 @@ function storageRouter() {
                 cdn: { mode: 'off' },
                 presignTtlSec: 3600,
                 defaultTier: 'hot',
-                maxRangeBytes: 1024 * 1024 * 10 // 10MB
+                maxRangeBytes: 1024 * 1024 * 10, // 10MB
             };
             const targetConfig = {
                 backend: targetBackend,
                 cdn: { mode: 'off' },
                 presignTtlSec: 3600,
                 defaultTier: 'hot',
-                maxRangeBytes: 1024 * 1024 * 10 // 10MB
+                maxRangeBytes: 1024 * 1024 * 10, // 10MB
             };
             const source = createStorageDriver(sourceConfig);
             const target = createStorageDriver(targetConfig);

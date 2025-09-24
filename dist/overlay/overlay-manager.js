@@ -203,14 +203,7 @@ class OverlayManager extends events_1.EventEmitter {
           sender = EXCLUDED.sender,
           data_json = EXCLUDED.data_json,
           received_at = EXCLUDED.received_at
-      `, [
-                messageId,
-                event.topic,
-                'data',
-                event.sender,
-                JSON.stringify(event.data),
-                event.timestamp,
-            ]);
+      `, [messageId, event.topic, 'data', event.sender, JSON.stringify(event.data), event.timestamp]);
             // Update subscription activity
             this.subscriptionManager.updateActivity(event.topic);
             // Process data based on topic
@@ -412,8 +405,7 @@ class OverlayManager extends events_1.EventEmitter {
         AND received_at > $2
         ORDER BY received_at DESC
         LIMIT 50
-      `, [overlay_config_1.D01A_TOPICS.SEARCH_RESULTS, Date.now() - 300000] // Last 5 minutes
-            );
+      `, [overlay_config_1.D01A_TOPICS.SEARCH_RESULTS, Date.now() - 300000]);
             return results
                 .map((row) => JSON.parse(row.data_json))
                 .filter((data) => data.type === 'search_response');
@@ -442,8 +434,7 @@ class OverlayManager extends events_1.EventEmitter {
         const recentMessagesResult = await this.database.queryOne(`
       SELECT COUNT(*) as count FROM overlay_messages
       WHERE received_at > $1
-    `, [Date.now() - 3600000] // Last hour
-        );
+    `, [Date.now() - 3600000]);
         const recentMessages = recentMessagesResult?.count || 0;
         const totalPeersResult = await this.database.queryOne(`
       SELECT COUNT(*) as count FROM overlay_peers
@@ -452,8 +443,7 @@ class OverlayManager extends events_1.EventEmitter {
         const activePeersResult = await this.database.queryOne(`
       SELECT COUNT(*) as count FROM overlay_peers
       WHERE last_seen > $1
-    `, [Date.now() - 300000] // Last 5 minutes
-        );
+    `, [Date.now() - 300000]);
         const activePeers = activePeersResult?.count || 0;
         return {
             overlay: overlayStats,

@@ -53,12 +53,16 @@ class QueryBuilder {
         return { query, params };
     }
     static update(table, data, where) {
-        const setClause = Object.keys(data).map((key, index) => `${key} = $${index + 1}`).join(', ');
+        const setClause = Object.keys(data)
+            .map((key, index) => `${key} = $${index + 1}`)
+            .join(', ');
         const params = [...Object.values(data)];
-        const whereClause = Object.keys(where).map((key, index) => {
+        const whereClause = Object.keys(where)
+            .map((key, index) => {
             params.push(where[key]);
             return `${key} = $${params.length}`;
-        }).join(' AND ');
+        })
+            .join(' AND ');
         const query = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
         return { query, params };
     }
@@ -309,7 +313,7 @@ class BRC26UHRPService extends events_1.EventEmitter {
                 download_count: content.downloadCount,
                 local_path: content.localPath,
                 is_public: content.isPublic,
-                metadata_json: content.metadata ? JSON.stringify(content.metadata) : null
+                metadata_json: content.metadata ? JSON.stringify(content.metadata) : null,
             };
             const { query, params } = QueryBuilder.insert('uhrp_content', contentData);
             await this.database.execute(query, params);
@@ -402,7 +406,7 @@ class BRC26UHRPService extends events_1.EventEmitter {
             const { query: selectQuery, params: selectParams } = QueryBuilder.selectWithCustomWhere('uhrp_content', ['*'], whereCondition, params, {
                 orderBy: 'uploaded_at',
                 orderDirection: 'DESC',
-                limit: query.limit
+                limit: query.limit,
             });
             const results = await this.database.query(selectQuery, selectParams);
             return results.map((row) => ({
@@ -433,7 +437,7 @@ class BRC26UHRPService extends events_1.EventEmitter {
             // Query advertisements from database (including from other hosts)
             const { query, params } = QueryBuilder.selectWithCustomWhere('uhrp_advertisements', ['*'], 'content_hash = $1 AND is_active = TRUE AND expiry_time > $2', [contentHash, Date.now()], {
                 orderBy: 'advertised_at',
-                orderDirection: 'DESC'
+                orderDirection: 'DESC',
             });
             const advertisements = await this.database.query(query, params);
             const uhrlAdverts = advertisements.map((row) => ({
@@ -641,7 +645,7 @@ class BRC26UHRPService extends events_1.EventEmitter {
             signature: ad.signature,
             utxo_id: ad.utxoId,
             advertised_at: ad.advertisedAt,
-            is_active: ad.isActive
+            is_active: ad.isActive,
         };
         const onConflict = `ON CONFLICT (public_key, content_hash)
       DO UPDATE SET
@@ -660,7 +664,7 @@ class BRC26UHRPService extends events_1.EventEmitter {
         const placeholders = publicKeys.map((_, i) => `$${i + 1}`).join(',');
         const { query, params } = QueryBuilder.selectWithCustomWhere('uhrp_hosts', ['*'], `public_key IN (${placeholders}) AND is_active = TRUE`, publicKeys, {
             orderBy: 'reputation',
-            orderDirection: 'DESC'
+            orderDirection: 'DESC',
         });
         const hosts = await this.database.query(query, params);
         return hosts.map((row) => ({
@@ -682,7 +686,7 @@ class BRC26UHRPService extends events_1.EventEmitter {
             downloaded_at: Date.now(),
             success: success,
             error_message: errorMessage || null,
-            download_time_ms: downloadTimeMs
+            download_time_ms: downloadTimeMs,
         };
         const { query, params } = QueryBuilder.insert('uhrp_downloads', downloadData);
         await this.database.execute(query, params);

@@ -17,6 +17,7 @@ import createD22OverlayStorageRoutes from '../../src/routes/d22-overlay-storage.
 import { UHRPStorageService } from '../../src/services/uhrp-storage.js';
 import StorageRouter, { AdaptiveStorageCache } from '../../src/services/storage-router.js';
 import { StorageAgentCoordinator } from '../../src/services/storage-agents.js';
+import { D22StorageSchema } from '../../src/db/schema-d22-overlay-storage.js';
 
 describe('D22 Overlay Storage Integration Tests', () => {
   let app: express.Application;
@@ -557,23 +558,8 @@ describe('D22 Overlay Storage Integration Tests', () => {
 
   // Helper functions
   async function setupTestSchema(): Promise<void> {
-    // Read and execute the D22 schema
-    const schemaPath = path.join(__dirname, '../../src/db/schema-d22-overlay-storage.sql');
-    const schemaSql = await fs.readFile(schemaPath, 'utf-8');
-
-    // Split by semicolon and execute each statement
-    const statements = schemaSql.split(';').filter(stmt => stmt.trim().length > 0);
-
-    for (const statement of statements) {
-      try {
-        await pool.query(statement);
-      } catch (error) {
-        // Ignore errors for existing tables/indexes
-        if (!error.message.includes('already exists')) {
-          console.warn('Schema setup warning:', error.message);
-        }
-      }
-    }
+    // Use the complete schema initialization
+    await D22StorageSchema.initializeAll(pool);
   }
 
   async function cleanupTestData(): Promise<void> {
