@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Make script properly exitable with Ctrl+C
+trap 'echo -e "\n❌ Script interrupted by user"; exit 130' INT TERM
+
 echo "🚀 Starting BSV Overlay Network Application"
 echo "==========================================="
 
@@ -8,6 +11,20 @@ if ! docker info > /dev/null 2>&1; then
     echo "❌ Docker is not running. Please start Docker and try again."
     exit 1
 fi
+
+# Detect docker-compose command
+DOCKER_COMPOSE=""
+if command -v docker-compose > /dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version > /dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo "❌ Neither 'docker-compose' nor 'docker compose' is available."
+    echo "   Please install Docker Compose and try again."
+    exit 1
+fi
+
+echo "ℹ️  Using: $DOCKER_COMPOSE"
 
 # Parse command line arguments
 ADMIN_MODE=false
@@ -47,22 +64,22 @@ done
 
 # Clean up existing containers
 echo "🧹 Cleaning up existing containers..."
-docker-compose down --remove-orphans 2>/dev/null || true
+$DOCKER_COMPOSE down --remove-orphans 2>/dev/null || true
 
 # Clean volumes if requested
 if [ "$CLEAN_VOLUMES" = true ]; then
     echo "🗑️  Removing existing data volumes..."
-    docker-compose down -v 2>/dev/null || true
+    $DOCKER_COMPOSE down -v 2>/dev/null || true
 fi
 
 # Build and start services
 echo "🔨 Building and starting services..."
 if [ "$ADMIN_MODE" = true ]; then
     echo "   - Starting with admin tools (pgAdmin + Redis Commander)"
-    docker-compose --profile admin up --build -d
+    $DOCKER_COMPOSE --profile admin up --build -d
 else
     echo "   - Starting core services (PostgreSQL + Redis + App)"
-    docker-compose up --build -d postgres redis app
+    $DOCKER_COMPOSE up --build -d postgres redis app
 fi
 
 # Wait for services to be ready with better health checks
@@ -70,16 +87,32 @@ echo "⏳ Waiting for services to start..."
 
 # Wait for PostgreSQL
 echo "   - Waiting for PostgreSQL..."
-timeout 60 bash -c 'until docker-compose exec postgres pg_isready -U postgres; do sleep 2; done' || {
-    echo "❌ PostgreSQL failed to start"
-    exit 1
+timeout 60 bash -c "until $DOCKER_COMPOSE exec postgres pg_isready -U postgres 2>/dev/null; do sleep 2; done" || {
+    echo "❌ PostgreSQL health check failed after 60s"
+    echo "📋 PostgreSQL logs:"
+    $DOCKER_COMPOSE logs postgres --tail=10
+    echo "ℹ️  Trying direct connection test..."
+    if $DOCKER_COMPOSE exec postgres psql -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
+        echo "✅ PostgreSQL is actually working, continuing..."
+    else
+        echo "❌ PostgreSQL is truly not ready"
+        exit 1
+    fi
 }
 
 # Wait for Redis
 echo "   - Waiting for Redis..."
-timeout 30 bash -c 'until docker-compose exec redis redis-cli ping | grep -q PONG; do sleep 2; done' || {
-    echo "❌ Redis failed to start"
-    exit 1
+timeout 30 bash -c "until $DOCKER_COMPOSE exec redis redis-cli ping 2>/dev/null | grep -q PONG; do sleep 2; done" || {
+    echo "❌ Redis health check failed after 30s"
+    echo "📋 Redis logs:"
+    $DOCKER_COMPOSE logs redis --tail=10
+    echo "ℹ️  Trying direct connection test..."
+    if $DOCKER_COMPOSE exec redis redis-cli ping 2>/dev/null | grep -q PONG; then
+        echo "✅ Redis is actually working, continuing..."
+    else
+        echo "❌ Redis is truly not ready"
+        exit 1
+    fi
 }
 
 # Wait for Application
@@ -87,7 +120,7 @@ echo "   - Waiting for application..."
 timeout 120 bash -c 'until curl -sf http://localhost:8788/health > /dev/null; do sleep 3; done' || {
     echo "❌ Application failed to start"
     echo "📋 Application logs:"
-    docker-compose logs app --tail=20
+    $DOCKER_COMPOSE logs app --tail=20
     exit 1
 }
 
@@ -127,10 +160,10 @@ fi
 
 echo ""
 echo "💡 Useful commands:"
-echo "   - View logs:           docker-compose logs -f app"
-echo "   - Stop services:       docker-compose down"
-echo "   - Stop + clean:        docker-compose down -v"
-echo "   - Restart app:         docker-compose restart app"
+echo "   - View logs:           $DOCKER_COMPOSE logs -f app"
+echo "   - Stop services:       $DOCKER_COMPOSE down"
+echo "   - Stop + clean:        $DOCKER_COMPOSE down -v"
+echo "   - Restart app:         $DOCKER_COMPOSE restart app"
 echo "   - Run API tests:       npm run postman:overlay"
 echo ""
 echo "📚 Use Postman collection: postman/BSV-Overlay-Network-API.postman_collection.json"
