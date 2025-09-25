@@ -18,11 +18,11 @@
 
   // Activity feed data
   let recentActivity = [
-    { type: 'new_service', service: 'AI Training Dataset', producer: 'DataCorp Inc', time: '2m ago', icon: '🆕' },
-    { type: 'purchase', service: 'Real-time Market Feed', user: 'user_abc123', time: '5m ago', icon: '💰' },
-    { type: 'price_update', service: 'IoT Sensor Network', change: '+15%', time: '12m ago', icon: '📈' },
-    { type: 'new_producer', producer: 'FinTech Solutions', time: '18m ago', icon: '🏭' },
-    { type: 'purchase', service: 'Weather Data Archive', user: 'user_xyz789', time: '23m ago', icon: '💰' }
+    { type: 'new_service', service: 'AI Training Dataset', producer: 'DataCorp Inc', time: '2m ago' },
+    { type: 'purchase', service: 'Real-time Market Feed', user: 'user_abc123', time: '5m ago' },
+    { type: 'price_update', service: 'IoT Sensor Network', change: '+15%', time: '12m ago' },
+    { type: 'new_producer', producer: 'FinTech Solutions', time: '18m ago' },
+    { type: 'purchase', service: 'Weather Data Archive', user: 'user_xyz789', time: '23m ago' }
   ];
 
   // Trending services
@@ -203,7 +203,7 @@
     <!-- Left Sidebar - Trending Services -->
     <aside class="left-sidebar">
       <div class="sidebar-panel">
-        <h3>🔥 Trending Services</h3>
+        <h3>Trending Services</h3>
         <div class="trending-list">
           {#each trendingServices as service}
             <div class="trending-item">
@@ -301,11 +301,10 @@
     <!-- Right Sidebar - Activity Feed -->
     <aside class="right-sidebar">
       <div class="sidebar-panel">
-        <h3>📈 Recent Activity</h3>
+        <h3>Recent Activity</h3>
         <div class="activity-feed">
           {#each recentActivity as activity}
             <div class="activity-item">
-              <span class="activity-icon">{activity.icon}</span>
               <div class="activity-content">
                 {#if activity.type === 'new_service'}
                   <div class="activity-text">New service: <strong>{activity.service}</strong></div>
@@ -460,14 +459,12 @@
   }
 
   .activity-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #21262d;
   }
 
-  .activity-icon {
-    font-size: 1rem;
-    flex-shrink: 0;
+  .activity-item:last-child {
+    border-bottom: none;
   }
 
   .activity-content {
