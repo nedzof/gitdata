@@ -5,7 +5,6 @@
   import { onMount } from 'svelte';
   import { bsvWalletService } from '$lib/bsv-wallet';
 
-  let searchQuery = '';
   let walletConnected = false;
   let walletPublicKey = '';
   let walletLoading = false;
@@ -32,12 +31,6 @@
     return unsubscribe;
   });
 
-  function handleGlobalSearch(event) {
-    event.preventDefault();
-    if (searchQuery.trim()) {
-      goto(`/data/version/${encodeURIComponent(searchQuery.trim())}`);
-    }
-  }
 
   async function connectWallet() {
     console.log('🔘 Connect wallet button clicked');
@@ -91,13 +84,11 @@
       </div>
 
       <div class="nav-center">
-        <form class="global-search" on:submit={handleGlobalSearch}>
-          <input
-            class="search-input-nav"
-            bind:value={searchQuery}
-            placeholder="Search versionId, txid, contentHash..."
-          />
-        </form>
+        <nav class="main-navigation">
+          <a href="/policy" class="nav-tab">🛡️ Policy</a>
+          <a href="/producer" class="nav-tab">🏭 Producer</a>
+          <a href="/consumer" class="nav-tab">📊 Client</a>
+        </nav>
       </div>
 
       <div class="nav-right">
@@ -135,6 +126,35 @@
 </div>
 
 <style>
+  /* Navigation Tabs */
+  .main-navigation {
+    display: flex;
+    gap: 0;
+  }
+
+  .nav-tab {
+    padding: 0.75rem 1.5rem;
+    color: #6e7681;
+    text-decoration: none;
+    border-radius: 6px;
+    transition: all 0.2s;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .nav-tab:hover {
+    color: #f0f6fc;
+    background: #21262d;
+  }
+
+  /* Active state based on current page */
+  .nav-tab[href="/policy"]:global(.active),
+  .nav-tab[href="/producer"]:global(.active),
+  .nav-tab[href="/consumer"]:global(.active) {
+    color: #58a6ff;
+    background: #0d1117;
+  }
+
   .wallet-container {
     position: relative;
     display: flex;
