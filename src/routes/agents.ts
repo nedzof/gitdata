@@ -21,6 +21,7 @@ export function agentsRouter() {
         capabilities: JSON.parse(row.capabilities_json || '[]'),
         status: row.status,
         identityKey: row.identity_key,
+        producer: row.identity_key,
         lastPingAt: row.last_ping_at,
         createdAt: row.created_at,
       }));
@@ -88,6 +89,7 @@ export function agentsRouter() {
         capabilities: JSON.parse(row.capabilities_json || '[]'),
         status: row.status,
         identityKey: row.identity_key,
+        producer: row.identity_key,
         lastPingAt: row.last_ping_at,
         createdAt: row.created_at,
       }));
@@ -125,6 +127,7 @@ export function agentsRouter() {
         capabilities: JSON.parse(agent.capabilities_json || '[]'),
         status: agent.status,
         identityKey: agent.identity_key,
+        producer: agent.identity_key,
         lastPingAt: agent.last_ping_at,
         createdAt: agent.created_at,
       };
