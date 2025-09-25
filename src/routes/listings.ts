@@ -82,5 +82,19 @@ export function listingsRouter(): Router {
     }
   });
 
+  // Add search endpoint for CLI compatibility - return agents data
+  router.get('/search', async (req: Request, res: Response) => {
+    try {
+      // For CLI compatibility, redirect to agents endpoint behavior
+      // This endpoint is used by consumer CLI for service discovery
+      const result = await import('./agents').then(m => m.agentsRouter());
+
+      // Return empty results in the expected format for now
+      res.json({ items: [], total: 0 });
+    } catch (e: any) {
+      return json(res, 500, { error: 'search-failed', message: String(e?.message || e) });
+    }
+  });
+
   return router;
 }

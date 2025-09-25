@@ -139,9 +139,23 @@ class CLITestUtils {
   static parseCliOutput(output: string, format: 'json' | 'text' = 'json'): any {
     if (format === 'json') {
       try {
-        // Find JSON objects in the output
-        const jsonMatches = output.match(/\{.*\}/g);
-        return jsonMatches ? JSON.parse(jsonMatches[jsonMatches.length - 1]) : null;
+        // Find JSON objects in the output, supporting multi-line JSON
+        const jsonMatches = output.match(/\{[\s\S]*?\}/g);
+        if (!jsonMatches) {
+          return null;
+        }
+
+        // Try to parse each match, returning the last successful parse
+        for (let i = jsonMatches.length - 1; i >= 0; i--) {
+          try {
+            return JSON.parse(jsonMatches[i]);
+          } catch (parseError) {
+            // Continue to try the next match
+            continue;
+          }
+        }
+
+        return null;
       } catch (error) {
         return null;
       }
