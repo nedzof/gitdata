@@ -44,4 +44,3 @@ export class D21NativePayments {
   }
 }
 
-export { D21NativePayments };

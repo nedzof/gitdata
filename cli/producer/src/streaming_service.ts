@@ -88,4 +88,4 @@ export class ProducerStreamingService {
   }
 }
 
-export { ProducerStreamingService, StreamConfiguration, ActiveStream };
+export { StreamConfiguration, ActiveStream };

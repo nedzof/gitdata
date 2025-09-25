@@ -1,9 +1,9 @@
 import assert from 'assert';
 import express from 'express';
 import request from 'supertest';
-import Database from 'better-sqlite3';
+import { Pool } from 'pg';
 
-import { initSchema } from '../../src/db';
+import { getPostgreSQLClient } from '../../src/db/postgresql';
 import { submitDlm1Router } from '../../src/routes/submit-builder';
 import { submitReceiverRouter } from '../../src/routes/submit-receiver';
 import { fromHex, toHex } from '../../src/builders/opreturn';
@@ -137,24 +137,24 @@ function buildTxWithScript(scriptHex: string): string {
 }
 
 // -------- Build an in-memory Express app --------
-function makeApp() {
+async function makeApp() {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
-  // In-memory DB and schema
-  const db = new Database(':memory:');
-  initSchema(db);
+  // PostgreSQL client
+  const pgClient = getPostgreSQLClient();
+  await pgClient.initSchema();
 
   // Mount routes (no prefix to match D01)
   app.use(submitDlm1Router());
-  app.use(submitReceiverRouter(db, { bodyMaxSize: 1_000_000 }));
+  app.use(submitReceiverRouter(pgClient.getPool(), { bodyMaxSize: 1_000_000 }));
 
-  return { app, db };
+  return { app, db: pgClient };
 }
 
 // -------- Test scenario --------
 (async function run() {
-  const { app, db } = makeApp();
+  const { app, db } = await makeApp();
 
   const manifest = {
     type: 'datasetVersionManifest',

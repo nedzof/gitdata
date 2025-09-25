@@ -584,4 +584,3 @@ export class ProducerBRCStack {
   }
 }
 
-export { ProducerBRCStack };

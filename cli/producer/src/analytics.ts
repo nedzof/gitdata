@@ -48,4 +48,3 @@ export class ProducerAnalytics {
   }
 }
 
-export { ProducerAnalytics };

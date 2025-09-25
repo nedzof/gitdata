@@ -37,10 +37,10 @@ const execAsync = promisify(exec);
 const CLI_TEST_CONFIG = {
   OVERLAY_URL: 'http://localhost:3000',
   D14_CLI_PATH: './cli/consumer/overlay-consumer-cli.py',
-  D15_CLI_PATH: './cli/producer/overlay-producer-cli.ts',
+  D15_CLI_PATH: './cli/producer/producer.ts',
   TEST_OUTPUT_DIR: './test/fixtures/cli-output',
   PYTHON_ENV: 'python3',
-  NODE_ENV: 'node --loader ts-node/esm',
+  NODE_ENV: 'npx tsx',
   TIMEOUT: {
     CLI_COMMAND: 30000,
     STREAM_SETUP: 60000,
@@ -197,8 +197,7 @@ describe('D14-D15 CLI Integration Tests', () => {
     it('should initialize producer with identity registration via CLI', async () => {
       const result = await CLITestUtils.executeProducerCLI('init', [
         '--config', producerConfigPath,
-        '--overlay-url', CLI_TEST_CONFIG.OVERLAY_URL,
-        '--force'
+        '--overlay-url', CLI_TEST_CONFIG.OVERLAY_URL
       ]);
 
       expect(result.exitCode).toBe(0);

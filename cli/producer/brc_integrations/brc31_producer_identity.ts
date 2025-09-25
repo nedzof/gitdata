@@ -403,4 +403,4 @@ export class BRC31ProducerIdentity {
   }
 }
 
-export { BRC31ProducerIdentity, ProducerIdentity, ProducerIdentityData, SignatureData };
+export { ProducerIdentity, ProducerIdentityData, SignatureData };

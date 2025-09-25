@@ -116,4 +116,4 @@ export class BRC41PaymentReceptor {
   }
 }
 
-export { BRC41PaymentReceptor, Payment, PaymentEndpointConfig };
+export { Payment, PaymentEndpointConfig };

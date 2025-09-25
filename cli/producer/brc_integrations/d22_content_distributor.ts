@@ -48,4 +48,3 @@ export class D22ContentDistributor {
   }
 }
 
-export { D22ContentDistributor };

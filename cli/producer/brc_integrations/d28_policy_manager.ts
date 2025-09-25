@@ -588,7 +588,6 @@ export class D28PolicyManager {
 }
 
 export {
-  D28PolicyManager,
   PolicyDefinition,
   PolicyConstraints,
   ContentMetadata,

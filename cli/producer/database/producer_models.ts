@@ -628,7 +628,6 @@ export class ProducerDatabase {
 }
 
 export {
-  ProducerDatabase,
   ProducerIdentity,
   ProducerAdvertisement,
   PublishedContent,

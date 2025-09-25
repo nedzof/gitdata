@@ -506,4 +506,4 @@ export class BRC88ServiceAdvertiser {
   }
 }
 
-export { BRC88ServiceAdvertiser, ServiceAdvertisement, SHIPAdvertisementData, SLAPAdvertisementData, AdvertisementMetrics };
+export { ServiceAdvertisement, SHIPAdvertisementData, SLAPAdvertisementData, AdvertisementMetrics };

@@ -69,4 +69,4 @@ export class BRC64ProducerAnalytics {
   }
 }
 
-export { BRC64ProducerAnalytics, AnalyticsEvent };
+export { AnalyticsEvent };

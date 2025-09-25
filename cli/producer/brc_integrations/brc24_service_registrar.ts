@@ -36,4 +36,3 @@ export class BRC24ServiceRegistrar {
   }
 }
 
-export { BRC24ServiceRegistrar };

@@ -177,13 +177,13 @@ class QueryBuilder {
       return columnDef;
     });
 
-    let createStatement = `CREATE TABLE IF NOT EXISTS ${tableDef.name} (\\n  ${columns.join(',\\n  ')}`;
+    let createStatement = `CREATE TABLE IF NOT EXISTS ${tableDef.name} (\n  ${columns.join(',\n  ')}`;
 
     if (tableDef.constraints && tableDef.constraints.length > 0) {
-      createStatement += ',\\n  ' + tableDef.constraints.join(',\\n  ');
+      createStatement += ',\n  ' + tableDef.constraints.join(',\n  ');
     }
 
-    createStatement += '\\n)';
+    createStatement += '\n)';
     return createStatement;
   }
 }

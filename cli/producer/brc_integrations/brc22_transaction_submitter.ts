@@ -36,4 +36,3 @@ export class BRC22TransactionSubmitter {
   }
 }
 
-export { BRC22TransactionSubmitter };

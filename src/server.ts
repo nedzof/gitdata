@@ -84,8 +84,28 @@ app.use(limitsMiddleware());
 setupSwaggerUI(app);
 
 // Health and readiness checks
-app.use(healthRouter());
+const healthRouterInstance = healthRouter();
+app.use(healthRouterInstance);
 app.use(readyRouter());
+
+// Add health endpoint aliases for CLI compatibility
+app.use('/v1', healthRouterInstance);  // Makes /v1/health available
+app.use('/overlay', healthRouterInstance);  // Makes /overlay/health available
+
+// Add status endpoint aliases that serve health data directly
+app.get('/v1/status', async (req, res) => {
+  // Forward the request to the health endpoint handler
+  req.url = '/health';
+  const healthRouterInstance = healthRouter();
+  healthRouterInstance(req, res, () => {});
+});
+
+app.get('/overlay/status', async (req, res) => {
+  // Forward the request to the health endpoint handler
+  req.url = '/health';
+  const healthRouterInstance = healthRouter();
+  healthRouterInstance(req, res, () => {});
+});
 
 // Core data routes
 app.use('/v1', dataRouter());
@@ -214,7 +234,7 @@ async function initializeBRC31Services() {
       port: parseInt(process.env.DB_PORT || '5432'),
       database: process.env.DB_NAME || 'gitdata',
       user: process.env.DB_USER || 'gitdata',
-      password: process.env.DB_PASSWORD || 'gitdata',
+      password: process.env.DB_PASSWORD || '',
       ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
     });
 

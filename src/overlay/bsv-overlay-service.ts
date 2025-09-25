@@ -456,10 +456,15 @@ class BSVOverlayService extends EventEmitter {
    * Get connected peers
    */
   getConnectedPeers(): string[] {
-    if (!this.overlay) {
+    if (!this.overlay || typeof this.overlay.getConnectedPeers !== 'function') {
       return [];
     }
-    return this.overlay.getConnectedPeers();
+    try {
+      return this.overlay.getConnectedPeers();
+    } catch (error) {
+      console.warn('[BSV-OVERLAY] getConnectedPeers error:', (error as Error).message);
+      return [];
+    }
   }
 
   /**

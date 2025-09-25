@@ -320,7 +320,7 @@ export class HybridDatabase {
   ): Promise<void> {
     await this.pg.query(
       `
-      INSERT INTO receipts(receipt_id, version_id, quantity, content_hash, amount_sat, status, created_at, expires_at, bytes_used, last_seen)
+      INSERT INTO overlay_receipts(receipt_id, version_id, quantity, content_hash, amount_sat, status, created_at, expires_at, bytes_used, last_seen)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     `,
       [
@@ -339,14 +339,14 @@ export class HybridDatabase {
   }
 
   async getReceipt(receiptId: string): Promise<ReceiptRow | null> {
-    return await this.pg.queryOne<ReceiptRow>('SELECT * FROM receipts WHERE receipt_id = $1', [
+    return await this.pg.queryOne<ReceiptRow>('SELECT * FROM overlay_receipts WHERE receipt_id = $1', [
       receiptId,
     ]);
   }
 
   async getRecentReceipts(limit: number = 50, offset: number = 0): Promise<ReceiptRow[]> {
     const result = await this.pg.query<ReceiptRow>(
-      'SELECT * FROM receipts ORDER BY created_at DESC LIMIT $1 OFFSET $2',
+      'SELECT * FROM overlay_receipts ORDER BY created_at DESC LIMIT $1 OFFSET $2',
       [limit, offset],
     );
     return result.rows;

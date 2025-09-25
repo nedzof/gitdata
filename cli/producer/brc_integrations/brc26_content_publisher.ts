@@ -421,4 +421,4 @@ export class BRC26ContentPublisher {
   }
 }
 
-export { BRC26ContentPublisher, PublishedContent, ContentData, ContentVersion };
+export { PublishedContent, ContentData, ContentVersion };

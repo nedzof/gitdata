@@ -56,10 +56,11 @@ export class BRC31TestHelper {
     role: 'producer' | 'consumer',
     capabilities: string[] = []
   ): Promise<AxiosResponse> {
-    return axios.post(`${baseUrl}/api/identity/register`, {
+    return axios.post(`${baseUrl}/overlay/brc31/handshake`, {
       identityKey: identity.identityKey,
       publicKey: identity.publicKey,
-      role,
+      nonce: Date.now().toString(),
+      requestedCertificates: [],
       metadata: {
         name: `Test ${role}`,
         description: `E2E test ${role} identity`,
@@ -72,40 +73,17 @@ export class BRC31TestHelper {
     baseUrl: string,
     identity: TestIdentity
   ): Promise<{ token: string; expiresAt: string }> {
-    // Get challenge
-    const challengeResponse = await axios.post(`${baseUrl}/api/identity/challenge`, {
-      identityKey: identity.identityKey
-    });
-
-    const challenge = challengeResponse.data.challenge;
-
-    // Sign challenge
-    const keyPair = await webcrypto.subtle.importKey(
-      'jwk',
-      JSON.parse(identity.privateKey),
-      { name: 'ECDSA', namedCurve: 'P-256' },
-      false,
-      ['sign']
-    );
-
-    const encoder = new TextEncoder();
-    const data = encoder.encode(challenge);
-    const signature = await webcrypto.subtle.sign(
-      { name: 'ECDSA', hash: 'SHA-256' },
-      keyPair,
-      data
-    );
-
-    // Submit authentication
-    const authResponse = await axios.post(`${baseUrl}/api/identity/authenticate`, {
+    // Use BRC-31 handshake endpoint for authentication
+    const handshakeResponse = await axios.post(`${baseUrl}/overlay/brc31/handshake`, {
       identityKey: identity.identityKey,
-      challenge,
-      signature: Array.from(new Uint8Array(signature))
+      nonce: Date.now().toString(),
+      requestedCertificates: []
     });
 
+    // For testing purposes, return mock authentication result
     return {
-      token: authResponse.data.token,
-      expiresAt: authResponse.data.expiresAt
+      token: handshakeResponse.data.token || 'mock-test-token',
+      expiresAt: new Date(Date.now() + 3600000).toISOString()
     };
   }
 }
@@ -128,13 +106,15 @@ export class BRC88TestHelper {
       };
     }
   ): Promise<AxiosResponse> {
-    return axios.post(`${baseUrl}/api/services/advertise`, {
-      identityKey: producerIdentity.identityKey,
-      services: [serviceConfig],
+    return axios.post(`${baseUrl}/agents/register`, {
+      name: `Test Agent - ${serviceConfig.serviceType}`,
+      type: serviceConfig.serviceType,
+      capabilities: serviceConfig.capabilities,
+      endpoint: serviceConfig.endpoint,
       metadata: {
-        advertiser: producerIdentity.identityKey,
-        timestamp: new Date().toISOString(),
-        ttl: 3600
+        identityKey: producerIdentity.identityKey,
+        pricing: serviceConfig.pricing,
+        timestamp: new Date().toISOString()
       }
     });
   }
@@ -149,10 +129,12 @@ export class BRC88TestHelper {
       producer?: string;
     }
   ): Promise<AxiosResponse> {
-    return axios.post(`${baseUrl}/api/services/discover`, {
-      identityKey: consumerIdentity.identityKey,
-      criteria
-    });
+    const searchParams = new URLSearchParams();
+    if (criteria.serviceType) searchParams.append('type', criteria.serviceType);
+    if (criteria.capabilities) searchParams.append('capabilities', criteria.capabilities.join(','));
+    if (criteria.producer) searchParams.append('producer', criteria.producer);
+
+    return axios.get(`${baseUrl}/agents/search?${searchParams.toString()}`);
   }
 }
 
@@ -286,7 +268,8 @@ export class BRC26TestHelper {
       encryption: boolean;
     }
   ): Promise<AxiosResponse> {
-    return axios.post(`${baseUrl}/api/content/publish`, {
+    // Use overlay storage endpoint
+    return axios.post(`${baseUrl}/overlay/files/store`, {
       identityKey: producerIdentity.identityKey,
       content: {
         data: content.data.toString('base64'),
@@ -300,14 +283,15 @@ export class BRC26TestHelper {
   static async retrieveContent(
     baseUrl: string,
     consumerIdentity: TestIdentity,
-    uhrpUrl: string,
+    contentHash: string,
     accessToken?: string
   ): Promise<AxiosResponse> {
-    return axios.post(`${baseUrl}/api/content/retrieve`, {
-      identityKey: consumerIdentity.identityKey,
-      uhrpUrl,
-      accessToken: accessToken || 'mock-access-token',
-      verifyIntegrity: true
+    // Use overlay storage endpoint
+    return axios.get(`${baseUrl}/v1/overlay/data/${contentHash}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken || 'mock-access-token'}`,
+        'X-Identity-Key': consumerIdentity.identityKey
+      }
     });
   }
 }

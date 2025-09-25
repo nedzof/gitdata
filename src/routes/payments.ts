@@ -99,7 +99,7 @@ export function paymentsRouter(): Router {
 
       // Update receipt with quote info (keep status as pending)
       await pgClient.query(
-        'UPDATE receipts SET quote_template_hash = $1, quote_expires_at = $2 WHERE receipt_id = $3',
+        'UPDATE overlay_receipts SET quote_template_hash = $1, quote_expires_at = $2 WHERE receipt_id = $3',
         [templateHash, templateData.expiresAt, receiptId],
       );
 
@@ -173,7 +173,7 @@ export function paymentsRouter(): Router {
       const pgClient = getPostgreSQLClient();
 
       await pgClient.query(
-        'UPDATE receipts SET payment_txid = $1, paid_at = to_timestamp($2) WHERE receipt_id = $3',
+        'UPDATE overlay_receipts SET payment_txid = $1, paid_at = to_timestamp($2) WHERE receipt_id = $3',
         [txid, Math.floor(Date.now() / 1000), receiptId],
       );
 
