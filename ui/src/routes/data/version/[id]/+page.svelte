@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
@@ -202,7 +202,7 @@
     } catch (error) {
       policyResult = {
         ready: false,
-        reason: error.message.includes('JSON') ? 'Invalid JSON policy' : `Policy check failed: ${(error as Error).message}`,
+        reason: error.message.includes('JSON') ? 'Invalid JSON policy' : `Policy check failed: ${error.message}`,
         error: error.message
       };
     }

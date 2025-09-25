@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
@@ -291,7 +291,7 @@
 			} else if (error.message.includes('signature-invalid')) {
 				alert(`Payment failed: Invalid signature. Please try reconnecting your wallet.`);
 			} else {
-				alert(`Payment failed: ${(error as Error).message}`);
+				alert(`Payment failed: ${error.message}`);
 			}
 		}
 	}

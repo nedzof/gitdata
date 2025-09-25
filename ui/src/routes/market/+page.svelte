@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { api } from '$lib/api';
@@ -673,7 +673,7 @@
         `💥 Network Error\n\n` +
         `Failed to connect to BSV Overlay Network.\n` +
         `Please check your connection and try again.\n\n` +
-        `Error: ${(error as Error).message}`
+        `Error: ${error.message}`
       );
     }
   }

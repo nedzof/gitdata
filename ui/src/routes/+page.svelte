@@ -28,5 +28,7 @@
     <a href="/payments">💰 Payments</a>
     <a href="/market">📋 Market</a>
     <a href="/policy">🛡️ Policy</a>
+    <a href="/producer">🏭 Producer</a>
+    <a href="/consumer">🛒 Consumer</a>
   </div>
 </main>

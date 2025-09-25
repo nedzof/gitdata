@@ -97,6 +97,56 @@ interface PaymentMethod {
   arcProviders?: string[];
 }
 
+// Policy Templates matching GUI functionality
+const POLICY_TEMPLATES: { [key: string]: any } = {
+  'banking-compliance': {
+    id: 'banking-compliance',
+    name: 'Banking Compliance (Ultra-Policy)',
+    description: 'Strict compliance for banking/financial documents with EU restrictions',
+    category: 'compliance',
+    template: {
+      classification: 'restricted',
+      license: 'Commercial',
+      minConfs: 12,
+      allowRecalled: false,
+      maxDataAgeSeconds: 3600, // 1 hour
+      geoOriginAllowList: ['EU'],
+      maxPricePerByte: 0.5,
+      maxTotalCostForLineage: 250000,
+      blockIfInThreatFeed: true
+    }
+  },
+  'general-content': {
+    id: 'general-content',
+    name: 'General Content Policy',
+    description: 'Standard policy for general documents and media files',
+    category: 'general',
+    template: {
+      classification: 'public',
+      license: 'CC-BY-4.0',
+      minConfs: 6,
+      allowRecalled: false,
+      maxDataAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+      maxPricePerByte: 1.0,
+      maxTotalCostForLineage: 50000
+    }
+  },
+  'privacy-protection': {
+    id: 'privacy-protection',
+    name: 'Privacy Protection',
+    description: 'Privacy-focused policy for sensitive documents',
+    category: 'privacy',
+    template: {
+      classification: 'restricted',
+      license: 'CC-BY-NC-SA-4.0',
+      minConfs: 6,
+      allowRecalled: false,
+      blockIfInThreatFeed: true,
+      maxPricePerByte: 2.0
+    }
+  }
+};
+
 class OverlayProducerCLI {
   private config: ProducerConfig;
   private program: Command;
@@ -156,7 +206,7 @@ class OverlayProducerCLI {
     // this.setupDistributionCommands();
     this.setupAnalyticsCommands();
     // this.setupDashboardCommands();
-    // this.setupPolicyCommands();
+    this.setupPolicyCommands();
     // this.setupManagementCommands();
   }
 
@@ -397,6 +447,9 @@ class OverlayProducerCLI {
       .option('--replication <num>', 'Replication factor', '2', parseInt)
       .option('--title <title>', 'Content title')
       .option('--tags <tags>', 'Content tags (comma-separated)')
+      .option('--policy <template>', 'Policy template (banking-compliance, general-content, privacy-protection)')
+      .option('--parent-ids <ids>', 'Parent content IDs for lineage (comma-separated)')
+      .option('--relationship <type>', 'Relationship type (derived, processed, enriched, etc.)', 'derived')
       .action(async (options) => {
         try {
           console.log('📤 Publishing content...');
@@ -412,6 +465,28 @@ class OverlayProducerCLI {
           let contentId;
           let contentWasUploaded = false;
 
+          // Apply policy template if specified
+          let policySettings = {};
+          if (options.policy) {
+            const policyTemplate = POLICY_TEMPLATES[options.policy];
+            if (!policyTemplate) {
+              throw new Error(`Unknown policy template: ${options.policy}. Available: ${Object.keys(POLICY_TEMPLATES).join(', ')}`);
+            }
+            policySettings = policyTemplate.template;
+            console.log(`📋 Applied policy template: ${policyTemplate.name}`);
+          }
+
+          // Process parent lineage if specified
+          let lineageInfo = {};
+          if (options.parentIds) {
+            const parentIds = options.parentIds.split(',').map(id => id.trim());
+            lineageInfo = {
+              parents: parentIds,
+              relationship: options.relationship
+            };
+            console.log(`🔗 Added lineage: ${parentIds.length} parent(s) with "${options.relationship}" relationship`);
+          }
+
           // Try to upload via the D22 overlay storage API endpoint
           try {
             const formData = new FormData();
@@ -424,6 +499,16 @@ class OverlayProducerCLI {
             formData.append('replication', options.replication.toString());
             if (options.tags) {
               formData.append('tags', options.tags);
+            }
+
+            // Include policy settings
+            if (Object.keys(policySettings).length > 0) {
+              formData.append('policy', JSON.stringify(policySettings));
+            }
+
+            // Include lineage information
+            if (Object.keys(lineageInfo).length > 0) {
+              formData.append('lineage', JSON.stringify(lineageInfo));
             }
 
             const uploadResponse = await axios.post(`${overlayUrl}/overlay/storage/upload`, formData, {
