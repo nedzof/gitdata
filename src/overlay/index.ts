@@ -146,7 +146,7 @@ function createLegacyWrapper(dbAdapter: DatabaseAdapter): any {
             .then((results) => {
               if (results) queryCache.set(cacheKey, results);
             })
-            .catch((err) => console.warn('[LEGACY-DB] Async all error:', err.message));
+            .catch((err) => console.warn('[LEGACY-DB] Async all error:', (err as Error).message));
 
           return []; // Return empty array for legacy compatibility
         },
@@ -249,7 +249,7 @@ export async function initializeOverlayServices(
 
     console.log('[OVERLAY] ✅ Streaming service initialized for Phase 3 compliance');
   } catch (error) {
-    console.log('[OVERLAY] ⚠️  Streaming service unavailable (optional):', error.message);
+    console.log('[OVERLAY] ⚠️  Streaming service unavailable (optional):', (error as Error).message);
   }
 
   // Phase 5: Advanced Features (optional)
@@ -266,7 +266,7 @@ export async function initializeOverlayServices(
 
     console.log('[OVERLAY] ✅ Federation manager initialized for Phase 5 cross-network support');
   } catch (error) {
-    console.log('[OVERLAY] ⚠️  Federation manager unavailable (optional):', error.message);
+    console.log('[OVERLAY] ⚠️  Federation manager unavailable (optional):', (error as Error).message);
   }
 
   try {
@@ -276,7 +276,7 @@ export async function initializeOverlayServices(
 
     console.log('[OVERLAY] ✅ Advanced streaming service initialized for Phase 5 live streaming');
   } catch (error) {
-    console.log('[OVERLAY] ⚠️  Advanced streaming service unavailable (optional):', error.message);
+    console.log('[OVERLAY] ⚠️  Advanced streaming service unavailable (optional):', (error as Error).message);
   }
 
   // Initialize overlay manager

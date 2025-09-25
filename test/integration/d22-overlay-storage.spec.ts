@@ -559,7 +559,8 @@ describe('D22 Overlay Storage Integration Tests', () => {
   // Helper functions
   async function setupTestSchema(): Promise<void> {
     // Use the complete schema initialization
-    await D22StorageSchema.initializeAll(pool);
+    await D22StorageSchema.applySchema(pool);
+    await D22StorageSchema.createViews(pool);
   }
 
   async function cleanupTestData(): Promise<void> {
