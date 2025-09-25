@@ -134,22 +134,17 @@
 
   function getFormatDisplay(mediaType) {
     const formats = {
-      'application/json': { name: 'JSON', icon: '📄', type: 'static' },
-      'text/csv': { name: 'CSV', icon: '📊', type: 'static' },
-      'application/x-stream': { name: 'Live Stream', icon: '🔴', type: 'stream' },
-      'application/x-timeseries': { name: 'Time Series', icon: '⏱️', type: 'realtime' },
-      'text/plain': { name: 'Text', icon: '📝', type: 'static' }
+      'application/json': { name: 'JSON', icon: '', type: 'static' },
+      'text/csv': { name: 'CSV', icon: '', type: 'static' },
+      'application/x-stream': { name: 'Live Stream', icon: '', type: 'stream' },
+      'application/x-timeseries': { name: 'Time Series', icon: '', type: 'realtime' },
+      'text/plain': { name: 'Text', icon: '', type: 'static' }
     };
-    return formats[mediaType] || { name: 'Data', icon: '📦', type: 'static' };
+    return formats[mediaType] || { name: 'Data', icon: '', type: 'static' };
   }
 
   function getStatusIcon(classification) {
-    switch (classification) {
-      case 'public': return '🌐';
-      case 'premium': return '⭐';
-      case 'restricted': return '🔒';
-      default: return '📦';
-    }
+    return ''; // Remove all icons for clean appearance
   }
 
   function handleSearch(event) {
@@ -260,9 +255,6 @@
                 <td class="rank-cell">{index + 1}</td>
                 <td class="service-cell">
                   <div class="service-info">
-                    <span class="service-icon">
-                      {getStatusIcon(service.classification)}
-                    </span>
                     <div class="service-details">
                       <div class="service-name">{service.name}</div>
                       <div class="service-id">ID: {service.id}</div>
@@ -271,7 +263,7 @@
                 </td>
                 <td class="type-cell">
                   <span class="type-badge type-{getFormatDisplay(service.format).type}">
-                    {getFormatDisplay(service.format).icon} {getFormatDisplay(service.format).name}
+                    {getFormatDisplay(service.format).name}
                   </span>
                 </td>
                 <td class="price-cell">
@@ -386,8 +378,8 @@
     margin: 0 auto;
     padding: 0 2rem;
     display: grid;
-    grid-template-columns: 220px 1fr 220px;
-    gap: 1.5rem;
+    grid-template-columns: 180px 1fr 180px;
+    gap: 1rem;
   }
 
   /* Sidebars */
@@ -632,13 +624,7 @@
 
   .service-info {
     display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-
-  .service-icon {
-    font-size: 1.25rem;
-    flex-shrink: 0;
+    align-items: flex-start;
   }
 
   .service-details {
