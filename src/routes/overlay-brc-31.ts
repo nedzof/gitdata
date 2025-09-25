@@ -10,7 +10,7 @@ import { Router } from 'express';
 import multer from 'multer';
 
 import type { BRC31Request } from '../brc31/middleware';
-import { requireBRC31Identity, optionalBRC31Identity, getBRC31Identity } from '../brc31/middleware';
+import { requireBRC31Identity, optionalBRC31Identity, getBRC31Identity, isBRC31Enabled } from '../brc31/middleware';
 import type { GitdataOverlayServices } from '../overlay/index';
 import { D01A_TOPICS, TopicGenerator } from '../overlay/overlay-config';
 
@@ -110,12 +110,12 @@ export function enhancedBRC31OverlayRouter(): EnhancedBRC31OverlayRouter {
     const identity = getBRC31Identity(req);
 
     res.json({
-      enabled: true,
+      enabled: isBRC31Enabled(),
       connected: manager.isConnected(),
       stats,
       environment: process.env.OVERLAY_ENV || 'development',
       brc31: {
-        authenticated: !!identity,
+        authenticated: identity?.verified || false,
         identityLevel: identity?.level || 'anonymous',
         trustScore: identity?.trustScore || 0,
         version: '0.1',
@@ -229,7 +229,7 @@ export function enhancedBRC31OverlayRouter(): EnhancedBRC31OverlayRouter {
           results,
           count: results.length,
           brc31: {
-            authenticated: !!identity,
+            authenticated: identity?.verified || false,
             identityLevel: identity?.level || 'anonymous',
             enhancedResults: !!identity, // Authenticated users get enhanced results
           },
@@ -239,7 +239,7 @@ export function enhancedBRC31OverlayRouter(): EnhancedBRC31OverlayRouter {
           error: 'lookup-failed',
           message: error.message,
           brc31: {
-            authenticated: !!getBRC31Identity(req),
+            authenticated: getBRC31Identity(req)?.verified || false,
           },
         });
       }
@@ -367,7 +367,7 @@ export function enhancedBRC31OverlayRouter(): EnhancedBRC31OverlayRouter {
             error: 'file-not-found',
             message: 'File not found or not available',
             brc31: {
-              authenticated: !!identity,
+              authenticated: identity?.verified || false,
               enhancedSearch: !!identity,
             },
           });
@@ -392,7 +392,7 @@ export function enhancedBRC31OverlayRouter(): EnhancedBRC31OverlayRouter {
           error: 'download-failed',
           message: error.message,
           brc31: {
-            authenticated: !!getBRC31Identity(req),
+            authenticated: getBRC31Identity(req)?.verified || false,
           },
         });
       }

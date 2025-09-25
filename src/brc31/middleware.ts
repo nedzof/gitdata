@@ -86,6 +86,13 @@ export class BRC31Middleware {
     this.initialized = true;
   }
 
+  /**
+   * Check if BRC-31 middleware is enabled
+   */
+  isEnabled(): boolean {
+    return this.config.enabled;
+  }
+
   // ==================== Middleware Factory Functions ====================
 
   /**
@@ -395,6 +402,15 @@ export function requiresBRC31Identity(req: BRC31Request): boolean {
 
 export function getBRC31Identity(req: BRC31Request) {
   return req.brc31Identity;
+}
+
+export function isBRC31Enabled(): boolean {
+  try {
+    const middleware = getBRC31Middleware();
+    return middleware.isEnabled();
+  } catch (error) {
+    return false; // If middleware not initialized, assume disabled
+  }
 }
 
 export function getBRC31TrustScore(req: BRC31Request): number {
