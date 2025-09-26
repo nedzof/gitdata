@@ -173,6 +173,16 @@ class BSVWalletService {
   }
 
   /**
+   * Get wallet instance for certificate operations
+   */
+  getWallet(): WalletClient {
+    if (!this.isConnected) {
+      throw new Error('Wallet not connected');
+    }
+    return this.walletClient;
+  }
+
+  /**
    * Authenticate with backend using BRC-31
    */
   private async authenticateWithBackend(): Promise<void> {

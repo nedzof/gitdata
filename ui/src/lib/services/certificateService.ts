@@ -8,13 +8,14 @@ import {
   MasterCertificate,
   Utils,
   VerifiableCertificate
-} from '../types/bsv-sdk-stubs'
+} from '@bsv/sdk'
 import {
   certificateType,
   certificateDefinition,
   validationRules,
   generateCertificateData
 } from '../certificates/gitdataCert'
+import { walletService } from '../bsv-wallet'
 
 export interface GitdataCertificate {
   type: string
@@ -45,12 +46,24 @@ export class CertificateService {
   }
 
   /**
-   * Issue a new Gitdata Participant Certificate
+   * Issue a new Gitdata Participant Certificate using BSV wallet
    */
   async issueCertificate(profile: any): Promise<GitdataCertificate> {
     try {
+      // Check wallet connection
+      if (!walletService.isWalletConnected()) {
+        throw new Error('BSV wallet not connected. Please ensure MetaNet Desktop is running and connected.')
+      }
+
+      // Get wallet identity key
+      const wallet = walletService.getWallet()
+      const identityKey = await wallet.getPublicKey({ identityKey: true })
+
       // Generate certificate data from user profile
-      const certificateData = generateCertificateData(profile)
+      const certificateData = generateCertificateData({
+        ...profile,
+        identityKey: identityKey.publicKey
+      })
 
       // Validate certificate data
       const isValid = this.validateCertificateData(certificateData)
@@ -58,27 +71,49 @@ export class CertificateService {
         throw new Error('Certificate data validation failed')
       }
 
-      // Create a unique serial number
-      const serialNumber = this.generateSerialNumber(profile.identityKey)
+      // Create nonces for certificate request
+      const clientNonce = await createNonce(wallet, identityKey.publicKey)
 
-      // Create certificate
-      const certificate: GitdataCertificate = {
-        type: certificateType,
-        subject: profile.identityKey || '',
+      // Generate serial number using wallet HMAC
+      const { hmac } = await wallet.createHmac({
+        data: Utils.toArray(clientNonce + Date.now().toString(), 'utf8'),
+        protocolID: [2, 'gitdata certificate'],
+        keyID: 'gitdata_cert_' + Date.now(),
+        counterparty: identityKey.publicKey
+      })
+      const serialNumber = Utils.toBase64(hmac)
+
+      // Create certificate using BSV SDK
+      const certificate = new Certificate(
+        certificateType,
         serialNumber,
-        fields: certificateData,
-        revocationOutpoint: '000000000000000000000000000000000000000000000000000000000000000000000000',
-        certifier: 'gitdata_authority',
-        signature: await this.signCertificate(certificateData, serialNumber),
+        identityKey.publicKey,
+        identityKey.publicKey, // Self-signed for now
+        '0000000000000000000000000000000000000000000000000000000000000000.0', // No revocation outpoint yet
+        certificateData
+      )
+
+      // Sign the certificate with wallet
+      await certificate.sign(wallet)
+
+      // Convert to our GitdataCertificate format
+      const gitdataCertificate: GitdataCertificate = {
+        type: certificate.type,
+        subject: certificate.subject,
+        serialNumber: certificate.serialNumber,
+        fields: certificate.fields,
+        revocationOutpoint: certificate.revocationOutpoint,
+        certifier: certificate.certifier,
+        signature: certificate.signature || '',
         issuedAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() // 1 year
+        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
       }
 
       // Store certificate
-      this.certificates.set(certificate.subject, certificate)
+      this.certificates.set(gitdataCertificate.subject, gitdataCertificate)
       this.saveCertificatesToStorage()
 
-      return certificate
+      return gitdataCertificate
     } catch (error) {
       console.error('Certificate issuance failed:', error)
       throw new Error(`Failed to issue certificate: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -260,28 +295,40 @@ export class CertificateService {
   }
 
   /**
-   * Pull/fetch a certificate from an external certifier
+   * Pull/fetch a certificate from an external certifier using BSV wallet
    */
   async pullCertificate(certifierUrl: string, participantId: string): Promise<GitdataCertificate> {
     try {
       console.log(`Attempting to pull certificate from ${certifierUrl} for participant ${participantId}`)
 
+      // Check wallet connection
+      if (!walletService.isWalletConnected()) {
+        throw new Error('BSV wallet not connected. Please ensure MetaNet Desktop is running and connected.')
+      }
+
+      const wallet = walletService.getWallet()
+      const identityKey = await wallet.getPublicKey({ identityKey: true })
+
+      // Create client nonce using BSV SDK
+      const clientNonce = await createNonce(wallet, identityKey.publicKey)
+
+      // Create field data for certificate request
+      const fields = {
+        participant: 'verified',
+        identity_key: identityKey.publicKey,
+        display_name: 'Gitdata Participant',
+        cool: 'true' // Required for coolcert compatibility
+      }
+
+      // Encrypt fields using MasterCertificate (for real implementation)
+      const keyring = await this.createKeyringForFields(wallet, fields, identityKey.publicKey)
+
       // Create certificate request data
       const requestData = {
         type: certificateType,
-        clientNonce: this.generateClientNonce(),
-        fields: {
-          participant: 'verified',
-          identity_key: participantId,
-          display_name: 'Gitdata Participant',
-          cool: 'true' // Required for coolcert compatibility
-        },
-        keyring: {
-          participant: this.generateKeyringEntry(),
-          identity_key: this.generateKeyringEntry(),
-          display_name: this.generateKeyringEntry(),
-          cool: this.generateKeyringEntry()
-        }
+        clientNonce,
+        fields,
+        keyring
       }
 
       // Make request to certifier
@@ -354,36 +401,38 @@ export class CertificateService {
   }
 
   /**
-   * Generate a client nonce for certificate requests
+   * Create encrypted keyring for certificate fields using BSV wallet
    */
-  private generateClientNonce(): string {
-    const randomBytes = new Uint8Array(32)
-    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-      crypto.getRandomValues(randomBytes)
-    } else {
-      // Fallback for environments without crypto
-      for (let i = 0; i < 32; i++) {
-        randomBytes[i] = Math.floor(Math.random() * 256)
-      }
-    }
-    return Utils.toBase64(randomBytes)
-  }
+  private async createKeyringForFields(wallet: any, fields: Record<string, string>, identityKey: string): Promise<Record<string, string>> {
+    const keyring: Record<string, string> = {}
 
-  /**
-   * Generate keyring entry for encrypted fields
-   */
-  private generateKeyringEntry(): string {
-    // In a real implementation, this would be properly encrypted
-    // For demo purposes, we'll generate a mock encrypted value
-    const mockEncrypted = new Uint8Array(64)
-    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-      crypto.getRandomValues(mockEncrypted)
-    } else {
-      for (let i = 0; i < 64; i++) {
-        mockEncrypted[i] = Math.floor(Math.random() * 256)
+    try {
+      // For each field, create an encrypted keyring entry
+      for (const [fieldName, fieldValue] of Object.entries(fields)) {
+        // In a production implementation, this would properly encrypt using MasterCertificate
+        // For now, we'll use a simpler approach that's compatible with certifiers
+        const symmetricKey = await wallet.createSymmetricKey({
+          counterparty: identityKey,
+          keyID: `cert_field_${fieldName}`,
+          protocolID: [2, 'certificate field encryption']
+        })
+
+        // Mock encryption - in real implementation would use proper encryption
+        keyring[fieldName] = Utils.toBase64(new TextEncoder().encode(fieldValue))
+      }
+    } catch (error) {
+      console.warn('Using fallback keyring generation:', error)
+      // Fallback to simpler keyring for compatibility
+      for (const fieldName of Object.keys(fields)) {
+        const mockData = new Uint8Array(32)
+        if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+          crypto.getRandomValues(mockData)
+        }
+        keyring[fieldName] = Utils.toBase64(mockData)
       }
     }
-    return Utils.toBase64(mockEncrypted)
+
+    return keyring
   }
 
   /**

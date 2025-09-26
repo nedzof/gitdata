@@ -4,6 +4,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { certificateService } from '$lib/services/certificateService';
+  import { walletService } from '$lib/bsv-wallet';
 
   let activeTab = 'profile'; // Default to profile tab
   let overlayUrl = 'http://localhost:8788';
@@ -61,6 +62,10 @@
   let pullLoading = false;
   let showImportForm = false;
   let importJson = '';
+
+  // Wallet connection status
+  let walletConnected = false;
+  let walletPublicKey = null;
 
   // Policy management variables
   let policies = [];
@@ -156,6 +161,12 @@
     await checkProducerStatus();
     await checkConsumerStatus();
 
+    // Check wallet connection status
+    walletConnected = walletService.isWalletConnected();
+    walletPublicKey = walletService.getPublicKey();
+
+    // Load existing certificate if available
+    loadCertificate();
 
     // Load analytics if on analytics tab
     if (activeTab === 'analytics') {
@@ -1377,16 +1388,40 @@
                         {consumerInitialized ? 'Verified' : 'Not Active'}
                       </span>
                     </div>
+                    <div class="req-item">
+                      <label>BSV Wallet</label>
+                      <span class={walletConnected ? 'verified' : 'inactive'}>
+                        {walletConnected ? 'Connected' : 'Not Connected'}
+                      </span>
+                    </div>
+                    {#if walletConnected && walletPublicKey}
+                      <div class="req-item">
+                        <label>Wallet Key</label>
+                        <code class="wallet-key">{walletPublicKey.substring(0, 16)}...</code>
+                      </div>
+                    {/if}
                   </div>
                 </div>
+
+                {#if !walletConnected}
+                  <div class="wallet-notice">
+                    <p><strong>BSV Wallet Required</strong></p>
+                    <p>Please ensure MetaNet Desktop is running and connected to issue real certificates.</p>
+                    <button class="btn btn-secondary" on:click={() => location.reload()}>
+                      Check Wallet Connection
+                    </button>
+                  </div>
+                {/if}
 
                 <div class="issuance-actions">
                   <button
                     on:click={issueCertificate}
-                    disabled={certificateLoading}
+                    disabled={certificateLoading || !walletConnected}
                     class="btn btn-primary btn-large"
                   >
-                    {certificateLoading ? 'Issuing Certificate...' : 'Issue My Certificate'}
+                    {certificateLoading ? 'Issuing Certificate...' :
+                     !walletConnected ? 'Connect BSV Wallet First' :
+                     'Issue My Certificate'}
                   </button>
 
                   <div class="alternative-options">
@@ -4330,6 +4365,43 @@
     padding: 1rem 2rem;
     font-size: 1.1rem;
     font-weight: 600;
+  }
+
+  /* Wallet Integration Styles */
+  .wallet-notice {
+    margin: 1.5rem 0;
+    padding: 1rem;
+    background: rgba(255, 123, 114, 0.1);
+    border: 1px solid rgba(255, 123, 114, 0.3);
+    border-radius: 6px;
+    text-align: center;
+  }
+
+  .wallet-notice p {
+    margin: 0.5rem 0;
+    color: #ff7b72;
+  }
+
+  .wallet-notice strong {
+    color: #ff9492;
+  }
+
+  .wallet-key {
+    font-size: 0.8rem;
+    background: #21262d;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    color: #58a6ff;
+  }
+
+  .req-item .verified {
+    color: #2ea043;
+    font-weight: 600;
+  }
+
+  .req-item .inactive {
+    color: #8b949e;
+    font-weight: 500;
   }
 
   /* Responsive Design */
