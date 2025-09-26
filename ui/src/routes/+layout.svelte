@@ -84,7 +84,11 @@
       </div>
 
       <div class="nav-center">
-        <!-- Simplified navigation - removed producer/consumer tabs -->
+        <div class="main-nav-buttons">
+          <a href="/about" class="nav-link">What is Gitdata</a>
+          <a href="/explorer" class="nav-link">Explorer</a>
+          <a href="/docs" class="nav-link">Docu</a>
+        </div>
       </div>
 
       <div class="nav-right">
@@ -274,6 +278,45 @@
     border-left: 4px solid transparent;
     border-right: 4px solid transparent;
     border-bottom: 4px solid #da3633;
+  }
+
+  /* Main Navigation Buttons */
+  .nav-center {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .main-nav-buttons {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .nav-link {
+    color: #8b949e;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 14px;
+    transition: color 0.2s;
+    white-space: nowrap;
+  }
+
+  .nav-link:hover {
+    color: #58a6ff;
+  }
+
+  /* Logo styling */
+  .logo {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #f0f6fc;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .logo:hover {
+    color: #58a6ff;
   }
 
 </style>

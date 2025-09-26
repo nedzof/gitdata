@@ -14,6 +14,79 @@
 
   $: versionId = $page.params.id;
 
+  // Mock data fallback - matches the data from the main page
+  const mockServices = [
+    {
+      id: 'service_1',
+      name: 'AI Training Dataset',
+      type: 'data',
+      producer: 'DataCorp Inc',
+      format: 'application/json',
+      pricePerKB: 25,
+      size: '2.5 GB',
+      updatedAt: '2024-01-15',
+      confirmations: 12,
+      classification: 'public',
+      status: 'active'
+    },
+    {
+      id: 'service_2',
+      name: 'Real-time Market Feed',
+      type: 'streaming',
+      producer: 'MarketStream',
+      format: 'application/x-stream',
+      pricePerKB: 15,
+      size: 'Live',
+      updatedAt: '2024-01-15',
+      confirmations: 8,
+      classification: 'premium',
+      status: 'active'
+    },
+    {
+      id: 'service_3',
+      name: 'IoT Sensor Network',
+      type: 'streaming',
+      producer: 'IoTHub',
+      format: 'application/x-timeseries',
+      pricePerKB: 8,
+      size: 'Live',
+      updatedAt: '2024-01-15',
+      confirmations: 15,
+      classification: 'public',
+      status: 'active'
+    },
+    {
+      id: 'service_4',
+      name: 'Financial Analytics',
+      type: 'data',
+      producer: 'FinTech Solutions',
+      format: 'text/csv',
+      pricePerKB: 50,
+      size: '850 MB',
+      updatedAt: '2024-01-14',
+      confirmations: 6,
+      classification: 'restricted',
+      status: 'active'
+    },
+    {
+      id: 'service_5',
+      name: 'Weather Data Archive',
+      type: 'data',
+      producer: 'WeatherNet',
+      format: 'application/json',
+      pricePerKB: 12,
+      size: '1.2 GB',
+      updatedAt: '2024-01-14',
+      confirmations: 9,
+      classification: 'public',
+      status: 'active'
+    }
+  ];
+
+  function getMockDataById(id) {
+    return mockServices.find(service => service.id === id);
+  }
+
   onMount(() => {
     if (versionId) {
       loadDataset();
@@ -69,6 +142,26 @@
           }
         } catch (e) {
           console.warn('Models API failed:', e);
+        }
+      }
+
+      // If not found in any API, try mock data fallback
+      if (!dataset_loaded) {
+        const mockData = getMockDataById(versionId);
+        if (mockData) {
+          dataset = {
+            versionId: mockData.id,
+            type: mockData.name,
+            producer: mockData.producer,
+            createdAt: new Date(mockData.updatedAt).toISOString(),
+            license: mockData.classification === 'public' ? 'Public Domain' :
+                     mockData.classification === 'premium' ? 'Premium License' :
+                     'Restricted License',
+            contentHash: `hash_${mockData.id}`,
+            price: `${mockData.pricePerKB} sats/KB`,
+            size: mockData.size
+          };
+          dataset_loaded = true;
         }
       }
 
@@ -262,6 +355,9 @@
   </div>
 {:else if dataset}
   <div class="detail">
+    <button class="back-btn" on:click={() => goto('/')}>
+      ← Back to Home
+    </button>
     <h1>{dataset.versionId}</h1>
 
     <div class="metadata">
@@ -415,3 +511,27 @@
     <p>The dataset with ID "{versionId}" could not be found.</p>
   </div>
 {/if}
+
+<style>
+  .back-btn {
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #8b949e;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .back-btn:hover {
+    background: #30363d;
+    border-color: #58a6ff;
+    color: #f0f6fc;
+  }
+</style>

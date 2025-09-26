@@ -419,8 +419,8 @@
                   </span>
                 </td>
                 <td class="action-cell">
-                  <button class="access-btn" on:click={() => window.location.href = '/consumer'}>
-                    Access
+                  <button class="access-btn" on:click={() => goto(`/data/version/${encodeURIComponent(service.id)}`)}>
+                    View
                   </button>
                 </td>
               </tr>
