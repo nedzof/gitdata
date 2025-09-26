@@ -19,7 +19,7 @@
         class="nav-item {activeSection === 'overview' ? 'active' : ''}"
         on:click={() => activeSection = 'overview'}
       >
-        <span class="nav-icon">DOCS</span>
+        <span class="nav-icon">•</span>
         <span class="nav-label">Overview</span>
       </button>
 
@@ -27,7 +27,7 @@
         class="nav-item {activeSection === 'api' ? 'active' : ''}"
         on:click={() => activeSection = 'api'}
       >
-        <span class="nav-icon">API</span>
+        <span class="nav-icon">•</span>
         <span class="nav-label">API Endpoints</span>
       </button>
 
@@ -35,7 +35,7 @@
         class="nav-item {activeSection === 'producer-cli' ? 'active' : ''}"
         on:click={() => activeSection = 'producer-cli'}
       >
-        <span class="nav-icon">PROD</span>
+        <span class="nav-icon">•</span>
         <span class="nav-label">Producer CLI</span>
       </button>
 
@@ -43,7 +43,7 @@
         class="nav-item {activeSection === 'consumer-cli' ? 'active' : ''}"
         on:click={() => activeSection = 'consumer-cli'}
       >
-        <span class="nav-icon">CONS</span>
+        <span class="nav-icon">•</span>
         <span class="nav-label">Consumer CLI</span>
       </button>
 
@@ -51,7 +51,7 @@
         class="nav-item {activeSection === 'data-structures' ? 'active' : ''}"
         on:click={() => activeSection = 'data-structures'}
       >
-        <span class="nav-icon">DATA</span>
+        <span class="nav-icon">•</span>
         <span class="nav-label">Data Structures</span>
       </button>
 
@@ -59,7 +59,7 @@
         class="nav-item {activeSection === 'config' ? 'active' : ''}"
         on:click={() => activeSection = 'config'}
       >
-        <span class="nav-icon">CONF</span>
+        <span class="nav-icon">•</span>
         <span class="nav-label">Configuration</span>
       </button>
     </div>
