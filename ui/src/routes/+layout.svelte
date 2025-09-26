@@ -84,15 +84,12 @@
       </div>
 
       <div class="nav-center">
-        <nav class="main-navigation">
-          <a href="/producer" class="nav-tab">Sell Data</a>
-          <a href="/consumer" class="nav-tab">Buy Data</a>
-        </nav>
+        <!-- Simplified navigation - removed producer/consumer tabs -->
       </div>
 
       <div class="nav-right">
         <div class="nav-right-buttons">
-          <a href="/policy" class="settings-btn" title="Settings & Policies">
+          <a href="/settings" class="settings-btn" title="Settings & Policies">
             ⚙️
           </a>
           <div class="wallet-container">

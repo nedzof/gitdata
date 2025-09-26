@@ -1,13 +1,13 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { api } from '$lib/api';
 
-  let services = [];
   let loading = true;
   let searchQuery = '';
+  let selectedPolicy = 'all';
+  let services = [];
 
-  // Market statistics
+  // Simplified market stats
   let marketStats = {
     totalServices: 0,
     activeServices: 0,
@@ -40,7 +40,7 @@
       type: 'data',
       producer: 'DataCorp Inc',
       format: 'application/json',
-      pricePerKB: 0.025,
+      pricePerKB: 25,
       size: '2.5 GB',
       updatedAt: '2024-01-15',
       confirmations: 12,
@@ -53,7 +53,7 @@
       type: 'streaming',
       producer: 'MarketStream',
       format: 'application/x-stream',
-      pricePerKB: 0.015,
+      pricePerKB: 15,
       size: 'Live',
       updatedAt: '2024-01-15',
       confirmations: 8,
@@ -66,7 +66,7 @@
       type: 'streaming',
       producer: 'IoTHub',
       format: 'application/x-timeseries',
-      pricePerKB: 0.008,
+      pricePerKB: 8,
       size: 'Live',
       updatedAt: '2024-01-15',
       confirmations: 15,
@@ -79,7 +79,7 @@
       type: 'data',
       producer: 'FinTech Solutions',
       format: 'text/csv',
-      pricePerKB: 0.050,
+      pricePerKB: 50,
       size: '850 MB',
       updatedAt: '2024-01-14',
       confirmations: 6,
@@ -92,11 +92,141 @@
       type: 'data',
       producer: 'WeatherNet',
       format: 'application/json',
-      pricePerKB: 0.012,
+      pricePerKB: 12,
       size: '1.2 GB',
       updatedAt: '2024-01-14',
       confirmations: 9,
       classification: 'public',
+      status: 'active'
+    },
+    {
+      id: 'service_6',
+      name: 'Cryptocurrency Order Books',
+      type: 'streaming',
+      producer: 'CryptoFlow',
+      format: 'application/x-stream',
+      pricePerKB: 35,
+      size: 'Live',
+      updatedAt: '2024-01-15',
+      confirmations: 20,
+      classification: 'premium',
+      status: 'active'
+    },
+    {
+      id: 'service_7',
+      name: 'Scientific Research Papers',
+      type: 'data',
+      producer: 'ResearchHub',
+      format: 'application/pdf',
+      pricePerKB: 5,
+      size: '4.8 GB',
+      updatedAt: '2024-01-13',
+      confirmations: 18,
+      classification: 'public',
+      status: 'active'
+    },
+    {
+      id: 'service_8',
+      name: 'Social Media Analytics',
+      type: 'data',
+      producer: 'SocialTrends',
+      format: 'application/json',
+      pricePerKB: 30,
+      size: '1.8 GB',
+      updatedAt: '2024-01-14',
+      confirmations: 11,
+      classification: 'restricted',
+      status: 'active'
+    },
+    {
+      id: 'service_9',
+      name: 'Traffic Pattern Data',
+      type: 'streaming',
+      producer: 'UrbanSense',
+      format: 'application/x-timeseries',
+      pricePerKB: 18,
+      size: 'Live',
+      updatedAt: '2024-01-15',
+      confirmations: 7,
+      classification: 'public',
+      status: 'active'
+    },
+    {
+      id: 'service_10',
+      name: 'Medical Image Database',
+      type: 'data',
+      producer: 'MedTech Solutions',
+      format: 'application/dicom',
+      pricePerKB: 75,
+      size: '12.3 GB',
+      updatedAt: '2024-01-12',
+      confirmations: 25,
+      classification: 'restricted',
+      status: 'active'
+    },
+    {
+      id: 'service_11',
+      name: 'Energy Grid Monitoring',
+      type: 'streaming',
+      producer: 'SmartGrid Co',
+      format: 'application/x-timeseries',
+      pricePerKB: 22,
+      size: 'Live',
+      updatedAt: '2024-01-15',
+      confirmations: 14,
+      classification: 'premium',
+      status: 'active'
+    },
+    {
+      id: 'service_12',
+      name: 'News Article Archive',
+      type: 'data',
+      producer: 'NewsFlow',
+      format: 'text/plain',
+      pricePerKB: 3,
+      size: '8.9 GB',
+      updatedAt: '2024-01-13',
+      confirmations: 16,
+      classification: 'public',
+      status: 'active'
+    },
+    {
+      id: 'service_13',
+      name: 'Satellite Imagery Feed',
+      type: 'streaming',
+      producer: 'SkyWatch',
+      format: 'image/tiff',
+      pricePerKB: 60,
+      size: 'Live',
+      updatedAt: '2024-01-15',
+      confirmations: 19,
+      classification: 'premium',
+      status: 'active'
+    },
+    {
+      id: 'service_14',
+      name: 'E-commerce Transaction Logs',
+      type: 'data',
+      producer: 'CommerceInsights',
+      format: 'application/json',
+      pricePerKB: 40,
+      size: '3.2 GB',
+      updatedAt: '2024-01-14',
+      confirmations: 13,
+      classification: 'restricted',
+      status: 'active'
+    },
+    {
+      id: 'service_15',
+      name: 'Biometric Data Streams',
+      type: 'streaming',
+      producer: 'HealthTech',
+      format: 'application/x-stream',
+      pricePerKB: 85,
+      size: 'Live',
+      updatedAt: '2024-01-15',
+      confirmations: 22,
+      classification: 'restricted',
       status: 'active'
     }
   ];
@@ -124,7 +254,7 @@
       marketStats.totalServices = services.length;
       marketStats.activeServices = services.filter(s => s.status === 'active').length;
       marketStats.totalVolume24h = services.reduce((sum, s) => sum + (s.pricePerKB * 1000 * Math.random() * 10), 0); // Mock volume
-      marketStats.averagePrice = services.reduce((sum, s) => sum + s.pricePerKB, 0) / services.length;
+      marketStats.averagePrice = services.length > 0 ? services.reduce((sum, s) => sum + s.pricePerKB, 0) / services.length : 0;
       marketStats.priceChange24h = (Math.random() - 0.5) * 20; // Mock price change -10% to +10%
 
     } finally {
@@ -154,13 +284,18 @@
     }
   }
 
-  // Filter services based on search query
-  $: filteredServices = services.filter(service =>
-    searchQuery === '' ||
-    service.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    service.producer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    service.id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter services based on search query and policy
+  $: filteredServices = services.filter(service => {
+    const matchesSearch = searchQuery === '' ||
+      service.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      service.producer.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      service.id.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesPolicy = selectedPolicy === 'all' ||
+      service.classification === selectedPolicy;
+
+    return matchesSearch && matchesPolicy;
+  });
 </script>
 
 <main class="landing">
@@ -178,16 +313,16 @@
       </div>
       <div class="stat-card">
         <div class="stat-label">24h Volume</div>
-        <div class="stat-value">${marketStats.totalVolume24h.toFixed(0)}</div>
+        <div class="stat-value">{marketStats?.totalVolume24h?.toFixed(0) || '0'} sats</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Avg Price/KB</div>
-        <div class="stat-value">${marketStats.averagePrice.toFixed(3)}</div>
+        <div class="stat-value">{marketStats?.averagePrice?.toFixed(0) || '0'} sats</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">24h Change</div>
-        <div class="stat-value" class:positive={marketStats.priceChange24h > 0} class:negative={marketStats.priceChange24h < 0}>
-          {marketStats.priceChange24h > 0 ? '+' : ''}{marketStats.priceChange24h.toFixed(1)}%
+        <div class="stat-value" class:positive={marketStats?.priceChange24h > 0} class:negative={marketStats?.priceChange24h < 0}>
+          {marketStats?.priceChange24h > 0 ? '+' : ''}{marketStats?.priceChange24h?.toFixed(1) || '0.0'}%
         </div>
       </div>
     </div>
@@ -224,6 +359,12 @@
             placeholder="Search services, producers, or IDs..."
             type="text"
           />
+          <select bind:value={selectedPolicy} class="policy-filter">
+            <option value="all">All Policies</option>
+            <option value="public">Public</option>
+            <option value="premium">Premium</option>
+            <option value="restricted">Restricted</option>
+          </select>
           <button type="submit" class="search-btn">Search</button>
         </form>
       </div>
@@ -267,7 +408,7 @@
                   </span>
                 </td>
                 <td class="price-cell">
-                  <span class="price-value">${service.pricePerKB.toFixed(3)}</span>
+                  <span class="price-value">{service.pricePerKB} sats</span>
                 </td>
                 <td class="size-cell">{service.size}</td>
                 <td class="producer-cell">{service.producer}</td>
@@ -319,6 +460,15 @@
     </aside>
   </div>
 </main>
+
+<!-- Floating Action Button -->
+<button
+  class="publish-fab"
+  on:click={() => goto('/producer')}
+  title="Publish your data to the marketplace"
+>
+  📊 Publish Data
+</button>
 
 <style>
   .landing {
@@ -488,9 +638,52 @@
     padding: 0;
   }
 
+  /* Floating Action Button */
+  .publish-fab {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    background: linear-gradient(135deg, #238636, #2ea043);
+    color: white;
+    border: none;
+    border-radius: 50px;
+    padding: 1rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 8px 32px rgba(35, 134, 54, 0.4);
+    z-index: 1000;
+    animation: float 3s ease-in-out infinite;
+    white-space: nowrap;
+  }
+
+  .publish-fab:hover {
+    background: linear-gradient(135deg, #2ea043, #46954a);
+    transform: translateY(-4px) scale(1.05);
+    box-shadow: 0 16px 48px rgba(35, 134, 54, 0.6);
+    animation-play-state: paused;
+  }
+
+  .publish-fab:active {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 12px 36px rgba(35, 134, 54, 0.5);
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0);
+      box-shadow: 0 8px 32px rgba(35, 134, 54, 0.4);
+    }
+    50% {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 40px rgba(35, 134, 54, 0.5);
+    }
+  }
+
   /* Search Section */
   .search-section {
-    margin-bottom: 2rem;
+    margin-bottom: 1rem;
   }
 
   .search-form {
@@ -501,18 +694,34 @@
 
   .search-input {
     flex: 1;
-    padding: 0.75rem 1rem;
-    border: 1px solid #30363d;
-    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #21262d;
+    border-radius: 4px;
     background: #0d1117;
     color: #f0f6fc;
-    font-size: 1rem;
+    font-size: 0.875rem;
+  }
+
+  .policy-filter {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #21262d;
+    border-radius: 4px;
+    background: #0d1117;
+    color: #f0f6fc;
+    font-size: 0.875rem;
+    min-width: 120px;
+  }
+
+  .policy-filter:focus {
+    outline: none;
+    border-color: #30363d;
+    box-shadow: none;
   }
 
   .search-input:focus {
     outline: none;
-    border-color: #58a6ff;
-    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+    border-color: #30363d;
+    box-shadow: none;
   }
 
   .search-input::placeholder {
@@ -520,19 +729,20 @@
   }
 
   .search-btn {
-    padding: 0.75rem 1.5rem;
-    background: #21262d;
-    color: #c9d1d9;
-    border: 1px solid #30363d;
-    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    background: transparent;
+    color: #8b949e;
+    border: 1px solid #21262d;
+    border-radius: 4px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.15s;
+    font-size: 0.875rem;
   }
 
   .search-btn:hover {
-    background: #30363d;
-    border-color: #58a6ff;
+    background: rgba(33, 38, 45, 0.5);
+    border-color: #30363d;
     color: #f0f6fc;
   }
 
@@ -576,9 +786,9 @@
 
   /* Services Table */
   .services-table-container {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
+    background: transparent;
+    border: 1px solid #21262d;
+    border-radius: 6px;
     overflow: hidden;
   }
 
@@ -588,29 +798,38 @@
   }
 
   .services-table thead {
-    background: #21262d;
+    background: #0d1117;
+    border-bottom: 1px solid #21262d;
   }
 
   .services-table th {
-    padding: 1.5rem 1.25rem;
+    padding: 0.75rem 0.5rem;
     text-align: left;
-    font-weight: 600;
-    color: #f0f6fc;
-    border-bottom: 1px solid #30363d;
+    font-weight: 500;
+    color: #8b949e;
+    border-right: 1px solid #21262d;
+    font-size: 0.8rem;
+  }
+
+  .services-table th:last-child {
+    border-right: none;
+  }
+
+  .services-table td {
+    padding: 0.75rem 0.5rem;
+    border-bottom: 1px solid #21262d;
+    border-right: 1px solid #21262d;
+    vertical-align: top;
     font-size: 0.875rem;
     line-height: 1.4;
   }
 
-  .services-table td {
-    padding: 1.5rem 1.25rem;
-    border-bottom: 1px solid #21262d;
-    vertical-align: middle;
-    font-size: 0.95rem;
-    line-height: 1.5;
+  .services-table td:last-child {
+    border-right: none;
   }
 
   .service-row:hover {
-    background: #0d1117;
+    background: rgba(33, 38, 45, 0.3);
   }
 
   /* Column Widths - CoinGecko style */
@@ -627,7 +846,7 @@
   /* Cell Styling */
   .rank-cell {
     text-align: center;
-    font-weight: 600;
+    font-weight: 500;
     color: #6e7681;
   }
 
@@ -641,15 +860,15 @@
   }
 
   .service-name {
-    font-weight: 600;
+    font-weight: 500;
     color: #f0f6fc;
-    margin-bottom: 0.375rem;
-    font-size: 0.95rem;
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
     line-height: 1.3;
   }
 
   .service-id {
-    font-size: 0.8rem;
+    font-size: 0.625rem;
     color: #6e7681;
     font-family: 'SF Mono', monospace;
     line-height: 1.2;
@@ -657,77 +876,76 @@
 
   /* Badges */
   .type-badge, .status-badge {
-    padding: 0.375rem 0.75rem;
-    border-radius: 6px;
-    font-size: 0.8rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: 3px;
+    font-size: 0.625rem;
     font-weight: 500;
     line-height: 1;
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.125rem;
   }
 
   .type-badge.type-static {
-    background: #21262d;
-    color: #46954a;
-    border: 1px solid #46954a;
+    background: transparent;
+    color: #2ea043;
+    border: 1px solid #21262d;
   }
 
   .type-badge.type-stream {
-    background: #21262d;
+    background: transparent;
     color: #da3633;
-    border: 1px solid #da3633;
+    border: 1px solid #21262d;
   }
 
   .type-badge.type-realtime {
-    background: #21262d;
+    background: transparent;
     color: #fd7e14;
-    border: 1px solid #fd7e14;
+    border: 1px solid #21262d;
   }
 
   .status-badge.status-active {
-    background: #21262d;
-    color: #46954a;
-    border: 1px solid #46954a;
+    background: rgba(35, 134, 54, 0.15);
+    color: #2ea043;
+    border: 1px solid rgba(35, 134, 54, 0.3);
   }
 
   .status-badge.status-inactive {
-    background: #21262d;
+    background: transparent;
     color: #8b949e;
-    border: 1px solid #8b949e;
+    border: 1px solid #21262d;
   }
 
   /* Price and other cells */
   .price-value {
-    font-weight: 600;
-    color: #58a6ff;
-    font-size: 0.95rem;
+    font-weight: 500;
+    color: #f0f6fc;
+    font-size: 0.875rem;
   }
 
   .producer-cell, .updated-cell, .size-cell {
     color: #f0f6fc;
-    font-size: 0.9rem;
+    font-size: 0.875rem;
     line-height: 1.4;
   }
 
   /* Action Button */
   .access-btn {
-    padding: 0.625rem 1.25rem;
-    background: #21262d;
-    color: #c9d1d9;
-    border: 1px solid #30363d;
-    border-radius: 6px;
+    padding: 0.375rem 0.75rem;
+    background: #0969da;
+    color: white;
+    border: 1px solid #0969da;
+    border-radius: 4px;
     font-weight: 500;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.15s;
     line-height: 1;
   }
 
   .access-btn:hover {
-    background: #30363d;
-    border-color: #58a6ff;
-    color: #f0f6fc;
+    background: #0860ca;
+    border-color: #0860ca;
   }
 
   /* Responsive Design */
