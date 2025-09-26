@@ -473,7 +473,7 @@
     console.log('Opening asset details for:', asset);
     const assetId = asset.versionId || asset.datasetId || asset.id;
     if (assetId) {
-      window.open(`/market/${assetId}`, '_blank');
+      window.open(`/${assetId}`, '_blank');
     }
   }
 

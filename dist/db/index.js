@@ -219,7 +219,7 @@ async function getRecentReceipts(limit = 50, offset = 0) {
 async function setReceiptStatus(receiptId, status) {
     const { getPostgreSQLClient } = await Promise.resolve().then(() => __importStar(require('./postgresql')));
     const pgClient = getPostgreSQLClient();
-    await pgClient.query('UPDATE receipts SET status = $1 WHERE receipt_id = $2', [
+    await pgClient.query('UPDATE overlay_receipts SET status = $1 WHERE receipt_id = $2', [
         status,
         receiptId,
     ]);
@@ -227,7 +227,7 @@ async function setReceiptStatus(receiptId, status) {
 async function updateReceiptUsage(receiptId, bytesUsed) {
     const { getPostgreSQLClient } = await Promise.resolve().then(() => __importStar(require('./postgresql')));
     const pgClient = getPostgreSQLClient();
-    await pgClient.query('UPDATE receipts SET bytes_used = $1, last_seen = $2 WHERE receipt_id = $3', [bytesUsed, Math.floor(Date.now() / 1000), receiptId]);
+    await pgClient.query('UPDATE overlay_receipts SET bytes_used = $1, last_seen = $2 WHERE receipt_id = $3', [bytesUsed, Math.floor(Date.now() / 1000), receiptId]);
 }
 async function ingestOpenLineageEvent(event) {
     const { getHybridDatabase } = await Promise.resolve().then(() => __importStar(require('./hybrid')));

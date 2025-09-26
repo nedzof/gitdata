@@ -337,10 +337,16 @@ class BSVOverlayService extends events_1.EventEmitter {
      * Get connected peers
      */
     getConnectedPeers() {
-        if (!this.overlay) {
+        if (!this.overlay || typeof this.overlay.getConnectedPeers !== 'function') {
             return [];
         }
-        return this.overlay.getConnectedPeers();
+        try {
+            return this.overlay.getConnectedPeers();
+        }
+        catch (error) {
+            console.warn('[BSV-OVERLAY] getConnectedPeers error:', error.message);
+            return [];
+        }
     }
     /**
      * Get subscribed topics

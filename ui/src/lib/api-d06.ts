@@ -270,8 +270,8 @@ class D06APIClient {
     return this.request(`/v1/revenue/summary${params}`);
   }
 
-  async getProducerRevenue(producerId: string) {
-    return this.request(`/v1/revenue/producers/${producerId}`);
+  async getIdentityRevenue(identityId: string) {
+    return this.request(`/v1/revenue/identities/${identityId}`);
   }
 
   async initiateSettlement(settlementData: {

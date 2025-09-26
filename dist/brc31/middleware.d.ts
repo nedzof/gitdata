@@ -36,6 +36,10 @@ export declare class BRC31Middleware {
     constructor(config: Partial<BRC31MiddlewareConfig>);
     initialize(): Promise<void>;
     /**
+     * Check if BRC-31 middleware is enabled
+     */
+    isEnabled(): boolean;
+    /**
      * Creates middleware that requires BRC-31 authentication
      */
     requireBRC31Identity(options?: Partial<BRC31AuthenticationOptions>): (req: BRC31Request, res: Response, next: NextFunction) => Promise<void>;
@@ -79,5 +83,6 @@ export declare function getBRC31Identity(req: BRC31Request): {
     trustScore: number;
     verified: boolean;
 } | undefined;
+export declare function isBRC31Enabled(): boolean;
 export declare function getBRC31TrustScore(req: BRC31Request): number;
 export {};

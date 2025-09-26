@@ -91,12 +91,12 @@ function enhancedBRC31OverlayRouter() {
         const stats = manager.getStats();
         const identity = (0, middleware_1.getBRC31Identity)(req);
         res.json({
-            enabled: true,
+            enabled: (0, middleware_1.isBRC31Enabled)(),
             connected: manager.isConnected(),
             stats,
             environment: process.env.OVERLAY_ENV || 'development',
             brc31: {
-                authenticated: !!identity,
+                authenticated: identity?.verified || false,
                 identityLevel: identity?.level || 'anonymous',
                 trustScore: identity?.trustScore || 0,
                 version: '0.1',
@@ -191,7 +191,7 @@ function enhancedBRC31OverlayRouter() {
                 results,
                 count: results.length,
                 brc31: {
-                    authenticated: !!identity,
+                    authenticated: identity?.verified || false,
                     identityLevel: identity?.level || 'anonymous',
                     enhancedResults: !!identity, // Authenticated users get enhanced results
                 },
@@ -202,7 +202,7 @@ function enhancedBRC31OverlayRouter() {
                 error: 'lookup-failed',
                 message: error.message,
                 brc31: {
-                    authenticated: !!(0, middleware_1.getBRC31Identity)(req),
+                    authenticated: (0, middleware_1.getBRC31Identity)(req)?.verified || false,
                 },
             });
         }
@@ -304,7 +304,7 @@ function enhancedBRC31OverlayRouter() {
                     error: 'file-not-found',
                     message: 'File not found or not available',
                     brc31: {
-                        authenticated: !!identity,
+                        authenticated: identity?.verified || false,
                         enhancedSearch: !!identity,
                     },
                 });
@@ -326,7 +326,7 @@ function enhancedBRC31OverlayRouter() {
                 error: 'download-failed',
                 message: error.message,
                 brc31: {
-                    authenticated: !!(0, middleware_1.getBRC31Identity)(req),
+                    authenticated: (0, middleware_1.getBRC31Identity)(req)?.verified || false,
                 },
             });
         }

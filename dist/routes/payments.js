@@ -111,7 +111,7 @@ function paymentsRouter() {
                 .update(JSON.stringify(templateData))
                 .digest('hex');
             // Update receipt with quote info (keep status as pending)
-            await pgClient.query('UPDATE receipts SET quote_template_hash = $1, quote_expires_at = $2 WHERE receipt_id = $3', [templateHash, templateData.expiresAt, receiptId]);
+            await pgClient.query('UPDATE overlay_receipts SET quote_template_hash = $1, quote_expires_at = $2 WHERE receipt_id = $3', [templateHash, templateData.expiresAt, receiptId]);
             // Log payment event
             await pgClient.query(`INSERT INTO payment_events(event_id, type, receipt_id, details_json, created_at)
          VALUES ($1, $2, $3, $4, $5)`, [
@@ -170,7 +170,7 @@ function paymentsRouter() {
             // Update receipt as paid
             const { getPostgreSQLClient } = await Promise.resolve().then(() => __importStar(require('../db/postgresql')));
             const pgClient = getPostgreSQLClient();
-            await pgClient.query('UPDATE receipts SET payment_txid = $1, paid_at = to_timestamp($2) WHERE receipt_id = $3', [txid, Math.floor(Date.now() / 1000), receiptId]);
+            await pgClient.query('UPDATE overlay_receipts SET payment_txid = $1, paid_at = to_timestamp($2) WHERE receipt_id = $3', [txid, Math.floor(Date.now() / 1000), receiptId]);
             // Log payment event
             await pgClient.query(`INSERT INTO payment_events(event_id, type, receipt_id, txid, details_json, created_at)
          VALUES ($1, $2, $3, $4, $5, $6)`, [

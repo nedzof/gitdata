@@ -199,7 +199,7 @@ class HybridDatabase {
     // Receipts
     async insertReceipt(receipt) {
         await this.pg.query(`
-      INSERT INTO receipts(receipt_id, version_id, quantity, content_hash, amount_sat, status, created_at, expires_at, bytes_used, last_seen)
+      INSERT INTO overlay_receipts(receipt_id, version_id, quantity, content_hash, amount_sat, status, created_at, expires_at, bytes_used, last_seen)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     `, [
             receipt.receipt_id,
@@ -215,12 +215,12 @@ class HybridDatabase {
         ]);
     }
     async getReceipt(receiptId) {
-        return await this.pg.queryOne('SELECT * FROM receipts WHERE receipt_id = $1', [
+        return await this.pg.queryOne('SELECT * FROM overlay_receipts WHERE receipt_id = $1', [
             receiptId,
         ]);
     }
     async getRecentReceipts(limit = 50, offset = 0) {
-        const result = await this.pg.query('SELECT * FROM receipts ORDER BY created_at DESC LIMIT $1 OFFSET $2', [limit, offset]);
+        const result = await this.pg.query('SELECT * FROM overlay_receipts ORDER BY created_at DESC LIMIT $1 OFFSET $2', [limit, offset]);
         return result.rows;
     }
     // OpenLineage integration with Redis

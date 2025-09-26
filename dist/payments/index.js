@@ -139,17 +139,17 @@ async function getReceipt(receiptId) {
 async function setReceiptQuote(receiptId, templateHash, expiresAt) {
     const { getPostgreSQLClient } = await Promise.resolve().then(() => __importStar(require('../db/postgresql')));
     const pgClient = getPostgreSQLClient();
-    await pgClient.query(`UPDATE receipts SET quote_template_hash = $1, quote_expires_at = $2 WHERE receipt_id = $3`, [templateHash, expiresAt, receiptId]);
+    await pgClient.query(`UPDATE overlay_receipts SET quote_template_hash = $1, quote_expires_at = $2 WHERE receipt_id = $3`, [templateHash, expiresAt, receiptId]);
 }
 async function setReceiptPaid(receiptId, txid, feeSat, outputs) {
     const { getPostgreSQLClient } = await Promise.resolve().then(() => __importStar(require('../db/postgresql')));
     const pgClient = getPostgreSQLClient();
-    await pgClient.query(`UPDATE receipts SET status = 'paid', payment_txid = $1, fee_sat = $2, paid_at = $3, payment_outputs_json = $4 WHERE receipt_id = $5`, [txid, feeSat || 0, nowSec(), JSON.stringify(outputs || []), receiptId]);
+    await pgClient.query(`UPDATE overlay_receipts SET status = 'paid', payment_txid = $1, fee_sat = $2, paid_at = $3, payment_outputs_json = $4 WHERE receipt_id = $5`, [txid, feeSat || 0, nowSec(), JSON.stringify(outputs || []), receiptId]);
 }
 async function setReceiptConfirmed(receiptId) {
     const { getPostgreSQLClient } = await Promise.resolve().then(() => __importStar(require('../db/postgresql')));
     const pgClient = getPostgreSQLClient();
-    await pgClient.query(`UPDATE receipts SET status = 'confirmed' WHERE receipt_id = $1`, [
+    await pgClient.query(`UPDATE overlay_receipts SET status = 'confirmed' WHERE receipt_id = $1`, [
         receiptId,
     ]);
 }
@@ -274,7 +274,7 @@ async function reconcilePayments() {
     // Select receipts with status='paid' to check confirmations
     const { getPostgreSQLClient } = await Promise.resolve().then(() => __importStar(require('../db/postgresql')));
     const pgClient = getPostgreSQLClient();
-    const result = await pgClient.query(`SELECT receipt_id, payment_txid FROM receipts WHERE status = 'paid' AND payment_txid IS NOT NULL`);
+    const result = await pgClient.query(`SELECT receipt_id, payment_txid FROM overlay_receipts WHERE status = 'paid' AND payment_txid IS NOT NULL`);
     for (const row of result.rows) {
         const txid = String(row.payment_txid);
         try {

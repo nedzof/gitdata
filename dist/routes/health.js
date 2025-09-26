@@ -11,6 +11,28 @@ function healthRouter() {
             timestamp: new Date().toISOString(),
             database: 'postgresql',
             cache: 'redis',
+            // Add overlay-specific status information for CLI compatibility
+            environment: process.env.NODE_ENV || 'development',
+            enabled: true,
+            connected: true,
+            services: {
+                brc22: true,
+                brc24: true,
+                brc26: true,
+                brc31: process.env.BRC31_ENABLED !== 'false',
+                brc41: process.env.BRC41_ENABLED !== 'false',
+                brc64: true,
+                brc88: true,
+                streaming: true,
+                agents: true,
+            },
+            capabilities: [
+                'data-publishing',
+                'payment-processing',
+                'content-discovery',
+                'streaming-services',
+                'agent-marketplace'
+            ]
         };
         try {
             // Check hybrid database health
@@ -20,12 +42,14 @@ function healthRouter() {
             health.cache = dbHealth.redis ? 'redis:ok' : 'redis:error';
             if (!dbHealth.pg || !dbHealth.redis) {
                 health.status = 'degraded';
+                health.connected = false;
                 return res.status(503).json(health);
             }
             return res.status(200).json(health);
         }
         catch (error) {
             health.status = 'error';
+            health.connected = false;
             health.error = String(error);
             return res.status(503).json(health);
         }

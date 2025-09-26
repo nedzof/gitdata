@@ -10,6 +10,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.setupSwaggerUI = setupSwaggerUI;
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const openapi_config_1 = require("./openapi-config");
+const packageJson = require('../../package.json');
 function setupSwaggerUI(app) {
     // Serve OpenAPI JSON spec
     app.get('/docs/openapi.json', (req, res) => {
@@ -36,7 +37,7 @@ function setupSwaggerUI(app) {
             urls: [
                 {
                     url: '/docs/openapi.json',
-                    name: 'BSV Overlay Network API v' + require('../../package.json').version,
+                    name: 'BSV Overlay Network API v' + packageJson.version,
                 },
             ],
             persistAuthorization: true,

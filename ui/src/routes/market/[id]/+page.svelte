@@ -311,11 +311,11 @@
 		<div class="error">
 			<h2>Error Loading Asset</h2>
 			<p>{error}</p>
-			<a href="/market" class="back-link">← Back to Market</a>
+			<a href="/" class="back-link">← Back to Home</a>
 		</div>
 	{:else if asset}
 		<div class="header">
-			<a href="/market" class="back-link">← Back to Market</a>
+			<a href="/" class="back-link">← Back to Home</a>
 			<div class="title-section">
 				<h1>{asset.title || 'Untitled Asset'}</h1>
 				<div class="title-badges">
@@ -423,7 +423,7 @@
 		<div class="error">
 			<h2>Asset Not Found</h2>
 			<p>The requested asset could not be found.</p>
-			<a href="/market" class="back-link">← Back to Market</a>
+			<a href="/" class="back-link">← Back to Home</a>
 		</div>
 	{/if}
 </div>

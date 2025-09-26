@@ -9,13 +9,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.swaggerSpec = exports.openAPIOptions = void 0;
 const swagger_jsdoc_1 = __importDefault(require("swagger-jsdoc"));
-const package_json_1 = require("../../package.json");
+// Get version from package.json
+const packageJson = require('../../package.json');
+const { version } = packageJson;
 exports.openAPIOptions = {
     definition: {
         openapi: '3.0.3',
         info: {
             title: 'BSV Overlay Network API',
-            version: package_json_1.version,
+            version,
             description: `
 # BSV Overlay Network API Documentation
 

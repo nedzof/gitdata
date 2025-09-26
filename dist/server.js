@@ -42,6 +42,7 @@ exports.server = exports.app = void 0;
  */
 const express_1 = __importDefault(require("express"));
 const swagger_setup_1 = require("./docs/swagger-setup");
+const bsv_auth_1 = require("./middleware/bsv-auth");
 const audit_1 = require("./middleware/audit");
 const limits_1 = require("./middleware/limits");
 const metrics_1 = require("./middleware/metrics");
@@ -51,13 +52,16 @@ const agents_1 = require("./routes/agents");
 const artifacts_1 = require("./routes/artifacts");
 const bundle_1 = require("./routes/bundle");
 const catalog_1 = require("./routes/catalog");
+const certificate_1 = require("./routes/certificate");
 const d06_agent_payments_1 = require("./routes/d06-agent-payments");
 const d06_payment_processing_1 = require("./routes/d06-payment-processing");
 const d06_revenue_management_1 = require("./routes/d06-revenue-management");
 const d07_streaming_quotas_1 = __importDefault(require("./routes/d07-streaming-quotas"));
 const d22_overlay_storage_1 = require("./routes/d22-overlay-storage");
+const routes_js_1 = __importDefault(require("./d21/routes.js"));
 const data_1 = require("./routes/data");
 const health_1 = require("./routes/health");
+const identity_1 = require("./routes/identity");
 const jobs_1 = require("./routes/jobs");
 const listings_1 = require("./routes/listings");
 const metrics_2 = require("./routes/metrics");
@@ -114,8 +118,25 @@ app.use((0, limits_1.limitsMiddleware)());
 // D20 Phase 1: Setup API documentation
 (0, swagger_setup_1.setupSwaggerUI)(app);
 // Health and readiness checks
-app.use((0, health_1.healthRouter)());
+const healthRouterInstance = (0, health_1.healthRouter)();
+app.use(healthRouterInstance);
 app.use((0, ready_1.readyRouter)());
+// Add health endpoint aliases for CLI compatibility
+app.use('/v1', healthRouterInstance); // Makes /v1/health available
+app.use('/overlay', healthRouterInstance); // Makes /overlay/health available
+// Add status endpoint aliases that serve health data directly
+app.get('/v1/status', async (req, res) => {
+    // Forward the request to the health endpoint handler
+    req.url = '/health';
+    const healthRouterInstance = (0, health_1.healthRouter)();
+    healthRouterInstance(req, res, () => { });
+});
+app.get('/overlay/status', async (req, res) => {
+    // Forward the request to the health endpoint handler
+    req.url = '/health';
+    const healthRouterInstance = (0, health_1.healthRouter)();
+    healthRouterInstance(req, res, () => { });
+});
 // Core data routes
 app.use('/v1', (0, data_1.dataRouter)());
 app.use('/v1', (0, bundle_1.bundleRouter)());
@@ -124,15 +145,18 @@ app.use('/v1', (0, pay_1.payRouter)());
 app.use('/v1', (0, advisories_1.advisoriesRouter)());
 app.use('/v1', (0, catalog_1.catalogRouter)());
 app.use('/v1', (0, metrics_2.metricsRouter)());
+// Certificate issuance (BSV authentication protected)
+app.use('/v1/certificate', (0, certificate_1.certificateRouter)());
 // Producer and identity management
 app.use('/v1', (0, producers_1.producersRouter)());
 app.use('/v1', (0, producers_register_1.producersRegisterRouter)());
-// app.use('/v1', identityRouter()); // Temporarily disabled
+// Identity router will be initialized with database in BRC-31 services section
 // Payment processing
 app.use('/v1', (0, payments_1.paymentsRouter)());
 app.use('/v1', (0, d06_payment_processing_1.d06PaymentProcessingRouter)());
 app.use('/v1', (0, d06_agent_payments_1.d06AgentPaymentsRouter)());
 app.use('/v1', (0, d06_revenue_management_1.d06RevenueManagementRouter)());
+// D21 routes will be mounted after database initialization
 // Storage and file management
 app.use('/v1', (0, storage_1.storageRouter)());
 app.use('/v1', (0, d22_overlay_storage_1.d22OverlayStorageRouter)());
@@ -217,13 +241,14 @@ async function initializeBRC31Services() {
         const { initializeBRC41PaymentMiddleware } = await Promise.resolve().then(() => __importStar(require('./brc41/middleware')));
         const { Pool } = await Promise.resolve().then(() => __importStar(require('pg')));
         const { initializeOverlayServices } = await Promise.resolve().then(() => __importStar(require('./overlay/index')));
+        const { WalletInterface } = await Promise.resolve().then(() => __importStar(require('@bsv/sdk')));
         // Create PostgreSQL pool
         const dbPool = new Pool({
             host: process.env.DB_HOST || 'localhost',
             port: parseInt(process.env.DB_PORT || '5432'),
             database: process.env.DB_NAME || 'gitdata',
             user: process.env.DB_USER || 'gitdata',
-            password: process.env.DB_PASSWORD || 'gitdata',
+            password: process.env.DB_PASSWORD || '',
             ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
         });
         // Initialize overlay services (includes database adapter)
@@ -302,13 +327,111 @@ async function initializeBRC31Services() {
             enabled: process.env.BRC41_ENABLED !== 'false',
         });
         await brc41PaymentMiddleware.initialize();
+        // Initialize BSV authentication service
+        try {
+            const { Wallet } = await Promise.resolve().then(() => __importStar(require('@bsv/sdk')));
+            // Create BSV wallet instance
+            const bsvWallet = new Wallet({
+                privateKey: process.env.BSV_WALLET_PRIVATE_KEY,
+                // Use environment variable for wallet configuration
+                // For development, this can be a test key
+            });
+            // Initialize BSV authentication
+            const bsvAuth = (0, bsv_auth_1.initializeBSVAuth)({
+                wallet: bsvWallet,
+                enabled: process.env.BSV_AUTH_ENABLED !== 'false',
+                monetize: process.env.BSV_MONETIZE === 'true'
+            });
+            // Add BSV authentication middleware globally for certificate routes
+            app.use('/v1/certificate', bsvAuth.getAuthMiddleware());
+            if (process.env.BSV_MONETIZE === 'true') {
+                app.use('/v1/certificate', bsvAuth.getPaymentMiddleware());
+            }
+            console.log('✅ BSV authentication service initialized');
+        }
+        catch (bsvError) {
+            console.warn('⚠️  BSV authentication not available:', bsvError.message);
+            console.log('   → Set BSV_WALLET_PRIVATE_KEY environment variable to enable BSV auth');
+        }
         // Create BRC-31 enhanced router
         const brc31RouterInstance = (0, overlay_brc_31_1.enhancedBRC31OverlayRouter)();
         brc31RouterInstance.setOverlayServices?.(overlayServices);
         // Mount BRC-31 router
         app.use('/overlay', brc31RouterInstance.router);
+        // Initialize and mount identity router with database connection
+        const identityRouterInstance = (0, identity_1.initializeIdentityRoutes)({
+            query: async (sql, params = []) => {
+                const client = await dbPool.connect();
+                try {
+                    const result = await client.query(sql, params);
+                    return result.rows;
+                }
+                finally {
+                    client.release();
+                }
+            },
+            queryOne: async (sql, params = []) => {
+                const client = await dbPool.connect();
+                try {
+                    const result = await client.query(sql, params);
+                    return result.rows[0] || null;
+                }
+                finally {
+                    client.release();
+                }
+            },
+            execute: async (sql, params = []) => {
+                const client = await dbPool.connect();
+                try {
+                    await client.query(sql, params);
+                }
+                finally {
+                    client.release();
+                }
+            }
+        });
+        app.use('/v1/identity', identityRouterInstance);
+        // Initialize D21 BSV Native Payment Extensions
+        const databaseAdapter = {
+            query: async (sql, params = []) => {
+                const client = await dbPool.connect();
+                try {
+                    const result = await client.query(sql, params);
+                    return result.rows;
+                }
+                finally {
+                    client.release();
+                }
+            },
+            queryOne: async (sql, params = []) => {
+                const client = await dbPool.connect();
+                try {
+                    const result = await client.query(sql, params);
+                    return result.rows[0] || null;
+                }
+                finally {
+                    client.release();
+                }
+            },
+            execute: async (sql, params = []) => {
+                const client = await dbPool.connect();
+                try {
+                    await client.query(sql, params);
+                }
+                finally {
+                    client.release();
+                }
+            },
+            getClient: async () => {
+                return await dbPool.connect();
+            },
+        };
+        // Mount D21 routes
+        const d21Routes = (0, routes_js_1.default)(databaseAdapter);
+        app.use('/v1/d21', d21Routes);
         console.log('✅ BRC-31 authentication services initialized');
         console.log('✅ BRC-41 payment services initialized');
+        console.log('✅ D21 BSV Native Payment Extensions initialized');
         console.log('✅ Enhanced BRC-31 overlay endpoints available at /overlay');
         console.log(`✅ Database schema initialized for identity tracking`);
         console.log(`✅ Database schema initialized for payment tracking`);

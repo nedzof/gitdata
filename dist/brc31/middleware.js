@@ -14,6 +14,7 @@ exports.optionalBRC31Identity = optionalBRC31Identity;
 exports.isBRC31Request = isBRC31Request;
 exports.requiresBRC31Identity = requiresBRC31Identity;
 exports.getBRC31Identity = getBRC31Identity;
+exports.isBRC31Enabled = isBRC31Enabled;
 exports.getBRC31TrustScore = getBRC31TrustScore;
 const service_1 = require("./service");
 const types_1 = require("./types");
@@ -39,6 +40,12 @@ class BRC31Middleware {
             return;
         await this.authService.initialize();
         this.initialized = true;
+    }
+    /**
+     * Check if BRC-31 middleware is enabled
+     */
+    isEnabled() {
+        return this.config.enabled;
     }
     // ==================== Middleware Factory Functions ====================
     /**
@@ -282,6 +289,15 @@ function requiresBRC31Identity(req) {
 }
 function getBRC31Identity(req) {
     return req.brc31Identity;
+}
+function isBRC31Enabled() {
+    try {
+        const middleware = getBRC31Middleware();
+        return middleware.isEnabled();
+    }
+    catch (error) {
+        return false; // If middleware not initialized, assume disabled
+    }
 }
 function getBRC31TrustScore(req) {
     return req.brc31Identity?.trustScore || 0;

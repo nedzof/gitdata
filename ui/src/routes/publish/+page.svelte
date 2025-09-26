@@ -1,29 +1,15 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from '$lib/api';
-  import { goto } from '$app/navigation';
+  import { bsvWalletService } from '$lib/bsv-wallet';
 
-  let producerProfile = {
-    producerId: '',
-    identityKey: '',
-    displayName: '',
-    description: '',
-    region: 'global',
-    contactEmail: '',
-    website: ''
-  };
-
+  let identity = null;
   let connectionStatus = {
     overlay: 'checking',
     database: 'checking',
-    identity: 'checking'
+    wallet: 'checking'
   };
 
-  let loading = false;
-  let initialized = false;
-  let overlayUrl = 'http://localhost:8788';
-
-  // Data publishing state with full CLI parity
   let publishingData = {
     title: '',
     description: '',
@@ -59,59 +45,60 @@
   let fileInput;
 
   onMount(async () => {
-    await checkProducerStatus();
-
-    // Always load published content, regardless of initialization status
+    await checkConnectionStatus();
     loadPublishedContent();
   });
 
-  async function checkProducerStatus() {
+  async function checkConnectionStatus() {
+    // Check overlay connection
     try {
-      loading = true;
-
-      // Check overlay connection
-      try {
-        const healthResponse = await fetch(`${overlayUrl}/health`);
-        if (healthResponse.ok) {
-          connectionStatus.overlay = 'connected';
-          const healthData = await healthResponse.json();
-          connectionStatus.database = healthData.database === 'postgresql:ok' ? 'connected' : 'error';
-        } else {
-          connectionStatus.overlay = 'error';
-        }
-      } catch {
+      const healthResponse = await fetch('/health');
+      if (healthResponse.ok) {
+        connectionStatus.overlay = 'connected';
+        const healthData = await healthResponse.json();
+        connectionStatus.database = healthData.database === 'postgresql:ok' ? 'connected' : 'error';
+      } else {
         connectionStatus.overlay = 'error';
       }
+    } catch {
+      connectionStatus.overlay = 'error';
+    }
 
-      // Check if producer is already initialized
-      try {
-        const identity = localStorage.getItem('producer-identity');
-        if (identity) {
-          const parsedIdentity = JSON.parse(identity);
-          producerProfile = { ...producerProfile, ...parsedIdentity };
-          connectionStatus.identity = 'registered';
-          initialized = true;
-        } else {
-          connectionStatus.identity = 'not-registered';
-        }
-      } catch {
-        connectionStatus.identity = 'error';
+    // Check wallet connection
+    try {
+      const walletConnected = await bsvWalletService.verifyWalletConnection();
+      connectionStatus.wallet = walletConnected ? 'connected' : 'disconnected';
+    } catch {
+      connectionStatus.wallet = 'error';
+    }
+
+    // Load identity
+    try {
+      const storedIdentity = localStorage.getItem('identity');
+      if (storedIdentity) {
+        identity = JSON.parse(storedIdentity);
       }
-
-    } finally {
-      loading = false;
+    } catch {
+      // No identity yet
     }
   }
 
   async function publishContent() {
-    if (!initialized) {
-      alert('Producer identity not set up. Content will be stored locally but not published to the network. Set up your identity in Settings to enable network publishing.');
+    if (!identity) {
+      alert('Identity required. Please set up your identity in Settings first.');
+      return;
+    }
+
+    const walletConnected = bsvWalletService.isWalletConnected();
+    if (!walletConnected) {
+      alert('MetaNet wallet must be connected to publish content. Please connect your wallet first.');
+      return;
     }
 
     try {
       publishLoading = true;
 
-      // Create mock published content
+      // Create published content record
       const published = {
         id: 'content_' + Date.now(),
         title: publishingData.title,
@@ -141,10 +128,9 @@
         formData.append('currency', publishingData.currency);
         formData.append('tags', publishingData.tags);
         formData.append('replication', publishingData.replication.toString());
-        formData.append('producerId', producerProfile.producerId);
-        formData.append('identityKey', producerProfile.identityKey);
+        formData.append('identityId', identity.id);
+        formData.append('identityKey', identity.key);
 
-        // Add new CLI parity fields
         if (publishingData.policy) {
           formData.append('policy', publishingData.policy);
         }
@@ -167,7 +153,7 @@
       }
 
       publishedContent = [published, ...publishedContent];
-      localStorage.setItem('producer-published-content', JSON.stringify(publishedContent));
+      localStorage.setItem('published-content', JSON.stringify(publishedContent));
 
       // Reset form
       publishingData = {
@@ -198,7 +184,6 @@
     const file = event.target.files[0];
     if (file) {
       publishingData.file = file;
-      // Auto-detect content type
       if (file.type) {
         publishingData.contentType = file.type;
       }
@@ -207,7 +192,7 @@
 
   function loadPublishedContent() {
     try {
-      const stored = localStorage.getItem('producer-published-content');
+      const stored = localStorage.getItem('published-content');
       if (stored) {
         publishedContent = JSON.parse(stored);
       }
@@ -224,17 +209,14 @@
     return `${new Intl.NumberFormat().format(price)} ${currency}`;
   }
 
-
-
   function getStatusIcon(status) {
     switch (status) {
       case 'connected':
-      case 'registered':
         return '✅';
       case 'checking':
         return '⏳';
+      case 'disconnected':
       case 'error':
-      case 'not-registered':
         return '❌';
       default:
         return '❓';
@@ -242,16 +224,15 @@
   }
 </script>
 
-<div class="producer-setup">
-
+<div class="publish-page">
   <div class="header">
-    <h1>Data Publishing</h1>
-    <p>Publish and manage your data content on the BSV Overlay Network</p>
+    <h1>Publish Content</h1>
+    <p>Share and monetize your data on the BSV Overlay Network</p>
   </div>
 
   <!-- Connection Status -->
   <div class="status-panel">
-    <h2>Connection Status</h2>
+    <h2>System Status</h2>
     <div class="status-grid">
       <div class="status-item">
         <span class="status-icon">{getStatusIcon(connectionStatus.overlay)}</span>
@@ -264,193 +245,180 @@
         <span class="status-value">{connectionStatus.database}</span>
       </div>
       <div class="status-item">
-        <span class="status-icon">{getStatusIcon(connectionStatus.identity)}</span>
-        <span class="status-label">Producer Identity</span>
-        <span class="status-value">{connectionStatus.identity}</span>
+        <span class="status-icon">{getStatusIcon(connectionStatus.wallet)}</span>
+        <span class="status-label">MetaNet Wallet</span>
+        <span class="status-value">{connectionStatus.wallet}</span>
       </div>
     </div>
   </div>
 
-  <!-- Identity Setup Warning (if not initialized) -->
-  {#if !initialized}
+  <!-- Identity Warning -->
+  {#if !identity}
     <div class="warning-panel">
-      <h2>Producer Identity Required</h2>
-      <p>To publish content, you need to set up your producer identity first. You can still use this form, but the content won't be actually published to the network.</p>
+      <h2>Identity Required</h2>
+      <p>To publish content, you need to set up your identity first. You can still use this form for testing, but content won't be published to the network.</p>
       <div class="warning-actions">
-        <a href="/settings?tab=producer" class="btn btn-primary">
-          Set Up Producer Identity
+        <a href="/settings" class="btn btn-primary">
+          Set Up Identity
         </a>
       </div>
     </div>
   {/if}
 
-  {#if initialized}
-    <!-- Producer Profile Display -->
-    <div class="profile-panel">
-      <h2>Producer Profile</h2>
-      <div class="profile-grid">
-        <div class="profile-item">
-          <label>Producer ID</label>
-          <code>{producerProfile.producerId}</code>
-        </div>
-        <div class="profile-item">
-          <label>Identity Key</label>
-          <code>{producerProfile.identityKey}</code>
-        </div>
-        <div class="profile-item">
+  {#if identity}
+    <!-- Identity Display -->
+    <div class="identity-panel">
+      <h2>Publishing Identity</h2>
+      <div class="identity-info">
+        <div class="identity-item">
           <label>Display Name</label>
-          <span>{producerProfile.displayName}</span>
+          <span>{identity.displayName}</span>
         </div>
-        <div class="profile-item">
-          <label>Contact Email</label>
-          <span>{producerProfile.contactEmail}</span>
+        <div class="identity-item">
+          <label>Identity ID</label>
+          <code>{identity.id}</code>
         </div>
-        <div class="profile-item span-2">
-          <label>Description</label>
-          <span>{producerProfile.description || 'No description provided'}</span>
-        </div>
+        {#if identity.contactEmail}
+          <div class="identity-item">
+            <label>Contact</label>
+            <span>{identity.contactEmail}</span>
+          </div>
+        {/if}
       </div>
-
-      <div class="profile-actions">
-        <a href="/settings?tab=producer" class="btn btn-secondary">
+      <div class="identity-actions">
+        <a href="/settings" class="btn btn-secondary">
           Manage Identity
         </a>
-        <a href="/settings?tab=analytics" class="btn btn-secondary">
-          View Analytics
-        </a>
-        <a href="/settings?tab=services" class="btn btn-secondary">
-          Manage Services
-        </a>
       </div>
     </div>
   {/if}
 
-  <!-- Data Publishing Form -->
+  <!-- Publishing Form -->
   <div class="publish-panel">
     <h2>Publish New Content</h2>
     <form on:submit|preventDefault={publishContent}>
-        <div class="form-grid">
-          <div class="form-group">
-            <label for="title">Content Title *</label>
-            <input
-              id="title"
-              type="text"
-              bind:value={publishingData.title}
-              required
-              placeholder="My Dataset"
-              class="form-input"
-            />
-          </div>
-
-          <div class="form-group">
-            <label for="price">Price (sats)</label>
-            <input
-              id="price"
-              type="number"
-              bind:value={publishingData.price}
-              required
-              min="1"
-              class="form-input"
-            />
-          </div>
-
-          <div class="form-group span-2">
-            <label for="description">Description</label>
-            <textarea
-              id="description"
-              bind:value={publishingData.description}
-              placeholder="Describe your content"
-              class="form-input"
-              rows="3"
-            ></textarea>
-          </div>
-
-          <div class="form-group">
-            <label for="contentType">Content Type</label>
-            <select id="contentType" bind:value={publishingData.contentType} class="form-input">
-              <option value="application/json">JSON</option>
-              <option value="text/csv">CSV</option>
-              <option value="application/xml">XML</option>
-              <option value="text/plain">Text</option>
-              <option value="application/octet-stream">Binary</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="replication">Replication Factor</label>
-            <select id="replication" bind:value={publishingData.replication} class="form-input">
-              <option value={1}>1 (Basic)</option>
-              <option value={2}>2 (Standard)</option>
-              <option value={3}>3 (High Availability)</option>
-            </select>
-          </div>
-
-          <div class="form-group span-2">
-            <label for="tags">Tags (comma-separated)</label>
-            <input
-              id="tags"
-              type="text"
-              bind:value={publishingData.tags}
-              placeholder="data, finance, real-time"
-              class="form-input"
-            />
-          </div>
-
-          <div class="form-group">
-            <label for="policy">Policy Template</label>
-            <select id="policy" bind:value={publishingData.policy} class="form-input">
-              {#each availablePolicies as policyOption}
-                <option value={policyOption.value}>{policyOption.label}</option>
-              {/each}
-            </select>
-            <small class="field-help">Apply governance policy template for content compliance</small>
-          </div>
-
-          <div class="form-group">
-            <label for="relationship">Relationship Type</label>
-            <select id="relationship" bind:value={publishingData.relationship} class="form-input">
-              {#each relationshipTypes as relType}
-                <option value={relType.value}>{relType.label}</option>
-              {/each}
-            </select>
-            <small class="field-help">Relationship to parent content for lineage tracking</small>
-          </div>
-
-          <div class="form-group span-2">
-            <label for="parentIds">Parent Content IDs (for lineage)</label>
-            <input
-              id="parentIds"
-              type="text"
-              bind:value={publishingData.parentIds}
-              placeholder="content_123, content_456"
-              class="form-input"
-            />
-            <small class="field-help">Comma-separated list of parent content IDs for data lineage</small>
-          </div>
-
-          <div class="form-group span-2">
-            <label for="file">Select File</label>
-            <input
-              id="file"
-              type="file"
-              on:change={handleFileSelect}
-              bind:this={fileInput}
-              class="form-input"
-            />
-            <small class="field-help">Choose the data file to publish (supports all formats)</small>
-          </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="title">Content Title *</label>
+          <input
+            id="title"
+            type="text"
+            bind:value={publishingData.title}
+            required
+            placeholder="My Dataset"
+            class="form-input"
+          />
         </div>
 
-        <div class="form-actions">
-          <button
-            type="submit"
-            disabled={publishLoading || !publishingData.title}
-            class="btn btn-primary"
-          >
-            {publishLoading ? 'Publishing...' : 'Publish Content'}
-          </button>
+        <div class="form-group">
+          <label for="price">Price (satoshis)</label>
+          <input
+            id="price"
+            type="number"
+            bind:value={publishingData.price}
+            required
+            min="1"
+            class="form-input"
+          />
         </div>
-      </form>
+
+        <div class="form-group span-2">
+          <label for="description">Description</label>
+          <textarea
+            id="description"
+            bind:value={publishingData.description}
+            placeholder="Describe your content"
+            class="form-input"
+            rows="3"
+          ></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="contentType">Content Type</label>
+          <select id="contentType" bind:value={publishingData.contentType} class="form-input">
+            <option value="application/json">JSON</option>
+            <option value="text/csv">CSV</option>
+            <option value="application/xml">XML</option>
+            <option value="text/plain">Text</option>
+            <option value="application/octet-stream">Binary</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="replication">Replication Factor</label>
+          <select id="replication" bind:value={publishingData.replication} class="form-input">
+            <option value={1}>1 (Basic)</option>
+            <option value={2}>2 (Standard)</option>
+            <option value={3}>3 (High Availability)</option>
+          </select>
+        </div>
+
+        <div class="form-group span-2">
+          <label for="tags">Tags (comma-separated)</label>
+          <input
+            id="tags"
+            type="text"
+            bind:value={publishingData.tags}
+            placeholder="data, finance, real-time"
+            class="form-input"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="policy">Policy Template</label>
+          <select id="policy" bind:value={publishingData.policy} class="form-input">
+            {#each availablePolicies as policyOption}
+              <option value={policyOption.value}>{policyOption.label}</option>
+            {/each}
+          </select>
+          <small class="field-help">Apply governance policy template for content compliance</small>
+        </div>
+
+        <div class="form-group">
+          <label for="relationship">Relationship Type</label>
+          <select id="relationship" bind:value={publishingData.relationship} class="form-input">
+            {#each relationshipTypes as relType}
+              <option value={relType.value}>{relType.label}</option>
+            {/each}
+          </select>
+          <small class="field-help">Relationship to parent content for lineage tracking</small>
+        </div>
+
+        <div class="form-group span-2">
+          <label for="parentIds">Parent Content IDs (for lineage)</label>
+          <input
+            id="parentIds"
+            type="text"
+            bind:value={publishingData.parentIds}
+            placeholder="content_123, content_456"
+            class="form-input"
+          />
+          <small class="field-help">Comma-separated list of parent content IDs for data lineage</small>
+        </div>
+
+        <div class="form-group span-2">
+          <label for="file">Select File</label>
+          <input
+            id="file"
+            type="file"
+            on:change={handleFileSelect}
+            bind:this={fileInput}
+            class="form-input"
+          />
+          <small class="field-help">Choose the data file to publish (supports all formats)</small>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button
+          type="submit"
+          disabled={publishLoading || !publishingData.title}
+          class="btn btn-primary"
+        >
+          {publishLoading ? 'Publishing...' : 'Publish Content'}
+        </button>
+      </div>
+    </form>
   </div>
 
   <!-- Published Content List -->
@@ -490,39 +458,10 @@
 </div>
 
 <style>
-  .producer-setup {
+  .publish-page {
     max-width: 1200px;
     margin: 0 auto;
     padding: 2rem;
-  }
-
-  .producer-nav {
-    margin-bottom: 2rem;
-  }
-
-  .nav-tabs {
-    display: flex;
-    border-bottom: 1px solid #30363d;
-  }
-
-  .nav-tab {
-    padding: 1rem 1.5rem;
-    color: #6e7681;
-    text-decoration: none;
-    border-bottom: 2px solid transparent;
-    font-size: 14px;
-    font-weight: 500;
-    transition: all 0.2s;
-  }
-
-  .nav-tab:hover {
-    color: #f0f6fc;
-    background: #21262d;
-  }
-
-  .nav-tab.active {
-    color: #58a6ff;
-    border-bottom-color: #58a6ff;
   }
 
   .header {
@@ -541,7 +480,7 @@
     color: #6e7681;
   }
 
-  .status-panel, .setup-form, .profile-panel, .publish-panel, .published-panel, .warning-panel {
+  .status-panel, .identity-panel, .publish-panel, .published-panel, .warning-panel {
     background: #161b22;
     border: 1px solid #30363d;
     border-radius: 8px;
@@ -568,7 +507,7 @@
     justify-content: center;
   }
 
-  .status-panel h2, .setup-form h2, .profile-panel h2, .publish-panel h2, .published-panel h2 {
+  .status-panel h2, .identity-panel h2, .publish-panel h2, .published-panel h2 {
     color: #f0f6fc;
     margin-bottom: 1rem;
     font-size: 1.25rem;
@@ -604,6 +543,45 @@
   .status-value {
     text-transform: capitalize;
     color: #6e7681;
+  }
+
+  .identity-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .identity-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .identity-item label {
+    font-weight: 600;
+    color: #6e7681;
+    font-size: 0.875rem;
+  }
+
+  .identity-item span {
+    color: #f0f6fc;
+  }
+
+  .identity-item code {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Monaco', monospace;
+    font-size: 0.875rem;
+    color: #f0f6fc;
+    word-break: break-all;
+  }
+
+  .identity-actions {
+    display: flex;
+    justify-content: flex-end;
   }
 
   .form-grid {
@@ -660,46 +638,6 @@
     justify-content: flex-end;
   }
 
-  .profile-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-  }
-
-  .profile-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .profile-item label {
-    font-weight: 600;
-    color: #6e7681;
-    font-size: 0.875rem;
-  }
-
-  .profile-item code {
-    background: #0d1117;
-    border: 1px solid #21262d;
-    padding: 0.5rem;
-    border-radius: 4px;
-    font-family: 'SF Mono', 'Monaco', monospace;
-    font-size: 0.875rem;
-    word-break: break-all;
-    color: #f0f6fc;
-  }
-
-  .profile-item span {
-    color: #f0f6fc;
-  }
-
-  .profile-actions {
-    display: flex;
-    gap: 1rem;
-    justify-content: flex-end;
-  }
-
   .btn {
     padding: 0.75rem 1.5rem;
     border: none;
@@ -735,17 +673,6 @@
   .btn-secondary:hover {
     background: #30363d;
     border-color: #58a6ff;
-  }
-
-  .btn-danger {
-    background: #da3633;
-    color: white;
-    border: 1px solid #da3633;
-  }
-
-  .btn-danger:hover {
-    background: #f85149;
-    border-color: #f85149;
   }
 
   /* Published Content Styles */
@@ -833,27 +760,8 @@
     word-break: break-all;
   }
 
-  .redirect-notice {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 2rem;
-    text-align: center;
-    margin: 2rem 0;
-  }
-
-  .redirect-notice h2 {
-    color: #f0f6fc;
-    margin-bottom: 1rem;
-  }
-
-  .redirect-notice p {
-    color: #8b949e;
-    margin: 0;
-  }
-
   @media (max-width: 768px) {
-    .producer-setup {
+    .publish-page {
       padding: 1rem;
     }
 
@@ -865,15 +773,11 @@
       grid-column: span 1;
     }
 
-    .profile-grid {
+    .published-grid {
       grid-template-columns: 1fr;
     }
 
-    .profile-actions {
-      flex-direction: column;
-    }
-
-    .published-grid {
+    .identity-info {
       grid-template-columns: 1fr;
     }
   }

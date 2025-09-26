@@ -67,64 +67,6 @@ class PostgreSQLAdapter {
         await this.query(sql, params);
     }
 }
-/**
- * Creates a legacy SQLite-compatible wrapper for PostgreSQL DatabaseAdapter
- * Used by OverlayManager and OverlayPaymentService until they're fully migrated
- */
-function createLegacyWrapper(dbAdapter) {
-    const queryCache = new Map();
-    return {
-        // Synchronous exec method - run async in background
-        exec: (sql) => {
-            dbAdapter
-                .execute(sql)
-                .catch((err) => console.warn('[LEGACY-DB] Async exec error:', err.message));
-        },
-        // Prepare method that returns an object with run/get/all methods
-        prepare: (sql) => {
-            return {
-                run: (...params) => {
-                    dbAdapter
-                        .execute(sql, params)
-                        .catch((err) => console.warn('[LEGACY-DB] Async run error:', err.message));
-                    return { lastInsertRowid: Date.now(), changes: 1 };
-                },
-                get: (...params) => {
-                    // For read operations, we need to handle them differently
-                    // These will return null but shouldn't break the application
-                    const cacheKey = `${sql}:${JSON.stringify(params)}`;
-                    if (queryCache.has(cacheKey)) {
-                        return queryCache.get(cacheKey);
-                    }
-                    // Async operation - can't return real data synchronously
-                    dbAdapter
-                        .queryOne(sql, params)
-                        .then((result) => {
-                        if (result)
-                            queryCache.set(cacheKey, result);
-                    })
-                        .catch((err) => console.warn('[LEGACY-DB] Async get error:', err.message));
-                    return null; // Legacy services must handle null gracefully
-                },
-                all: (...params) => {
-                    // Similar to get, but for multiple results
-                    const cacheKey = `all:${sql}:${JSON.stringify(params)}`;
-                    if (queryCache.has(cacheKey)) {
-                        return queryCache.get(cacheKey);
-                    }
-                    dbAdapter
-                        .query(sql, params)
-                        .then((results) => {
-                        if (results)
-                            queryCache.set(cacheKey, results);
-                    })
-                        .catch((err) => console.warn('[LEGACY-DB] Async all error:', err.message));
-                    return []; // Return empty array for legacy compatibility
-                },
-            };
-        },
-    };
-}
 // Import agent marketplace services
 const agent_execution_service_2 = require("../agents/agent-execution-service");
 const overlay_agent_registry_2 = require("../agents/overlay-agent-registry");
@@ -149,17 +91,16 @@ async function initializeOverlayServices(database, environment = 'development', 
     console.log('[OVERLAY] ✅ All BRC standards available for production use');
     // Create BRC-26 UHRP service (Universal Hash Resolution Protocol for file storage)
     const brc26Service = new brc26_uhrp_2.BRC26UHRPService(dbAdapter, storageBasePath, baseUrl);
-    // Create overlay manager with PostgreSQL legacy wrapper
-    const legacyDatabase = createLegacyWrapper(dbAdapter);
+    // Create overlay manager with PostgreSQL database adapter
     const overlayManager = new overlay_manager_2.OverlayManager({
         environment,
-        database: legacyDatabase,
+        database: dbAdapter,
         autoConnect: true,
         enablePaymentIntegration: true,
         enableSearchIntegration: true,
     });
     // Create payment service
-    const paymentService = new overlay_payments_2.OverlayPaymentService(overlayManager, legacyDatabase);
+    const paymentService = new overlay_payments_2.OverlayPaymentService(overlayManager, dbAdapter);
     // D24 Agent Marketplace Services
     const agentRegistry = new overlay_agent_registry_2.OverlayAgentRegistry(dbAdapter, brc88Service);
     const ruleEngine = new overlay_rule_engine_2.OverlayRuleEngine(dbAdapter, brc22Service, agentRegistry);

@@ -59,11 +59,11 @@ class PostgreSQLClient {
         }
         else {
             this.pool = new pg_1.Pool({
-                host: process.env.PG_HOST || 'localhost',
-                port: parseInt(process.env.PG_PORT || '5432'),
-                database: process.env.PG_DATABASE || 'overlay',
-                user: process.env.PG_USER || 'postgres',
-                password: process.env.PG_PASSWORD,
+                host: process.env.DB_HOST || process.env.PG_HOST || 'localhost',
+                port: parseInt(process.env.DB_PORT || process.env.PG_PORT || '5432'),
+                database: process.env.DB_NAME || process.env.PG_DATABASE || 'overlay',
+                user: process.env.DB_USER || process.env.PG_USER || 'postgres',
+                password: process.env.DB_PASSWORD || process.env.PG_PASSWORD || '',
                 ssl: process.env.PG_SSL === 'true' ? { rejectUnauthorized: false } : false,
                 ...this.config,
             });

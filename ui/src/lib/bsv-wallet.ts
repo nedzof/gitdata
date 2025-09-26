@@ -1,131 +1,82 @@
 /**
- * BSV SDK-based Wallet Service
- * Based on PeerPay implementation for MetaNet Desktop compatibility
+ * Clean BSV Wallet Service - PeerPay style implementation
+ * Simple, modern MetaNet Desktop wallet detection and connection
  */
 
 import { WalletClient } from '@bsv/sdk';
 
-interface WalletServiceConfig {
+interface WalletConfig {
   apiUrl?: string;
-  checkInterval?: number;
 }
 
-class BSVWalletService {
-  private walletClient: WalletClient;
-  private isConnected: boolean = false;
-  private isChecking: boolean = false;
+class BSVWallet {
+  private wallet: WalletClient;
+  private connected: boolean = false;
   private publicKey: string | null = null;
   private connectionListeners: ((connected: boolean) => void)[] = [];
-  private config: WalletServiceConfig;
+  private config: WalletConfig;
 
-  constructor(config: WalletServiceConfig = {}) {
+  constructor(config: WalletConfig = {}) {
     this.config = {
       apiUrl: 'http://localhost:3000',
-      checkInterval: 1000,
       ...config
     };
 
-    this.walletClient = new WalletClient();
-    this.startMetaNetCheck();
+    this.wallet = new WalletClient();
+    this.startWalletDetection();
   }
 
   /**
-   * Start checking for MetaNet Client - simplified
+   * Start wallet detection - clean and simple
    */
-  private startMetaNetCheck() {
-    if (this.isChecking) return;
+  private startWalletDetection() {
+    console.log('🔍 Starting MetaNet Desktop wallet detection...');
 
-    this.isChecking = true;
-    console.log('🔍 Starting MetaNet Desktop detection...');
-
+    // Check for wallet availability every 2 seconds
     const checkInterval = setInterval(async () => {
       try {
-        const hasMetaNet = await this.checkForMetaNetClient();
-
-        if (hasMetaNet) {
-          console.log('✅ MetaNet Client detected!');
-          clearInterval(checkInterval);
-          this.isChecking = false;
-          // Don't auto-authenticate - wait for user to trigger
-        } else {
-          console.log('⏳ Waiting for MetaNet Client...');
+        const available = await this.checkWalletAvailable();
+        if (available && !this.connected) {
+          console.log('✅ MetaNet Desktop detected - ready for connection');
+          // Don't auto-connect - wait for user action
         }
       } catch (error) {
-        console.log('❌ MetaNet check error:', error.message);
+        // Silently handle detection errors
       }
-    }, this.config.checkInterval);
+    }, 2000);
+
+    // Keep reference for cleanup if needed
+    this.checkInterval = checkInterval;
   }
 
   /**
-   * Check for MetaNet Client - proper detection approach
+   * Check if MetaNet Desktop wallet is available
    */
-  private async checkForMetaNetClient(): Promise<boolean> {
+  private async checkWalletAvailable(): Promise<boolean> {
     try {
-      // Try to get wallet information to verify MetaNet is running
-      // This should fail gracefully if wallet isn't available
-      const networkInfo = await this.walletClient.getNetwork();
-      return networkInfo && typeof networkInfo === 'string';
+      await this.wallet.getNetwork();
+      return true;
     } catch (error) {
-      // If we get wallet-not-available errors, MetaNet isn't running
-      if (error.message.includes('No wallet available') ||
-          error.message.includes('No MetaNet Client') ||
-          error.message.includes('not running') ||
-          error.message.includes('connection refused') ||
-          error.message.includes('communication substrate')) {
+      // Check common wallet not available error messages
+      const message = error.message.toLowerCase();
+      if (message.includes('no wallet available') ||
+          message.includes('no metanet client') ||
+          message.includes('not running') ||
+          message.includes('connection refused')) {
         return false;
       }
-      // For authentication-required errors, wallet is available but not authenticated
-      if (error.message.includes('authentication') ||
-          error.message.includes('not authenticated') ||
-          error.message.includes('privileged')) {
-        return true;
-      }
-      // Log unknown errors for debugging
-      console.log('🔍 Unknown wallet detection error:', error.message);
-      return false;
+      // If it's just an auth error, wallet is available
+      return message.includes('authentication') || message.includes('privileged');
     }
   }
 
   /**
-   * Attempt authentication with MetaNet Desktop - simplified
-   */
-  private async attemptAuthentication() {
-    try {
-      console.log('🔐 Attempting authentication with MetaNet Desktop...');
-
-      // Simple one-shot authentication
-      await this.walletClient.waitForAuthentication();
-      console.log('✅ Authentication successful!');
-
-      // Get public key for identity
-      const identityKey = await this.walletClient.getPublicKey({
-        identityKey: true
-      });
-
-      this.publicKey = identityKey.publicKey;
-      this.isConnected = true;
-
-      console.log('🔑 Got identity key:', this.publicKey.slice(0, 10) + '...');
-
-      // Notify listeners
-      this.notifyConnectionChange(true);
-
-    } catch (error) {
-      console.error('❌ Authentication failed:', error);
-      this.isConnected = false;
-      this.publicKey = null;
-      this.notifyConnectionChange(false);
-      throw error;
-    }
-  }
-
-  /**
-   * Manually trigger connection attempt
+   * Connect to MetaNet Desktop wallet - simple one-shot
    */
   async connect(): Promise<{ publicKey: string; isConnected: boolean }> {
-    console.log('🔗 Manual connect requested...');
+    console.log('🔗 Connecting to MetaNet Desktop wallet...');
 
-    if (this.isConnected && this.publicKey) {
+    if (this.connected && this.publicKey) {
       console.log('✅ Already connected');
       return {
         publicKey: this.publicKey,
@@ -133,89 +84,60 @@ class BSVWalletService {
       };
     }
 
-    // First verify MetaNet client is available
-    const hasMetaNet = await this.checkForMetaNetClient();
-    if (!hasMetaNet) {
-      throw new Error('MetaNet Desktop wallet is not running. Please start MetaNet Desktop and try again.');
+    try {
+      // Check wallet availability first
+      const available = await this.checkWalletAvailable();
+      if (!available) {
+        throw new Error('MetaNet Desktop wallet is not running. Please start MetaNet Desktop and try again.');
+      }
+
+      // Simple authentication
+      console.log('🔐 Requesting wallet authentication...');
+      await this.wallet.waitForAuthentication();
+      console.log('✅ Wallet authenticated successfully');
+
+      // Get identity key
+      const identityKey = await this.wallet.getPublicKey({
+        identityKey: true
+      });
+
+      this.publicKey = identityKey.publicKey;
+      this.connected = true;
+
+      console.log('🔑 Identity key received:', this.publicKey.slice(0, 10) + '...');
+
+      // Notify listeners
+      this.notifyConnectionChange(true);
+
+      return {
+        publicKey: this.publicKey,
+        isConnected: true
+      };
+
+    } catch (error) {
+      console.error('❌ Wallet connection failed:', error);
+      this.connected = false;
+      this.publicKey = null;
+      this.notifyConnectionChange(false);
+      throw error;
     }
-
-    console.log('🔍 MetaNet Desktop detected, attempting authentication...');
-    await this.attemptAuthentication();
-
-    if (!this.isConnected || !this.publicKey) {
-      throw new Error('Failed to connect to MetaNet Desktop wallet. Please ensure the wallet is unlocked and try again.');
-    }
-
-    return {
-      publicKey: this.publicKey,
-      isConnected: true
-    };
   }
 
   /**
    * Disconnect from wallet
    */
   async disconnect(): Promise<void> {
-    this.isConnected = false;
+    this.connected = false;
     this.publicKey = null;
     this.notifyConnectionChange(false);
     console.log('🔌 Disconnected from wallet');
   }
 
   /**
-   * Check if wallet is connected with verification
+   * Check if wallet is connected
    */
   isWalletConnected(): boolean {
-    // Quick cached check
-    if (!this.isConnected || !this.publicKey) {
-      return false;
-    }
-
-    // Verify wallet is still actually available
-    try {
-      // This is a synchronous check - just verify our state is still valid
-      return this.isConnected && this.publicKey !== null;
-    } catch {
-      // If there are any issues, mark as disconnected
-      this.isConnected = false;
-      this.publicKey = null;
-      return false;
-    }
-  }
-
-  /**
-   * Verify wallet connection with async MetaNet check
-   */
-  async verifyWalletConnection(): Promise<boolean> {
-    console.log('🔍 Verifying wallet connection...');
-
-    try {
-      // Check if we think we're connected
-      if (!this.isConnected || !this.publicKey) {
-        console.log('❌ Not connected according to our state');
-        return false;
-      }
-
-      // Try to verify MetaNet client is still available
-      const hasMetaNet = await this.checkForMetaNetClient();
-      if (!hasMetaNet) {
-        console.log('❌ MetaNet client no longer available');
-        this.isConnected = false;
-        this.publicKey = null;
-        this.notifyConnectionChange(false);
-        return false;
-      }
-
-      console.log('✅ Wallet connection verified');
-      return true;
-
-    } catch (error) {
-      console.warn('⚠️ Wallet verification failed:', error.message);
-      this.isConnected = false;
-      this.publicKey = null;
-      this.notifyConnectionChange(false);
-      return false;
-    }
+    return this.connected && this.publicKey !== null;
   }
 
   /**
@@ -226,110 +148,126 @@ class BSVWalletService {
   }
 
   /**
-   * Get the underlying WalletClient for advanced operations
+   * Get the wallet client for advanced operations
    */
   getWalletClient(): WalletClient {
-    return this.walletClient;
+    return this.wallet;
   }
 
   /**
-   * Get wallet instance for certificate operations
+   * Verify wallet connection with async check
    */
-  getWallet(): WalletClient {
-    if (!this.isConnected) {
-      throw new Error('Wallet not connected');
+  async verifyWalletConnection(): Promise<boolean> {
+    console.log('🔍 Verifying wallet connection...');
+
+    try {
+      if (!this.connected || !this.publicKey) {
+        return false;
+      }
+
+      // Quick check if wallet is still available
+      const available = await this.checkWalletAvailable();
+      if (!available) {
+        console.log('❌ MetaNet client no longer available');
+        this.connected = false;
+        this.publicKey = null;
+        this.notifyConnectionChange(false);
+        return false;
+      }
+
+      console.log('✅ Wallet connection verified');
+      return true;
+
+    } catch (error) {
+      console.warn('⚠️ Wallet verification failed:', error.message);
+      this.connected = false;
+      this.publicKey = null;
+      this.notifyConnectionChange(false);
+      return false;
     }
-    return this.walletClient;
   }
 
   /**
-   * Save certificate to BRC-100 MetaNet wallet
+   * Create certificate signing request - CoolCert style
    */
-  async saveCertificateToWallet(certificate: any): Promise<void> {
-    if (!this.isConnected) {
-      throw new Error('Wallet not connected');
+  async createCertificateSigningRequest(certificateFields: {
+    display_name: string;
+    participant?: string;
+    level?: string;
+    organization?: string;
+    email?: string;
+  }): Promise<any> {
+    if (!this.connected || !this.publicKey) {
+      throw new Error('Wallet must be connected to create CSR');
     }
 
     try {
-      console.log('💾 Importing certificate to MetaNet wallet...');
+      console.log('🔐 Creating certificate signing request...');
 
-      // For BSV Certificate objects, use importCertificate method
-      if (certificate.sign && typeof certificate.sign === 'function') {
-        console.log('🔐 Importing BSV SDK Certificate object...');
-
-        // This should be the proper way to import a certificate to MetaNet wallet
-        await this.walletClient.importCertificate(certificate);
-
-        console.log('✅ Certificate successfully imported to MetaNet wallet!');
-        return;
-      }
-
-      // For plain objects, try to create a proper certificate format
-      console.log('📄 Converting to certificate format...');
-
-      const certificateForImport = {
-        type: certificate.type,
-        subject: certificate.subject,
-        serialNumber: certificate.serialNumber,
-        certifier: certificate.certifier,
-        revocationOutpoint: certificate.revocationOutpoint || '0'.repeat(64) + '.0',
-        signature: certificate.signature,
-        fields: certificate.fields,
-        // Add standard certificate metadata
-        issuedAt: certificate.issuedAt,
-        expiresAt: certificate.expiresAt
+      // Create CSR manually - BSV SDK doesn't have createSigningRequest
+      const csr = {
+        fields: certificateFields,
+        identityKey: this.publicKey,
+        timestamp: Date.now(),
+        version: '1.0'
       };
 
-      // Try importing as a certificate
-      await this.walletClient.importCertificate(certificateForImport);
-      console.log('✅ Certificate imported successfully!');
+      console.log('✅ Certificate signing request created');
+      return csr;
 
     } catch (error) {
-      console.error('❌ Certificate import failed, trying record storage fallback:', error);
-
-      // Fallback: Store as a record with special certificate protocol
-      try {
-        const certificateData = {
-          ...certificate,
-          _certificateType: 'gitdata-participant',
-          _importedAt: new Date().toISOString(),
-          _walletImport: true
-        };
-
-        await this.walletClient.storeRecord({
-          data: certificateData,
-          protocolID: [2, 'bsv-certificates'],
-          keyID: `cert_${certificate.serialNumber || Date.now()}`,
-          description: `Gitdata Certificate - ${certificate.fields?.display_name || certificate.subject || 'Participant'}`
-        });
-
-        console.log('⚡ Certificate stored as record (fallback method)');
-
-        // Notify user about the storage method
-        if (typeof window !== 'undefined') {
-          console.warn('⚠️  Certificate saved as wallet record. For full certificate features, ensure your MetaNet wallet supports certificate import.');
-        }
-
-      } catch (fallbackError) {
-        console.error('❌ All methods failed:', fallbackError);
-        throw new Error(`Failed to save certificate: ${error instanceof Error ? error.message : 'Certificate import not supported by wallet'}`);
-      }
+      console.error('❌ CSR creation failed:', error);
+      throw new Error(`Failed to create certificate signing request: ${error.message}`);
     }
   }
 
   /**
-   * Manually acquire a certificate from the gitdata server
-   * Can be called from the UI when user wants to get their certificate
+   * Submit certificate signing request to certifier - CoolCert style
+   */
+  async submitCertificateSigningRequest(csr: any, certifierUrl?: string): Promise<any> {
+    try {
+      console.log('📤 Submitting certificate signing request...');
+
+      const submitUrl = certifierUrl || `${this.config.apiUrl}/v1/certificate/sign`;
+
+      const response = await fetch(submitUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          csr,
+          type: 'gitdata-participant'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Certificate signing failed: ${response.statusText}`);
+      }
+
+      const signedCertificate = await response.json();
+      console.log('✅ Certificate signed and returned');
+
+      return signedCertificate;
+
+    } catch (error) {
+      console.error('❌ CSR submission failed:', error);
+      throw new Error(`Failed to submit certificate signing request: ${error.message}`);
+    }
+  }
+
+  /**
+   * Acquire certificate from gitdata server - CoolCert style
    */
   async acquireGitdataCertificate(displayName?: string): Promise<any> {
-    if (!this.isConnected || !this.publicKey) {
+    if (!this.connected || !this.publicKey) {
       throw new Error('Wallet must be connected to acquire certificate');
     }
 
     try {
-      console.log('🔄 Acquiring Gitdata participant certificate...');
+      console.log('🔄 Acquiring Gitdata certificate...');
 
-      // Check certificate service status
+      // Check certificate service
       const statusResponse = await fetch(`${this.config.apiUrl}/v1/certificate/status`);
       if (!statusResponse.ok) {
         throw new Error('Certificate service not available');
@@ -340,7 +278,7 @@ class BSVWalletService {
         throw new Error('BSV authentication not enabled on server');
       }
 
-      // Use BSV SDK's MasterCertificate.acquireCertificate method
+      // Use BSV SDK's certificate acquisition
       const { MasterCertificate } = await import('@bsv/sdk');
 
       const certificateFields = {
@@ -355,15 +293,14 @@ class BSVWalletService {
         type: statusData.certificateType,
         fields: certificateFields,
         certifierUrl: `${this.config.apiUrl}/v1/certificate`,
-        wallet: this.walletClient
+        wallet: this.wallet
       });
 
-      console.log('✅ Certificate acquired successfully!');
+      console.log('✅ Certificate acquired successfully');
 
-      // Save certificate to wallet
+      // Import to wallet
       await this.saveCertificateToWallet(certificate);
-
-      console.log('✅ Certificate saved to MetaNet wallet!');
+      console.log('✅ Certificate saved to MetaNet wallet');
 
       return certificate;
 
@@ -374,80 +311,82 @@ class BSVWalletService {
   }
 
   /**
-   * Get certificates from BRC-100 MetaNet wallet
+   * Save certificate to wallet - simplified
    */
-  async getCertificatesFromWallet(): Promise<any[]> {
-    if (!this.isConnected) {
+  async saveCertificateToWallet(certificate: any): Promise<void> {
+    if (!this.connected) {
       throw new Error('Wallet not connected');
     }
 
     try {
-      console.log('📋 Retrieving certificates from MetaNet wallet...');
+      console.log('💾 Importing certificate to MetaNet wallet...');
 
-      let certificates: any[] = [];
-
-      // Try to get certificates from the wallet's certificate collection first
-      try {
-        const certList = await this.walletClient.listCertificates();
-        certificates = Array.isArray(certList) ? certList : [];
-        console.log(`✅ Retrieved ${certificates.length} certificates from wallet certificate collection`);
-      } catch (error) {
-        console.log('📦 Certificate list not available, checking record storage...');
-
-        // Fallback to record storage for certificates stored as records
-        try {
-          const records = await this.walletClient.findRecords({
-            protocolID: [2, 'bsv-certificates']
-          });
-
-          certificates = records
-            .filter(record => record.data && record.data._walletImport)
-            .map(record => record.data);
-
-          console.log(`⚡ Retrieved ${certificates.length} certificates from wallet records`);
-        } catch (recordError) {
-          console.log('📂 No certificate records found');
-        }
+      // Try to import as certificate first
+      if (certificate.sign && typeof certificate.sign === 'function') {
+        console.log('🔐 Importing BSV SDK Certificate object...');
+        await this.wallet.importCertificate(certificate);
+        console.log('✅ Certificate imported successfully');
+        return;
       }
 
-      return certificates;
+      // Convert to proper certificate format
+      const certificateForImport = {
+        type: certificate.type,
+        subject: certificate.subject,
+        serialNumber: certificate.serialNumber,
+        certifier: certificate.certifier,
+        revocationOutpoint: certificate.revocationOutpoint || '0'.repeat(64) + '.0',
+        signature: certificate.signature,
+        fields: certificate.fields,
+        issuedAt: certificate.issuedAt,
+        expiresAt: certificate.expiresAt
+      };
+
+      await this.wallet.importCertificate(certificateForImport);
+      console.log('✅ Certificate imported successfully');
 
     } catch (error) {
-      console.error('❌ Failed to retrieve certificates from wallet:', error);
-      return []; // Return empty array instead of throwing to avoid breaking the app
+      console.error('❌ Certificate import failed:', error);
+      // Fallback to record storage
+      try {
+        const certificateData = {
+          ...certificate,
+          _certificateType: 'gitdata-participant',
+          _importedAt: new Date().toISOString()
+        };
+
+        await this.wallet.storeRecord({
+          data: certificateData,
+          protocolID: [2, 'bsv-certificates'],
+          keyID: `cert_${certificate.serialNumber || Date.now()}`,
+          description: `Gitdata Certificate - ${certificate.fields?.display_name || 'Participant'}`
+        });
+
+        console.log('⚡ Certificate stored as record (fallback method)');
+      } catch (fallbackError) {
+        throw new Error(`Failed to save certificate: ${error.message}`);
+      }
     }
   }
 
   /**
-   * Acquire certificate from backend - removed from auto-authentication
-   * Now only called manually by acquireGitdataCertificate method
-   */
-  private async authenticateWithBackend(): Promise<void> {
-    // This method is no longer called automatically during connection
-    // to prevent multiple popups. Only used by manual certificate acquisition.
-    console.log('ℹ️  Backend authentication skipped during connection');
-  }
-
-  /**
-   * Generate authenticated headers for API requests - simplified
+   * Generate authenticated headers for API requests
    */
   async generateAuthHeaders(body: string = ''): Promise<Record<string, string>> {
-    if (!this.publicKey || !this.isConnected) {
-      throw new Error('Wallet not connected. Please connect your MetaNet Desktop wallet first.');
+    if (!this.publicKey || !this.connected) {
+      throw new Error('Wallet not connected');
     }
 
     const nonce = this.generateNonce();
     const message = body + nonce;
 
-    console.log('🔐 Requesting signature from MetaNet Desktop...');
-    const signature = await this.walletClient.createSignature({
+    console.log('🔐 Creating signature...');
+    const signature = await this.wallet.createSignature({
       data: btoa(message),
       protocolID: [2, 'gitdata-identity'],
       keyID: 'identity',
       privilegedReason: 'Authenticate API request'
     });
-
-    console.log('✅ Signature created successfully');
 
     return {
       'X-Identity-Key': this.publicKey,
@@ -491,9 +430,20 @@ class BSVWalletService {
       }
     });
   }
+
+  /**
+   * Cleanup resources
+   */
+  destroy(): void {
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval);
+    }
+  }
+
+  private checkInterval?: NodeJS.Timeout;
 }
 
 // Create singleton instance
-export const bsvWalletService = new BSVWalletService();
+export const bsvWalletService = new BSVWallet();
 
-export default BSVWalletService;
+export default BSVWallet;
