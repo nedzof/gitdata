@@ -9,9 +9,13 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY ui/package*.json ./ui/
 
 # Install all dependencies including dev dependencies
-RUN npm install
+RUN npm install --legacy-peer-deps
+
+# Install UI dependencies
+RUN cd ui && npm install
 
 # Create app user
 RUN addgroup -g 1001 -S nodejs && \

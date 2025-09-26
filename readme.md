@@ -32,6 +32,28 @@ The Gitdatauses a three-layer architecture to balance decentralization, performa
 
 *   Node.js (v16 or higher)
 *   npm
+*   Docker and docker-compose (for containerized development)
+
+### Quick Start with Docker (Recommended)
+
+For the easiest development experience:
+
+```bash
+# Start the application with Docker
+./run-app.sh
+
+# Start with admin tools (pgAdmin, Redis Commander)
+./run-app.sh --admin
+
+# Clean start (removes all data)
+./run-app.sh --clean
+```
+
+This will start:
+- **Main Application** at http://localhost:8788
+- **PostgreSQL** at localhost:5432
+- **Redis** at localhost:6379
+- **Admin Tools** (with --admin): pgAdmin at http://localhost:8080, Redis Commander at http://localhost:8081
 
 ### Installation
 

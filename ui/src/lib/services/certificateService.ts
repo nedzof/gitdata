@@ -15,7 +15,7 @@ import {
   validationRules,
   generateCertificateData
 } from '../certificates/gitdataCert'
-import { walletService } from '../bsv-wallet'
+import { bsvWalletService } from '../bsv-wallet'
 
 export interface GitdataCertificate {
   type: string
@@ -51,12 +51,12 @@ export class CertificateService {
   async issueCertificate(profile: any): Promise<GitdataCertificate> {
     try {
       // Check wallet connection
-      if (!walletService.isWalletConnected()) {
+      if (!bsvWalletService.isWalletConnected()) {
         throw new Error('BSV wallet not connected. Please ensure MetaNet Desktop is running and connected.')
       }
 
       // Get wallet identity key
-      const wallet = walletService.getWallet()
+      const wallet = bsvWalletService.getWallet()
       const identityKey = await wallet.getPublicKey({ identityKey: true })
 
       // Generate certificate data from user profile
@@ -302,11 +302,11 @@ export class CertificateService {
       console.log(`Attempting to pull certificate from ${certifierUrl} for participant ${participantId}`)
 
       // Check wallet connection
-      if (!walletService.isWalletConnected()) {
+      if (!bsvWalletService.isWalletConnected()) {
         throw new Error('BSV wallet not connected. Please ensure MetaNet Desktop is running and connected.')
       }
 
-      const wallet = walletService.getWallet()
+      const wallet = bsvWalletService.getWallet()
       const identityKey = await wallet.getPublicKey({ identityKey: true })
 
       // Create client nonce using BSV SDK

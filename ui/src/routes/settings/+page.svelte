@@ -4,7 +4,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { certificateService } from '$lib/services/certificateService';
-  import { walletService } from '$lib/bsv-wallet';
+  import { bsvWalletService } from '$lib/bsv-wallet';
 
   let activeTab = 'profile'; // Default to profile tab
   let overlayUrl = 'http://localhost:8788';
@@ -162,8 +162,8 @@
     await checkConsumerStatus();
 
     // Check wallet connection status
-    walletConnected = walletService.isWalletConnected();
-    walletPublicKey = walletService.getPublicKey();
+    walletConnected = bsvWalletService.isWalletConnected();
+    walletPublicKey = bsvWalletService.getPublicKey();
 
     // Load existing certificate if available
     loadCertificate();

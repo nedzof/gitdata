@@ -62,9 +62,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Clean up existing containers
-echo "🧹 Cleaning up existing containers..."
+# Clean up existing containers and cache
+echo "🧹 Cleaning up existing containers and cache..."
 $DOCKER_COMPOSE down --remove-orphans 2>/dev/null || true
+
+# Clear application cache
+echo "🗑️  Clearing application cache..."
+rm -rf node_modules/.cache 2>/dev/null || true
+rm -rf .next/cache 2>/dev/null || true
+rm -rf dist/cache 2>/dev/null || true
+rm -rf tmp/cache 2>/dev/null || true
 
 # Clean volumes if requested
 if [ "$CLEAN_VOLUMES" = true ]; then
@@ -99,6 +106,18 @@ timeout 60 bash -c "until $DOCKER_COMPOSE exec postgres pg_isready -U postgres 2
         exit 1
     fi
 }
+
+echo "   - Initializing database schema..."
+if $DOCKER_COMPOSE exec postgres psql -U postgres -c "SELECT 1 FROM information_schema.tables WHERE table_name = 'overlay_storage_index';" | grep -q "1 row"; then
+  echo "     Database schema already exists, skipping initialization"
+else
+  echo "     Installing complete PostgreSQL schema..."
+  $DOCKER_COMPOSE exec -T postgres psql -U postgres < src/db/postgresql-schema-complete.sql || {
+    echo "❌ Failed to initialize database schema"
+    exit 1
+  }
+  echo "     ✅ Database schema initialized successfully"
+fi
 
 # Wait for Redis
 echo "   - Waiting for Redis..."
