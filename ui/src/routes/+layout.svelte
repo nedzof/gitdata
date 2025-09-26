@@ -85,36 +85,40 @@
 
       <div class="nav-center">
         <nav class="main-navigation">
-          <a href="/policy" class="nav-tab">🛡️ Policy</a>
-          <a href="/producer" class="nav-tab">🏭 Producer</a>
-          <a href="/consumer" class="nav-tab">📊 Client</a>
+          <a href="/producer" class="nav-tab">Sell Data</a>
+          <a href="/consumer" class="nav-tab">Buy Data</a>
         </nav>
       </div>
 
       <div class="nav-right">
-        <div class="wallet-container">
-          <button
-            class="wallet-btn"
-            class:connected={walletConnected}
-            class:loading={walletLoading}
-            class:error={walletError}
-            on:click={connectWallet}
-            disabled={walletLoading}
-          >
-            {#if walletLoading}
-              ⏳ Connecting...
-            {:else if walletConnected}
-              🟢 {formatPublicKey(walletPublicKey)}
-            {:else}
-              🔗 Connect Wallet
-            {/if}
-          </button>
+        <div class="nav-right-buttons">
+          <a href="/policy" class="settings-btn" title="Settings & Policies">
+            ⚙️
+          </a>
+          <div class="wallet-container">
+            <button
+              class="wallet-btn"
+              class:connected={walletConnected}
+              class:loading={walletLoading}
+              class:error={walletError}
+              on:click={connectWallet}
+              disabled={walletLoading}
+            >
+              {#if walletLoading}
+                ⏳ Connecting...
+              {:else if walletConnected}
+                🟢 {formatPublicKey(walletPublicKey)}
+              {:else}
+                🔗 Connect Wallet
+              {/if}
+            </button>
 
-          {#if walletError}
-            <div class="wallet-error" title={walletError}>
-              ⚠️ {walletError.length > 30 ? walletError.slice(0, 30) + '...' : walletError}
-            </div>
-          {/if}
+            {#if walletError}
+              <div class="wallet-error" title={walletError}>
+                ⚠️ {walletError.length > 30 ? walletError.slice(0, 30) + '...' : walletError}
+              </div>
+            {/if}
+          </div>
         </div>
       </div>
     </div>
@@ -130,6 +134,7 @@
   .main-navigation {
     display: flex;
     gap: 0;
+    justify-content: center;
   }
 
   .nav-tab {
@@ -148,11 +153,38 @@
   }
 
   /* Active state based on current page */
-  .nav-tab[href="/policy"]:global(.active),
   .nav-tab[href="/producer"]:global(.active),
   .nav-tab[href="/consumer"]:global(.active) {
     color: #58a6ff;
     background: #0d1117;
+  }
+
+  /* Nav Right Buttons */
+  .nav-right-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .settings-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #8b949e;
+    text-decoration: none;
+    font-size: 1.1rem;
+    transition: all 0.2s;
+  }
+
+  .settings-btn:hover {
+    background: #30363d;
+    border-color: #58a6ff;
+    color: #f0f6fc;
   }
 
   .wallet-container {

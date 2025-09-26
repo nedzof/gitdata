@@ -357,7 +357,7 @@
   }
 
   .stat-value.positive {
-    color: #238636;
+    color: #46954a;
   }
 
   .stat-value.negative {
@@ -400,7 +400,7 @@
     margin: 0 0 0.75rem 0;
     font-size: 0.875rem;
     font-weight: 500;
-    color: #6e7681;
+    color: #8b949e;
     text-transform: uppercase;
     letter-spacing: 0.025em;
   }
@@ -424,7 +424,7 @@
   .trending-name {
     font-size: 0.875rem;
     font-weight: 500;
-    color: #f0f6fc;
+    color: #8b949e;
     margin-bottom: 0.25rem;
   }
 
@@ -435,8 +435,8 @@
   }
 
   .trending-change.positive {
-    color: #238636;
-    font-weight: 600;
+    color: #46954a;
+    font-weight: 500;
   }
 
   .trending-volume {
@@ -465,8 +465,13 @@
 
   .activity-text {
     font-size: 0.875rem;
-    color: #f0f6fc;
+    color: #8b949e;
     margin-bottom: 0.25rem;
+  }
+
+  .activity-text strong {
+    color: #c9d1d9;
+    font-weight: 500;
   }
 
   .activity-meta {
@@ -514,17 +519,19 @@
 
   .search-btn {
     padding: 0.75rem 1.5rem;
-    background: #238636;
-    color: white;
-    border: none;
+    background: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
     border-radius: 6px;
-    font-weight: 600;
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.2s;
   }
 
   .search-btn:hover {
-    background: #2ea043;
+    background: #30363d;
+    border-color: #58a6ff;
+    color: #f0f6fc;
   }
 
   .section-header {
@@ -605,15 +612,15 @@
   }
 
   /* Column Widths - CoinGecko style */
-  .rank-col { width: 60px; }
-  .service-col { width: 320px; }
-  .type-col { width: 140px; }
-  .price-col { width: 120px; }
-  .size-col { width: 100px; }
-  .producer-col { width: 180px; }
-  .updated-col { width: 120px; }
-  .status-col { width: 100px; }
-  .action-col { width: 100px; }
+  .rank-col { width: 50px; }
+  .service-col { width: 500px; }
+  .type-col { width: 120px; }
+  .price-col { width: 100px; }
+  .size-col { width: 80px; }
+  .producer-col { width: 150px; }
+  .updated-col { width: 100px; }
+  .status-col { width: 80px; }
+  .action-col { width: 80px; }
 
   /* Cell Styling */
   .rank-cell {
@@ -659,28 +666,33 @@
   }
 
   .type-badge.type-static {
-    background: #238636;
-    color: white;
+    background: #21262d;
+    color: #46954a;
+    border: 1px solid #46954a;
   }
 
   .type-badge.type-stream {
-    background: #da3633;
-    color: white;
+    background: #21262d;
+    color: #da3633;
+    border: 1px solid #da3633;
   }
 
   .type-badge.type-realtime {
-    background: #fb8500;
-    color: white;
+    background: #21262d;
+    color: #fd7e14;
+    border: 1px solid #fd7e14;
   }
 
   .status-badge.status-active {
-    background: #238636;
-    color: white;
+    background: #21262d;
+    color: #46954a;
+    border: 1px solid #46954a;
   }
 
   .status-badge.status-inactive {
-    background: #6e7681;
-    color: white;
+    background: #21262d;
+    color: #8b949e;
+    border: 1px solid #8b949e;
   }
 
   /* Price and other cells */
@@ -699,19 +711,21 @@
   /* Action Button */
   .access-btn {
     padding: 0.625rem 1.25rem;
-    background: #238636;
-    color: white;
-    border: none;
+    background: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
     border-radius: 6px;
     font-weight: 500;
     font-size: 0.875rem;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.2s;
     line-height: 1;
   }
 
   .access-btn:hover {
-    background: #2ea043;
+    background: #30363d;
+    border-color: #58a6ff;
+    color: #f0f6fc;
   }
 
   /* Responsive Design */
