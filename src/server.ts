@@ -2,8 +2,10 @@
  * Main server entry point for the Gitdata overlay application
  */
 import express from 'express';
+import { WalletInterface } from '@bsv/sdk';
 
 import { setupSwaggerUI } from './docs/swagger-setup';
+import { initializeBSVAuth, getBSVAuth } from './middleware/bsv-auth';
 import { auditLogger } from './middleware/audit';
 import { rateLimit, limitsMiddleware } from './middleware/limits';
 import { metricsMiddleware } from './middleware/metrics';
@@ -13,6 +15,7 @@ import { agentsRouter } from './routes/agents';
 import { artifactsRouter } from './routes/artifacts';
 import { bundleRouter } from './routes/bundle';
 import { catalogRouter } from './routes/catalog';
+import { certificateRouter } from './routes/certificate';
 import { d06AgentPaymentsRouter } from './routes/d06-agent-payments';
 import { d06PaymentProcessingRouter } from './routes/d06-payment-processing';
 import { d06RevenueManagementRouter } from './routes/d06-revenue-management';
@@ -21,7 +24,7 @@ import { d22OverlayStorageRouter } from './routes/d22-overlay-storage';
 import createD21Routes from './d21/routes.js';
 import { dataRouter } from './routes/data';
 import { healthRouter } from './routes/health';
-import { identityRouter } from './routes/identity';
+import { identityRouter, initializeIdentityRoutes } from './routes/identity';
 import { jobsRouter } from './routes/jobs';
 import { listingsRouter } from './routes/listings';
 import { metricsRouter } from './routes/metrics';
@@ -116,10 +119,13 @@ app.use('/v1', advisoriesRouter());
 app.use('/v1', catalogRouter());
 app.use('/v1', metricsRouter());
 
+// Certificate issuance (BSV authentication protected)
+app.use('/v1/certificate', certificateRouter());
+
 // Producer and identity management
 app.use('/v1', producersRouter());
 app.use('/v1', producersRegisterRouter());
-// app.use('/v1', identityRouter()); // Temporarily disabled
+// Identity router will be initialized with database in BRC-31 services section
 
 // Payment processing
 app.use('/v1', paymentsRouter());
@@ -227,6 +233,7 @@ async function initializeBRC31Services() {
     const { initializeBRC41PaymentMiddleware } = await import('./brc41/middleware');
     const { Pool } = await import('pg');
     const { initializeOverlayServices } = await import('./overlay/index');
+    const { WalletInterface } = await import('@bsv/sdk');
 
     // Create PostgreSQL pool
     const dbPool = new Pool({
@@ -318,12 +325,74 @@ async function initializeBRC31Services() {
 
     await brc41PaymentMiddleware.initialize();
 
+    // Initialize BSV authentication service
+    try {
+      const { Wallet } = await import('@bsv/sdk');
+
+      // Create BSV wallet instance
+      const bsvWallet = new Wallet({
+        privateKey: process.env.BSV_WALLET_PRIVATE_KEY,
+        // Use environment variable for wallet configuration
+        // For development, this can be a test key
+      });
+
+      // Initialize BSV authentication
+      const bsvAuth = initializeBSVAuth({
+        wallet: bsvWallet,
+        enabled: process.env.BSV_AUTH_ENABLED !== 'false',
+        monetize: process.env.BSV_MONETIZE === 'true'
+      });
+
+      // Add BSV authentication middleware globally for certificate routes
+      app.use('/v1/certificate', bsvAuth.getAuthMiddleware());
+      if (process.env.BSV_MONETIZE === 'true') {
+        app.use('/v1/certificate', bsvAuth.getPaymentMiddleware());
+      }
+
+      console.log('✅ BSV authentication service initialized');
+
+    } catch (bsvError) {
+      console.warn('⚠️  BSV authentication not available:', bsvError.message);
+      console.log('   → Set BSV_WALLET_PRIVATE_KEY environment variable to enable BSV auth');
+    }
+
     // Create BRC-31 enhanced router
     const brc31RouterInstance = enhancedBRC31OverlayRouter();
     brc31RouterInstance.setOverlayServices?.(overlayServices);
 
     // Mount BRC-31 router
     app.use('/overlay', brc31RouterInstance.router);
+
+    // Initialize and mount identity router with database connection
+    const identityRouterInstance = initializeIdentityRoutes({
+      query: async (sql: string, params: any[] = []) => {
+        const client = await dbPool.connect();
+        try {
+          const result = await client.query(sql, params);
+          return result.rows;
+        } finally {
+          client.release();
+        }
+      },
+      queryOne: async (sql: string, params: any[] = []) => {
+        const client = await dbPool.connect();
+        try {
+          const result = await client.query(sql, params);
+          return result.rows[0] || null;
+        } finally {
+          client.release();
+        }
+      },
+      execute: async (sql: string, params: any[] = []) => {
+        const client = await dbPool.connect();
+        try {
+          await client.query(sql, params);
+        } finally {
+          client.release();
+        }
+      }
+    });
+    app.use('/v1/identity', identityRouterInstance);
 
     // Initialize D21 BSV Native Payment Extensions
     const databaseAdapter = {

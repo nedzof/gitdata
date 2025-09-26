@@ -20,7 +20,7 @@ class BSVWalletService {
 
   constructor(config: WalletServiceConfig = {}) {
     this.config = {
-      apiUrl: 'http://localhost:8788',
+      apiUrl: 'http://localhost:3000',
       checkInterval: 1000,
       ...config
     };
@@ -258,6 +258,62 @@ class BSVWalletService {
   }
 
   /**
+   * Manually acquire a certificate from the gitdata server
+   * Can be called from the UI when user wants to get their certificate
+   */
+  async acquireGitdataCertificate(displayName?: string): Promise<any> {
+    if (!this.isConnected || !this.publicKey) {
+      throw new Error('Wallet must be connected to acquire certificate');
+    }
+
+    try {
+      console.log('🔄 Acquiring Gitdata participant certificate...');
+
+      // Check certificate service status
+      const statusResponse = await fetch(`${this.config.apiUrl}/v1/certificate/status`);
+      if (!statusResponse.ok) {
+        throw new Error('Certificate service not available');
+      }
+
+      const statusData = await statusResponse.json();
+      if (!statusData.bsvAuthEnabled) {
+        throw new Error('BSV authentication not enabled on server');
+      }
+
+      // Use BSV SDK's MasterCertificate.acquireCertificate method
+      const { MasterCertificate } = await import('@bsv/sdk');
+
+      const certificateFields = {
+        display_name: displayName || 'Gitdata User',
+        participant: 'verified',
+        level: 'standard'
+      };
+
+      console.log('🔐 Acquiring certificate with fields:', certificateFields);
+
+      const certificate = await MasterCertificate.acquireCertificate({
+        type: statusData.certificateType,
+        fields: certificateFields,
+        certifierUrl: `${this.config.apiUrl}/v1/certificate`,
+        wallet: this.walletClient
+      });
+
+      console.log('✅ Certificate acquired successfully!');
+
+      // Save certificate to wallet
+      await this.saveCertificateToWallet(certificate);
+
+      console.log('✅ Certificate saved to MetaNet wallet!');
+
+      return certificate;
+
+    } catch (error) {
+      console.error('❌ Certificate acquisition error:', error);
+      throw new Error(`Failed to acquire certificate: ${error.message}`);
+    }
+  }
+
+  /**
    * Get certificates from BRC-100 MetaNet wallet
    */
   async getCertificatesFromWallet(): Promise<any[]> {
@@ -303,61 +359,56 @@ class BSVWalletService {
   }
 
   /**
-   * Authenticate with backend using BRC-31
+   * Acquire certificate from backend using BSV Certificate Acquisition Protocol
+   * Based on CoolCert implementation pattern
    */
   private async authenticateWithBackend(): Promise<void> {
     if (!this.publicKey) {
-      throw new Error('No public key available for backend authentication');
+      throw new Error('No public key available for certificate acquisition');
     }
 
     try {
-      console.log('🔄 Authenticating with backend...');
+      console.log('🔄 Acquiring certificate from backend...');
 
-      // Step 1: Initialize session
-      const initResponse = await fetch(`${this.config.apiUrl}/identity/wallet/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          walletType: 'metanet',
-          capabilities: ['sign', 'pay', 'identity']
-        })
-      });
-
-      if (!initResponse.ok) {
-        throw new Error(`Backend init failed: ${initResponse.statusText}`);
+      // Check if certificate endpoint is available
+      const statusResponse = await fetch(`${this.config.apiUrl}/v1/certificate/status`);
+      if (!statusResponse.ok) {
+        console.log('⚠️  Certificate endpoint not available, skipping certificate acquisition');
+        return;
       }
 
-      const { sessionId } = await initResponse.json();
-      console.log('📋 Got session ID:', sessionId);
-
-      // Step 2: Create verification signature
-      const nonce = this.generateNonce();
-      const message = `wallet_verification:${sessionId}`;
-
-      const signature = await this.walletClient.createSignature({
-        data: btoa(message + nonce),
-        protocolID: [2, 'gitdata-identity'],
-        keyID: 'identity',
-        privilegedReason: 'Verify wallet ownership for Gitdata platform'
-      });
-
-      // Step 3: Verify with backend
-      const verifyResponse = await fetch(`${this.config.apiUrl}/identity/wallet/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          identityKey: this.publicKey,
-          signature: signature.signature,
-          nonce
-        })
-      });
-
-      if (!verifyResponse.ok) {
-        throw new Error(`Backend verification failed: ${verifyResponse.statusText}`);
+      const statusData = await statusResponse.json();
+      if (!statusData.bsvAuthEnabled) {
+        console.log('⚠️  BSV authentication not enabled on server');
+        return;
       }
 
-      console.log('✅ Backend authentication successful!');
+      console.log('📋 Certificate service available, acquiring participant certificate...');
+
+      // Use BSV SDK's MasterCertificate.acquireCertificate method
+      const { MasterCertificate } = await import('@bsv/sdk');
+
+      const certificateFields = {
+        display_name: 'Gitdata User', // Default display name, could be customized later
+        participant: 'verified',
+        level: 'standard'
+      };
+
+      console.log('🔐 Acquiring certificate with fields:', certificateFields);
+
+      const certificate = await MasterCertificate.acquireCertificate({
+        type: statusData.certificateType,
+        fields: certificateFields,
+        certifierUrl: `${this.config.apiUrl}/v1/certificate`,
+        wallet: this.walletClient
+      });
+
+      console.log('✅ Certificate acquired successfully!');
+
+      // Save certificate to wallet
+      await this.saveCertificateToWallet(certificate);
+
+      console.log('✅ Certificate saved to MetaNet wallet!');
 
     } catch (error) {
       console.error('❌ Backend authentication error:', error);
