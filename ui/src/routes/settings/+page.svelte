@@ -46,21 +46,29 @@
   let consumerLoading = false;
   let consumerInitialized = false;
 
-  // Policy state
-  let policies = [];
-  let filteredPolicies = [];
-  let policyLoading = false;
 
-  // Policy filters
-  let showCreateForm = false;
+  let loading = false;
+
+  // Policy management variables
+  let policies = [];
+  let policyLoading = false;
+  let showCreatePolicy = false;
+  let showAdvancedRules = false;
+  let policySearchFilter = '';
+  let policyStatusFilter = 'all';
+  let policyTypeFilter = 'all';
+  let filteredPolicies = [];
+
   let newPolicy = {
     name: '',
     description: '',
     type: 'access_control',
-    enabled: true
+    enabled: true,
+    policy: {
+      minConfs: 6,
+      allowRecalled: false
+    }
   };
-
-  let loading = false;
 
   // Analytics variables
   let analyticsData = null;
@@ -118,38 +126,7 @@
     'scalable', 'distributed', 'api-based', 'webhook-support'
   ];
 
-  // Policy filter variables
-  let policySearchFilter = '';
-  let policyStatusFilter = '';
-  let policyTypeFilter = '';
-  let currentPolicyPage = 0;
-  let policyPageSize = 10;
-  let showCreatePolicy = false;
 
-  // Reactive variables for policy interface
-  $: uniquePolicyTypes = [...new Set(policies.map(p => p.type))];
-
-  $: {
-    policySearchFilter, policyStatusFilter, policyTypeFilter;
-    applyFilters();
-  }
-
-  function applyFilters() {
-    filteredPolicies = policies.filter(policy => {
-      const matchesSearch = !policySearchFilter ||
-        policy.name.toLowerCase().includes(policySearchFilter.toLowerCase()) ||
-        policy.description.toLowerCase().includes(policySearchFilter.toLowerCase()) ||
-        policy.policyId.toLowerCase().includes(policySearchFilter.toLowerCase());
-
-      const matchesStatus = !policyStatusFilter ||
-        (policyStatusFilter === 'enabled' && policy.enabled) ||
-        (policyStatusFilter === 'disabled' && !policy.enabled);
-
-      const matchesType = !policyTypeFilter || policy.type === policyTypeFilter;
-
-      return matchesSearch && matchesStatus && matchesType;
-    });
-  }
 
   onMount(async () => {
     // Check URL parameters for tab switching
@@ -166,10 +143,6 @@
     await checkProducerStatus();
     await checkConsumerStatus();
 
-    // Load policies if on policy tab
-    if (activeTab === 'policy') {
-      await loadPolicies();
-    }
 
     // Load analytics if on analytics tab
     if (activeTab === 'analytics') {
@@ -181,11 +154,11 @@
       await loadServices();
     }
 
-    // Check for new policy creation
-    const newParam = urlParams.get('new');
-    if (newParam === 'true' && activeTab === 'policy') {
-      showCreatePolicy = true;
+    // Load policies if on policy tab
+    if (activeTab === 'policy') {
+      await loadPolicies();
     }
+
   });
 
   async function checkProducerStatus() {
@@ -259,6 +232,9 @@
         ...producerProfile,
         producerId,
         identityKey,
+        contactEmail: producerProfile.contactEmail || 'noemail@example.com',
+        website: producerProfile.website || '',
+        region: producerProfile.region || 'global',
         createdAt: new Date().toISOString()
       };
 
@@ -268,10 +244,10 @@
         consumerId: producerId, // Same ID for unified identity
         identityKey,
         displayName: producerProfile.displayName,
-        contactEmail: producerProfile.contactEmail,
+        contactEmail: newProfile.contactEmail,
         description: producerProfile.description,
-        website: producerProfile.website,
-        region: producerProfile.region,
+        website: newProfile.website,
+        region: newProfile.region,
         createdAt: new Date().toISOString()
       };
 
@@ -398,207 +374,6 @@
     }
   }
 
-  // Policy Functions
-  async function loadPolicies() {
-    loading = true;
-    try {
-      // Try policies API first
-      try {
-        const response = await fetch('/policies');
-        if (response.ok) {
-          const result = await response.json();
-          policies = result.policies || result.items || [];
-        } else {
-          // Fallback to dummy data
-          policies = generateDummyPolicies();
-        }
-      } catch (e) {
-        console.warn('Policies API failed:', e);
-        policies = generateDummyPolicies();
-      }
-
-      applyFilters();
-    } catch (error) {
-      console.error('Failed to load policies:', error);
-      policies = [];
-      applyFilters();
-    } finally {
-      loading = false;
-    }
-  }
-
-  function generateDummyPolicies() {
-    return [
-      {
-        policyId: 'pol_001',
-        name: 'Production Data Access',
-        description: 'Standard access controls for production datasets',
-        enabled: true,
-        createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-        type: 'access_control',
-        rulesCount: 8,
-        policy: {
-          minConfs: 6,
-          classificationAllowList: ['public', 'internal'],
-          allowRecalled: false,
-          maxLineageDepth: 10
-        }
-      },
-      {
-        policyId: 'pol_002',
-        name: 'PII Protection Policy',
-        description: 'Privacy controls for personally identifiable information',
-        enabled: true,
-        createdAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
-        updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-        type: 'privacy',
-        rulesCount: 12,
-        policy: {
-          piiFlagsBlockList: ['has_personal_info', 'has_contact_details'],
-          minAnonymizationLevel: { type: 'k-anon', k: 5 },
-          blockIfInThreatFeed: true
-        }
-      },
-      {
-        policyId: 'pol_003',
-        name: 'ML Model Validation',
-        description: 'Quality and bias checks for machine learning models',
-        enabled: false,
-        createdAt: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString(),
-        updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-        type: 'mlops',
-        rulesCount: 6,
-        policy: {
-          maxBiasScore: 0.2,
-          maxDriftScore: 0.15,
-          requiresValidSplit: true,
-          minUniquenessRatio: 0.95
-        }
-      }
-    ];
-  }
-
-
-  function goToPolicyDetail(policyId) {
-    // Stay within settings, just add policy parameter for future detail view
-    goto(`/settings?tab=policy&policy=${encodeURIComponent(policyId)}`);
-  }
-
-  function createNewPolicy() {
-    showCreatePolicy = true;
-    // Update URL to reflect new policy creation state
-    goto('/settings?tab=policy&new=true');
-  }
-
-  function cancelPolicyCreation() {
-    showCreatePolicy = false;
-    // Reset form
-    newPolicy = {
-      name: '',
-      description: '',
-      type: 'access_control',
-      enabled: true,
-      policy: {
-        minConfs: 6,
-        classificationAllowList: ['public'],
-        allowRecalled: false,
-        maxLineageDepth: 10
-      }
-    };
-    // Clear URL parameter
-    goto('/settings?tab=policy');
-  }
-
-  async function saveNewPolicy() {
-    try {
-      // Generate policy ID
-      const policyId = 'pol_' + Math.random().toString(36).substr(2, 9);
-
-      const policyToCreate = {
-        ...newPolicy,
-        policyId,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        rulesCount: Object.keys(newPolicy.policy || {}).length
-      };
-
-      // Try to save via API
-      try {
-        await fetch('/policies', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(policyToCreate)
-        });
-      } catch (error) {
-        console.warn('Policy API save failed, saving locally:', error);
-      }
-
-      // Add to local policies array
-      policies = [policyToCreate, ...policies];
-      applyFilters();
-
-      alert('Policy created successfully!');
-      cancelPolicyCreation();
-
-    } catch (error) {
-      console.error('Failed to create policy:', error);
-      alert('Failed to create policy: ' + error.message);
-    }
-  }
-
-  async function togglePolicy(policy) {
-    try {
-      // Optimistic update
-      policy.enabled = !policy.enabled;
-      policies = policies;
-      applyFilters();
-
-      // Try to persist the change
-      await fetch(`/policies/${policy.policyId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: policy.enabled })
-      });
-    } catch (error) {
-      // Revert on error
-      policy.enabled = !policy.enabled;
-      policies = policies;
-      applyFilters();
-      console.error('Failed to toggle policy:', error);
-    }
-  }
-
-  function formatDate(dateString) {
-    return new Date(dateString).toLocaleDateString();
-  }
-
-  function getStatusColor(enabled) {
-    return enabled ? 'status-success' : 'status-error';
-  }
-
-  function getPolicyTypeLabel(type) {
-    const typeMap = {
-      'access_control': 'Access Control',
-      'data_quality': 'Data Quality',
-      'privacy': 'Privacy',
-      'compliance': 'Compliance',
-      'mlops': 'MLOps'
-    };
-    return typeMap[type] || type;
-  }
-
-  function nextPolicyPage() {
-    if ((currentPolicyPage + 1) * policyPageSize < filteredPolicies.length) {
-      currentPolicyPage++;
-    }
-  }
-
-  function prevPolicyPage() {
-    if (currentPolicyPage > 0) {
-      currentPolicyPage--;
-    }
-  }
 
   // Utility Functions
   function getStatusIcon(status) {
@@ -883,6 +658,249 @@
     return badges[status] || badges.active;
   }
 
+  // Policy Management Functions
+  const basicRules = [
+    { key: 'minConfs', label: 'Min Confirmations', type: 'number', description: 'Minimum SPV confirmations required' },
+    { key: 'allowRecalled', label: 'Allow Recalled', type: 'boolean', description: 'Allow recalled/flagged data' },
+    { key: 'classificationAllowList', label: 'Allowed Classifications', type: 'array', description: 'Allowed data classifications (public, internal, etc.)' },
+    { key: 'maxDataAgeSeconds', label: 'Max Data Age (seconds)', type: 'number', description: 'Maximum data age in seconds' },
+    { key: 'maxPricePerByte', label: 'Max Price Per Byte', type: 'number', description: 'Maximum price per byte limit' }
+  ];
+
+  const advancedRules = [
+    { key: 'producerAllowList', label: 'Producer Allow List', type: 'array', description: 'Allowed producer public keys' },
+    { key: 'producerBlockList', label: 'Producer Block List', type: 'array', description: 'Blocked producer public keys' },
+    { key: 'maxLineageDepth', label: 'Max Lineage Depth', type: 'number', description: 'Maximum allowed lineage depth' },
+    { key: 'requiredAncestor', label: 'Required Ancestor', type: 'string', description: 'Required ancestor version ID' },
+    { key: 'licenseAllowList', label: 'License Allow List', type: 'array', description: 'Allowed data licenses' },
+    { key: 'piiFlagsBlockList', label: 'PII Flags Block List', type: 'array', description: 'Blocked PII flag types' },
+    { key: 'geoOriginAllowList', label: 'Geo Origin Allow List', type: 'array', description: 'Allowed geographic origins' },
+    { key: 'requiredSchemaHash', label: 'Required Schema Hash', type: 'string', description: 'Required exact schema hash' },
+    { key: 'requiredMimeTypes', label: 'Required MIME Types', type: 'array', description: 'Required MIME types' },
+    { key: 'requiredOntologyTags', label: 'Required Ontology Tags', type: 'array', description: 'Required ontology tags' },
+    { key: 'minProducerUptime', label: 'Min Producer Uptime (%)', type: 'number', description: 'Minimum producer uptime percentage' },
+    { key: 'requiresBillingAccount', label: 'Requires Billing Account', type: 'boolean', description: 'Billing account required' },
+    { key: 'blockIfInThreatFeed', label: 'Block If In Threat Feed', type: 'boolean', description: 'Block if found in threat feeds' },
+    { key: 'minAnonymizationLevel', label: 'Min Anonymization Level', type: 'object', description: 'Minimum anonymization requirements' }
+  ];
+
+  const policyTypes = [
+    { value: 'access_control', label: 'Access Control' },
+    { value: 'privacy', label: 'Privacy' },
+    { value: 'compliance', label: 'Compliance' },
+    { value: 'data_quality', label: 'Data Quality' },
+    { value: 'mlops', label: 'MLOps' }
+  ];
+
+  async function loadPolicies() {
+    policyLoading = true;
+    try {
+      // Try API first, fallback to dummy data
+      try {
+        const response = await fetch('/api/policies');
+        if (response.ok) {
+          const result = await response.json();
+          policies = result.policies || [];
+        } else {
+          policies = generateDummyPolicies();
+        }
+      } catch (e) {
+        policies = generateDummyPolicies();
+      }
+    } catch (error) {
+      console.error('Failed to load policies:', error);
+      policies = [];
+    } finally {
+      policyLoading = false;
+    }
+  }
+
+  function generateDummyPolicies() {
+    return [
+      {
+        policyId: 'pol_001',
+        name: 'Production Data Access',
+        description: 'Standard access controls for production datasets',
+        enabled: true,
+        createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+        updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        type: 'access_control',
+        rulesCount: 5,
+        policy: {
+          minConfs: 6,
+          classificationAllowList: ['public', 'internal'],
+          allowRecalled: false,
+          maxLineageDepth: 10,
+          maxDataAgeSeconds: 30 * 24 * 60 * 60
+        }
+      },
+      {
+        policyId: 'pol_002',
+        name: 'PII Protection Policy',
+        description: 'Privacy controls for personally identifiable information',
+        enabled: true,
+        createdAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
+        updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+        type: 'privacy',
+        rulesCount: 6,
+        policy: {
+          minConfs: 6,
+          allowRecalled: false,
+          piiFlagsBlockList: ['has_personal_info', 'has_contact_details'],
+          minAnonymizationLevel: { type: 'k-anon', k: 5 },
+          blockIfInThreatFeed: true,
+          requiresBillingAccount: true
+        }
+      },
+      {
+        policyId: 'pol_003',
+        name: 'High Quality Data Only',
+        description: 'Ensures only high-quality, recent data is accessed',
+        enabled: false,
+        createdAt: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString(),
+        updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        type: 'data_quality',
+        rulesCount: 4,
+        policy: {
+          minConfs: 12,
+          allowRecalled: false,
+          maxDataAgeSeconds: 24 * 60 * 60, // 1 day
+          maxPricePerByte: 0.001,
+          minProducerUptime: 99.0
+        }
+      },
+      {
+        policyId: 'pol_004',
+        name: 'Compliance Ready',
+        description: 'Full compliance with regulatory requirements',
+        enabled: true,
+        createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        updatedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+        type: 'compliance',
+        rulesCount: 7,
+        policy: {
+          minConfs: 6,
+          allowRecalled: false,
+          classificationAllowList: ['public'],
+          licenseAllowList: ['CC-BY', 'CC-BY-SA', 'MIT'],
+          geoOriginAllowList: ['US', 'EU', 'CA'],
+          requiresBillingAccount: true,
+          blockIfInThreatFeed: true
+        }
+      }
+    ];
+  }
+
+  async function createPolicy() {
+    try {
+      policyLoading = true;
+
+      // Generate policy ID
+      const policyId = 'pol_' + Math.random().toString(36).substr(2, 9);
+
+      const policyToCreate = {
+        ...newPolicy,
+        policyId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        rulesCount: Object.keys(newPolicy.policy).length
+      };
+
+      // Try to save via API
+      try {
+        await fetch('/api/policies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(policyToCreate)
+        });
+      } catch (error) {
+        console.warn('Policy API save failed, storing locally:', error);
+      }
+
+      // Add to policies list
+      policies = [policyToCreate, ...policies];
+
+      // Reset form
+      newPolicy = {
+        name: '',
+        description: '',
+        type: 'access_control',
+        enabled: true,
+        policy: {
+          minConfs: 6,
+          allowRecalled: false
+        }
+      };
+
+      showCreatePolicy = false;
+      alert('Policy created successfully!');
+
+    } catch (error) {
+      console.error('Failed to create policy:', error);
+      alert('Failed to create policy: ' + error.message);
+    } finally {
+      policyLoading = false;
+    }
+  }
+
+  async function togglePolicy(policy) {
+    try {
+      // Optimistic update
+      policy.enabled = !policy.enabled;
+      policies = policies;
+
+      // Try to persist the change
+      await fetch(`/api/policies/${policy.policyId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: policy.enabled })
+      });
+    } catch (error) {
+      // Revert on error
+      policy.enabled = !policy.enabled;
+      policies = policies;
+      console.error('Failed to toggle policy:', error);
+    }
+  }
+
+  function formatDate(dateString) {
+    return new Date(dateString).toLocaleDateString();
+  }
+
+  function updateRuleValue(key, value, type) {
+    if (type === 'array') {
+      newPolicy.policy[key] = typeof value === 'string' ?
+        value.split(',').map(v => v.trim()).filter(v => v) : value;
+    } else if (type === 'number') {
+      newPolicy.policy[key] = value ? parseFloat(value) : undefined;
+    } else if (type === 'boolean') {
+      newPolicy.policy[key] = value === 'true' ? true : value === 'false' ? false : undefined;
+    } else if (type === 'object') {
+      try {
+        newPolicy.policy[key] = JSON.parse(value);
+      } catch (e) {
+        newPolicy.policy[key] = value;
+      }
+    } else {
+      newPolicy.policy[key] = value || undefined;
+    }
+
+    // Remove undefined values
+    if (newPolicy.policy[key] === undefined) {
+      delete newPolicy.policy[key];
+    }
+  }
+
+  function formatRuleValue(value) {
+    if (Array.isArray(value)) {
+      return value.join(', ');
+    }
+    if (typeof value === 'object' && value !== null) {
+      return JSON.stringify(value, null, 2);
+    }
+    return String(value);
+  }
+
   // Reactive statements for tab switching
   $: {
     if (activeTab === 'analytics' && !analyticsData) {
@@ -891,18 +909,25 @@
     if (activeTab === 'services' && services.length === 0 && !servicesLoading) {
       loadServices();
     }
+    if (activeTab === 'policy' && policies.length === 0 && !policyLoading) {
+      loadPolicies();
+    }
   }
 
-  // Reactive statements for policies
-  $: paginatedPolicies = filteredPolicies.slice(currentPolicyPage * policyPageSize, (currentPolicyPage + 1) * policyPageSize);
-  $: uniquePolicyTypes = [...new Set(policies.map(p => p.type))];
-  $: totalPolicyPages = Math.ceil(filteredPolicies.length / policyPageSize);
-
+  // Filter policies reactively
   $: {
-    policySearchFilter, policyStatusFilter, policyTypeFilter;
-    applyFilters();
-    currentPolicyPage = 0;
+    filteredPolicies = policies.filter(policy => {
+      const matchesSearch = policy.name.toLowerCase().includes(policySearchFilter.toLowerCase()) ||
+                           policy.description.toLowerCase().includes(policySearchFilter.toLowerCase());
+      const matchesStatus = policyStatusFilter === 'all' ||
+                           (policyStatusFilter === 'active' && policy.enabled) ||
+                           (policyStatusFilter === 'inactive' && !policy.enabled);
+      const matchesType = policyTypeFilter === 'all' || policy.type === policyTypeFilter;
+
+      return matchesSearch && matchesStatus && matchesType;
+    });
   }
+
 
 </script>
 
@@ -923,6 +948,14 @@
       </button>
 
       <button
+        class="nav-item {activeTab === 'policy' ? 'active' : ''}"
+        on:click={() => activeTab = 'policy'}
+      >
+        <span class="nav-icon">📋</span>
+        <span class="nav-label">Policy</span>
+      </button>
+
+      <button
         class="nav-item {activeTab === 'analytics' ? 'active' : ''}"
         on:click={() => activeTab = 'analytics'}
       >
@@ -938,13 +971,6 @@
         <span class="nav-label">Services</span>
       </button>
 
-      <button
-        class="nav-item {activeTab === 'policy' ? 'active' : ''}"
-        on:click={() => activeTab = 'policy'}
-      >
-        <span class="nav-icon">🛡️</span>
-        <span class="nav-label">Policies</span>
-      </button>
     </div>
   </nav>
 
@@ -958,15 +984,14 @@
       <!-- Unified Identity Section -->
       <div class="unified-identity-section">
         {#if !producerInitialized}
-          <div class="identity-setup-card">
-            <div class="setup-header">
-              <h3>👤 Create Your Identity</h3>
-              <p>Set up your marketplace identity to buy and sell data</p>
-            </div>
+          <div class="page-header">
+            <h1>Create Your Identity</h1>
+            <p>Set up your marketplace identity to buy and sell data</p>
+          </div>
 
             <form on:submit|preventDefault={initializeProducer}>
               <div class="form-grid">
-                <div class="form-group">
+                <div class="form-group span-2">
                   <label for="displayName">Display Name *</label>
                   <input
                     id="displayName"
@@ -978,44 +1003,12 @@
                   />
                 </div>
 
-                <div class="form-group">
-                  <label for="contactEmail">Contact Email *</label>
-                  <input
-                    id="contactEmail"
-                    type="email"
-                    bind:value={producerProfile.contactEmail}
-                    required
-                    placeholder="contact@company.com"
-                    class="form-input"
-                  />
-                </div>
-
-                <div class="form-group">
-                  <label for="website">Website</label>
-                  <input
-                    id="website"
-                    type="url"
-                    bind:value={producerProfile.website}
-                    placeholder="https://company.com"
-                    class="form-input"
-                  />
-                </div>
-
-                <div class="form-group">
-                  <label for="region">Default Region</label>
-                  <select id="region" bind:value={producerProfile.region} class="form-input">
-                    <option value="global">Global</option>
-                    <option value="north-america">North America</option>
-                    <option value="europe">Europe</option>
-                    <option value="asia-pacific">Asia Pacific</option>
-                  </select>
-                </div>
-
                 <div class="form-group span-2">
-                  <label for="description">Description</label>
+                  <label for="description">Description *</label>
                   <textarea
                     id="description"
                     bind:value={producerProfile.description}
+                    required
                     placeholder="Brief description of your organization or use case"
                     class="form-input"
                     rows="3"
@@ -1023,55 +1016,24 @@
                 </div>
               </div>
 
-              <!-- Preferences Section -->
-              <div class="preferences-section">
-                <h4>Purchasing Preferences</h4>
-                <div class="form-grid">
-                  <div class="form-group">
-                    <label for="maxPrice">Max Price per KB</label>
-                    <input
-                      id="maxPrice"
-                      type="number"
-                      step="0.001"
-                      bind:value={consumerProfile.preferences.maxPricePerKB}
-                      class="form-input"
-                      placeholder="0.1"
-                    />
-                  </div>
-                  <div class="form-group">
-                    <label class="checkbox-label">
-                      <input
-                        type="checkbox"
-                        bind:checked={consumerProfile.preferences.autoDownload}
-                      />
-                      Auto-download purchased content
-                    </label>
-                  </div>
-                </div>
-              </div>
-
               <div class="form-actions">
                 <button
                   type="submit"
-                  disabled={producerLoading || !producerProfile.displayName || !producerProfile.contactEmail}
+                  disabled={producerLoading || !producerProfile.displayName || !producerProfile.description}
                   class="btn btn-primary"
                 >
                   {producerLoading ? 'Creating Identity...' : 'Create Identity'}
                 </button>
               </div>
             </form>
-          </div>
         {:else}
-          <div class="identity-profile-card">
-            <div class="profile-header">
-              <div class="profile-info">
-                <h3>👤 {producerProfile.displayName}</h3>
-                <p>{producerProfile.description || 'No description provided'}</p>
-              </div>
-              <div class="profile-status">
-                <span class="identity-status active">Active</span>
-              </div>
+          <div class="page-header">
+            <h1>{producerProfile.displayName}</h1>
+            <p>{producerProfile.description || 'No description provided'}</p>
+            <div class="profile-status">
+              <span class="identity-status active">Active</span>
             </div>
+          </div>
 
             <div class="profile-details">
               <div class="detail-grid">
@@ -1081,7 +1043,7 @@
                 </div>
                 <div class="detail-item">
                   <label>Contact Email</label>
-                  <span>{producerProfile.contactEmail}</span>
+                  <span>{producerProfile.contactEmail === 'noemail@example.com' ? 'Not provided' : producerProfile.contactEmail}</span>
                 </div>
                 <div class="detail-item">
                   <label>Website</label>
@@ -1098,14 +1060,12 @@
               <h4>Marketplace Capabilities</h4>
               <div class="capability-grid">
                 <div class="capability-item">
-                  <span class="capability-icon">🏭</span>
                   <div class="capability-info">
                     <strong>Data Producer</strong>
                     <span>Publish and sell data</span>
                   </div>
                 </div>
                 <div class="capability-item">
-                  <span class="capability-icon">🛒</span>
                   <div class="capability-info">
                     <strong>Data Consumer</strong>
                     <span>Purchase and access data</span>
@@ -1122,6 +1082,279 @@
                 Browse Marketplace
               </a>
             </div>
+        {/if}
+      </div>
+    </div>
+
+  {:else if activeTab === 'policy'}
+    <div class="tab-content-open">
+      <div class="page-header">
+        <h1>Policy Management</h1>
+        <p>Content and data governance policies</p>
+      </div>
+
+      <!-- Controls -->
+      <div class="policy-controls">
+        <div class="policy-filters">
+          <input
+            type="text"
+            bind:value={policySearchFilter}
+            placeholder="Search policies..."
+            class="search-input"
+          />
+
+          <select bind:value={policyStatusFilter} class="filter-select">
+            <option value="all">All Status</option>
+            <option value="active">Active Only</option>
+            <option value="inactive">Inactive Only</option>
+          </select>
+
+          <select bind:value={policyTypeFilter} class="filter-select">
+            <option value="all">All Types</option>
+            {#each policyTypes as type}
+              <option value={type.value}>{type.label}</option>
+            {/each}
+          </select>
+        </div>
+
+        <div class="policy-actions">
+          <button on:click={() => showCreatePolicy = !showCreatePolicy} class="btn btn-primary">
+            {showCreatePolicy ? 'Cancel' : 'Create Policy'}
+          </button>
+          <button on:click={loadPolicies} class="btn btn-secondary" disabled={policyLoading}>
+            {policyLoading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      <!-- Create Policy Form -->
+      {#if showCreatePolicy}
+        <div class="policy-form">
+          <h2>Create New Policy</h2>
+
+          <form on:submit|preventDefault={createPolicy}>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="policyName">Policy Name *</label>
+                <input
+                  id="policyName"
+                  type="text"
+                  bind:value={newPolicy.name}
+                  required
+                  placeholder="My Policy"
+                  class="form-input"
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="policyType">Policy Type *</label>
+                <select id="policyType" bind:value={newPolicy.type} class="form-input">
+                  {#each policyTypes as type}
+                    <option value={type.value}>{type.label}</option>
+                  {/each}
+                </select>
+              </div>
+
+              <div class="form-group span-2">
+                <label for="policyDescription">Description</label>
+                <textarea
+                  id="policyDescription"
+                  bind:value={newPolicy.description}
+                  placeholder="Describe the purpose and scope of this policy"
+                  class="form-input"
+                  rows="2"
+                ></textarea>
+              </div>
+
+              <div class="form-group">
+                <label>
+                  <input type="checkbox" bind:checked={newPolicy.enabled} />
+                  Enable policy immediately
+                </label>
+              </div>
+            </div>
+
+            <!-- Basic Rules -->
+            <div class="rules-section">
+              <h3>Basic Rules (Applicable to All Data Types)</h3>
+              <div class="rules-grid">
+                {#each basicRules as rule}
+                  <div class="rule-item">
+                    <label>{rule.label}</label>
+                    <p class="rule-description">{rule.description}</p>
+
+                    {#if rule.type === 'boolean'}
+                      <select
+                        value={newPolicy.policy[rule.key] === true ? 'true' : newPolicy.policy[rule.key] === false ? 'false' : ''}
+                        on:change={(e) => updateRuleValue(rule.key, e.target.value, rule.type)}
+                        class="form-input"
+                      >
+                        <option value="">Not Set</option>
+                        <option value="true">True</option>
+                        <option value="false">False</option>
+                      </select>
+                    {:else if rule.type === 'number'}
+                      <input
+                        type="number"
+                        value={newPolicy.policy[rule.key] || ''}
+                        on:input={(e) => updateRuleValue(rule.key, e.target.value, rule.type)}
+                        class="form-input"
+                      />
+                    {:else if rule.type === 'array'}
+                      <input
+                        type="text"
+                        value={formatRuleValue(newPolicy.policy[rule.key] || [])}
+                        on:input={(e) => updateRuleValue(rule.key, e.target.value, rule.type)}
+                        placeholder="Comma-separated values"
+                        class="form-input"
+                      />
+                    {:else}
+                      <input
+                        type="text"
+                        value={newPolicy.policy[rule.key] || ''}
+                        on:input={(e) => updateRuleValue(rule.key, e.target.value, rule.type)}
+                        class="form-input"
+                      />
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </div>
+
+            <!-- Advanced Rules (Hidden by default) -->
+            <div class="advanced-rules-section">
+              <button
+                type="button"
+                class="btn btn-secondary advanced-toggle"
+                on:click={() => showAdvancedRules = !showAdvancedRules}
+              >
+                {showAdvancedRules ? 'Hide' : 'Show'} Advanced Rules ({advancedRules.length})
+              </button>
+
+              {#if showAdvancedRules}
+                <div class="rules-grid">
+                  {#each advancedRules as rule}
+                    <div class="rule-item">
+                      <label>{rule.label}</label>
+                      <p class="rule-description">{rule.description}</p>
+
+                      {#if rule.type === 'boolean'}
+                        <select
+                          value={newPolicy.policy[rule.key] === true ? 'true' : newPolicy.policy[rule.key] === false ? 'false' : ''}
+                          on:change={(e) => updateRuleValue(rule.key, e.target.value, rule.type)}
+                          class="form-input"
+                        >
+                          <option value="">Not Set</option>
+                          <option value="true">True</option>
+                          <option value="false">False</option>
+                        </select>
+                      {:else if rule.type === 'number'}
+                        <input
+                          type="number"
+                          value={newPolicy.policy[rule.key] || ''}
+                          on:input={(e) => updateRuleValue(rule.key, e.target.value, rule.type)}
+                          class="form-input"
+                        />
+                      {:else if rule.type === 'array'}
+                        <input
+                          type="text"
+                          value={formatRuleValue(newPolicy.policy[rule.key] || [])}
+                          on:input={(e) => updateRuleValue(rule.key, e.target.value, rule.type)}
+                          placeholder="Comma-separated values"
+                          class="form-input"
+                        />
+                      {:else if rule.type === 'object'}
+                        <textarea
+                          value={formatRuleValue(newPolicy.policy[rule.key] || {})}
+                          on:input={(e) => updateRuleValue(rule.key, e.target.value, rule.type)}
+                          placeholder="JSON object"
+                          class="form-input"
+                          rows="3"
+                        ></textarea>
+                      {:else}
+                        <input
+                          type="text"
+                          value={newPolicy.policy[rule.key] || ''}
+                          on:input={(e) => updateRuleValue(rule.key, e.target.value, rule.type)}
+                          class="form-input"
+                        />
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" disabled={policyLoading || !newPolicy.name} class="btn btn-primary">
+                {policyLoading ? 'Creating...' : 'Create Policy'}
+              </button>
+              <button type="button" on:click={() => showCreatePolicy = false} class="btn btn-secondary">
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      {/if}
+
+      <!-- Policies List -->
+      <div class="policies-list">
+        <h2>Existing Policies ({filteredPolicies.length})</h2>
+
+        {#if policyLoading}
+          <div class="loading">
+            Loading policies...
+          </div>
+        {:else if filteredPolicies.length === 0}
+          <div class="empty-state">
+            {#if policies.length === 0}
+              <p>No policies created yet</p>
+              <button on:click={() => showCreatePolicy = true} class="btn btn-primary">Create Your First Policy</button>
+            {:else}
+              <p>No policies match your current filters</p>
+              <button on:click={() => { policySearchFilter = ''; policyStatusFilter = 'all'; policyTypeFilter = 'all'; }} class="btn btn-secondary">Clear Filters</button>
+            {/if}
+          </div>
+        {:else}
+          <div class="policies-grid">
+            {#each filteredPolicies as policy}
+              <div class="policy-card">
+                <div class="policy-header">
+                  <div class="policy-info">
+                    <h3>{policy.name}</h3>
+                    <div class="policy-meta">
+                      <span class="policy-type">{policyTypes.find(t => t.value === policy.type)?.label || policy.type}</span>
+                      <span class="policy-id">ID: {policy.policyId}</span>
+                    </div>
+                  </div>
+                  <div class="policy-status">
+                    <span class="status-badge {policy.enabled ? 'enabled' : 'disabled'}">
+                      {policy.enabled ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                </div>
+
+                <p class="policy-description">{policy.description}</p>
+
+                <div class="policy-details">
+                  <span class="rules-count">{policy.rulesCount || Object.keys(policy.policy).length} rules</span>
+                  <span class="created-date">Created {formatDate(policy.createdAt)}</span>
+                  <span class="updated-date">Updated {formatDate(policy.updatedAt)}</span>
+                </div>
+
+                <div class="policy-actions">
+                  <button
+                    on:click={() => togglePolicy(policy)}
+                    class="btn btn-sm {policy.enabled ? 'btn-secondary' : 'btn-primary'}"
+                  >
+                    {policy.enabled ? 'Disable' : 'Enable'}
+                  </button>
+                  <a href="/policy/{policy.policyId}" class="btn btn-sm btn-secondary">
+                    View Details
+                  </a>
+                </div>
+              </div>
+            {/each}
           </div>
         {/if}
       </div>
@@ -1616,133 +1849,6 @@
       </div>
     </div>
 
-  {:else if activeTab === 'policy'}
-    <div class="tab-content-open">
-      <div class="page-header">
-        <h1>Policy Management</h1>
-        <p>Create and manage data governance policies</p>
-      </div>
-
-      <div class="content">
-        <!-- Controls -->
-        <div class="controls">
-          <div class="filters">
-            <input
-              bind:value={policySearchFilter}
-              placeholder="Search policies..."
-              class="search-input"
-            />
-
-            <select bind:value={policyStatusFilter} class="filter-select">
-              <option value="">All Status</option>
-              <option value="enabled">Enabled</option>
-              <option value="disabled">Disabled</option>
-            </select>
-
-            <select bind:value={policyTypeFilter} class="filter-select">
-              <option value="">All Types</option>
-              {#each uniquePolicyTypes as type}
-                <option value={type}>{getPolicyTypeLabel(type)}</option>
-              {/each}
-            </select>
-          </div>
-
-          <div class="actions">
-            <button
-              class="btn primary"
-              on:click={() => showCreateForm = !showCreateForm}
-            >
-              {showCreateForm ? 'Cancel' : 'New Policy'}
-            </button>
-            <button class="btn secondary" on:click={loadPolicies}>
-              Refresh
-            </button>
-          </div>
-        </div>
-
-        <!-- Create Form -->
-        {#if showCreateForm}
-          <div class="create-form">
-            <h3>Create New Policy</h3>
-            <form on:submit|preventDefault={saveNewPolicy}>
-              <div class="form-row">
-                <input
-                  bind:value={newPolicy.name}
-                  placeholder="Policy name"
-                  required
-                  class="form-input"
-                />
-                <select bind:value={newPolicy.type} class="form-input">
-                  <option value="access_control">Access Control</option>
-                  <option value="privacy">Privacy</option>
-                  <option value="compliance">Compliance</option>
-                  <option value="mlops">MLOps</option>
-                </select>
-              </div>
-              <textarea
-                bind:value={newPolicy.description}
-                placeholder="Policy description"
-                required
-                class="form-input"
-                rows="2"
-              ></textarea>
-              <div class="form-actions">
-                <label class="checkbox">
-                  <input type="checkbox" bind:checked={newPolicy.enabled} />
-                  Enable immediately
-                </label>
-                <button type="submit" class="btn primary" disabled={!newPolicy.name || !newPolicy.description}>
-                  Create Policy
-                </button>
-              </div>
-            </form>
-          </div>
-        {/if}
-
-        <!-- Policy List -->
-        {#if loading}
-          <div class="loading">Loading policies...</div>
-        {:else if filteredPolicies.length === 0}
-          <div class="empty">
-            <p>No policies found</p>
-            <button class="btn primary" on:click={() => showCreateForm = true}>
-              Create your first policy
-            </button>
-          </div>
-        {:else}
-          <div class="policy-list">
-            {#each filteredPolicies as policy}
-              <div class="policy-card">
-                <div class="policy-info">
-                  <div class="policy-header">
-                    <h4>{policy.name}</h4>
-                    <div class="policy-meta">
-                      <span class="policy-type">{getPolicyTypeLabel(policy.type)}</span>
-                      <span class="policy-id">{policy.policyId}</span>
-                    </div>
-                  </div>
-                  <p class="policy-description">{policy.description}</p>
-                  <div class="policy-details">
-                    <span>{policy.rulesCount} rules</span>
-                    <span>Created {formatDate(policy.createdAt)}</span>
-                    <span>Updated {formatDate(policy.updatedAt)}</span>
-                  </div>
-                </div>
-                <div class="policy-actions">
-                  <button
-                    class="toggle-btn {policy.enabled ? 'enabled' : 'disabled'}"
-                    on:click={() => togglePolicy(policy)}
-                    title={policy.enabled ? 'Disable policy' : 'Enable policy'}
-                  >
-                    {policy.enabled ? 'ON' : 'OFF'}
-                  </button>
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    </div>
   {/if}
     </div>
   </main>
@@ -2012,77 +2118,12 @@
     margin-top: 2rem;
   }
 
-  .identity-setup-card {
-    background: #161b22;
-    border: 1px solid #21262d;
-    border-radius: 8px;
-    padding: 2rem;
-    max-width: 800px;
-  }
 
-  .setup-header {
-    margin-bottom: 2rem;
-    text-align: center;
-  }
-
-  .setup-header h3 {
-    color: #f0f6fc;
-    font-size: 1.5rem;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
-  }
-
-  .setup-header p {
-    color: #8b949e;
-    font-size: 1rem;
-  }
-
-  .preferences-section {
-    margin-top: 2rem;
-    padding-top: 2rem;
-    border-top: 1px solid #21262d;
-  }
-
-  .preferences-section h4 {
-    color: #f0f6fc;
-    font-size: 1.1rem;
-    font-weight: 600;
-    margin-bottom: 1rem;
-  }
-
-  .identity-profile-card {
-    background: #161b22;
-    border: 1px solid #21262d;
-    border-radius: 8px;
-    padding: 2rem;
-    max-width: 800px;
-  }
-
-  .profile-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 2rem;
-    padding-bottom: 1.5rem;
-    border-bottom: 1px solid #21262d;
-  }
-
-  .profile-info h3 {
-    color: #f0f6fc;
-    font-size: 1.5rem;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
-  }
-
-  .profile-info p {
-    color: #8b949e;
-    font-size: 1rem;
-    margin: 0;
-  }
 
   .profile-status {
     display: flex;
     align-items: center;
+    margin-top: 1rem;
   }
 
   .identity-status {
@@ -2177,9 +2218,6 @@
     border-radius: 6px;
   }
 
-  .capability-icon {
-    font-size: 1.5rem;
-  }
 
   .capability-info {
     display: flex;
@@ -2964,15 +3002,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1.5rem;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
+    padding: 1rem 0;
+    border-bottom: 1px solid #21262d;
     transition: border-color 0.2s;
   }
 
   .policy-card:hover {
-    border-color: #58a6ff;
+    border-bottom-color: #58a6ff;
   }
 
   .policy-info {
@@ -3347,5 +3383,279 @@
   .btn-danger:hover {
     background: #f85149;
     border-color: #f85149;
+  }
+
+  /* Policy Management Styles */
+  .policy-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+  }
+
+  .policy-filters {
+    display: flex;
+    gap: 1rem;
+    flex: 1;
+  }
+
+  .search-input {
+    flex: 1;
+    max-width: 300px;
+    padding: 0.5rem 0.75rem;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #f0f6fc;
+    font-size: 0.9rem;
+  }
+
+  .filter-select {
+    min-width: 120px;
+    padding: 0.5rem 0.75rem;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #f0f6fc;
+    font-size: 0.9rem;
+  }
+
+  .policy-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .policy-form {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .policy-form h2 {
+    color: #f0f6fc;
+    margin-bottom: 1rem;
+  }
+
+  .rules-section {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #30363d;
+  }
+
+  .rules-section h3 {
+    color: #f0f6fc;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+  }
+
+  .rules-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .rule-item {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 1rem;
+  }
+
+  .rule-item label {
+    font-weight: 600;
+    color: #f0f6fc;
+    font-size: 0.9rem;
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+
+  .rule-description {
+    color: #8b949e;
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+    line-height: 1.3;
+  }
+
+  .advanced-rules-section {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #30363d;
+  }
+
+  .advanced-toggle {
+    margin-bottom: 1rem;
+  }
+
+  .policies-list {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+
+  .policies-list h2 {
+    color: #f0f6fc;
+    margin-bottom: 1rem;
+  }
+
+  .policies-grid {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .policy-card {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 1.5rem;
+    transition: border-color 0.2s;
+  }
+
+  .policy-card:hover {
+    border-color: #58a6ff;
+  }
+
+  .policy-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+  }
+
+  .policy-info h3 {
+    color: #f0f6fc;
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+  }
+
+  .policy-meta {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .policy-type {
+    background: rgba(88, 166, 255, 0.2);
+    color: #58a6ff;
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+
+  .policy-id {
+    color: #6e7681;
+    font-size: 0.8rem;
+    font-family: monospace;
+  }
+
+  .policy-status {
+    display: flex;
+    align-items: center;
+  }
+
+  .status-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .status-badge.enabled {
+    background: rgba(46, 160, 67, 0.2);
+    color: #2ea043;
+  }
+
+  .status-badge.disabled {
+    background: rgba(218, 54, 51, 0.2);
+    color: #da3633;
+  }
+
+  .policy-description {
+    color: #8b949e;
+    line-height: 1.4;
+    margin-bottom: 1rem;
+  }
+
+  .policy-details {
+    display: flex;
+    gap: 1rem;
+    color: #6e7681;
+    font-size: 0.8rem;
+    margin-bottom: 1rem;
+  }
+
+  .policy-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+  }
+
+  .loading {
+    text-align: center;
+    padding: 2rem;
+    color: #8b949e;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: #8b949e;
+  }
+
+  .empty-state button {
+    margin-top: 1rem;
+  }
+
+  @media (max-width: 768px) {
+    .policy-controls {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .policy-filters {
+      flex-direction: column;
+    }
+
+    .search-input {
+      max-width: none;
+    }
+
+    .rules-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .policy-header {
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .policy-meta {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+
+    .policy-actions {
+      align-self: stretch;
+    }
+
+    .policy-actions .btn {
+      flex: 1;
+    }
   }
 </style>
