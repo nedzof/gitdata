@@ -298,13 +298,37 @@
         console.warn('Identity registered locally, API registration failed:', error);
       }
 
-      producerProfile = newProfile;
-      consumerProfile = newConsumerProfile;
-      producerConnectionStatus.identity = 'registered';
-      producerInitialized = true;
-      consumerInitialized = true;
+      // CRITICAL: Identity creation is NOT successful until wallet import succeeds
+      console.log('🔗 Connecting to MetaNet Desktop wallet for identity creation...');
 
-      alert('Identity created successfully! You can now buy and sell data.');
+      try {
+        // Step 1: Connect to wallet (this will show the authentication popup)
+        const walletConnection = await bsvWalletService.connect();
+        console.log('✅ Wallet connected:', walletConnection.publicKey.slice(0, 10) + '...');
+
+        // Update wallet connection status
+        walletConnected = true;
+        walletPublicKey = walletConnection.publicKey;
+
+        // Step 2: Acquire and import certificate to wallet
+        console.log('🔐 Acquiring certificate for identity...');
+        const certificate = await bsvWalletService.acquireGitdataCertificate(newProfile.displayName);
+        console.log('✅ Certificate acquired and imported to wallet');
+
+        // Step 3: Only now is identity creation successful
+        producerProfile = newProfile;
+        consumerProfile = newConsumerProfile;
+        producerConnectionStatus.identity = 'registered';
+        producerInitialized = true;
+        consumerInitialized = true;
+
+        alert('✅ Identity created successfully!\n\n🔐 Your BSV certificate has been imported to MetaNet Desktop wallet.\n\n📋 You can now buy and sell data with verified identity.');
+
+      } catch (walletError) {
+        // If wallet operations fail, identity creation fails completely
+        console.error('❌ Wallet integration failed:', walletError);
+        throw new Error(`Identity creation failed: ${walletError.message}\n\n⚠️  Identity cannot be created without MetaNet Desktop wallet connection.`);
+      }
 
     } catch (error) {
       alert('Failed to create identity: ' + error.message);
