@@ -11,24 +11,59 @@
   let walletError = '';
 
   onMount(() => {
-    // Check if wallet is already connected
-    if (bsvWalletService.isWalletConnected()) {
-      walletConnected = true;
-      walletPublicKey = bsvWalletService.getPublicKey() || '';
+    console.log('🔍 Layout: Initializing wallet status monitoring...');
+
+    // Continuous wallet status monitoring
+    async function updateWalletStatus() {
+      try {
+        // Use new verification method
+        const isConnected = await bsvWalletService.verifyWalletConnection();
+        const publicKey = bsvWalletService.getPublicKey();
+
+        console.log('📊 Wallet status check:', { isConnected, publicKey: publicKey ? publicKey.slice(0, 10) + '...' : null });
+
+        walletConnected = isConnected;
+        walletPublicKey = publicKey || '';
+
+        if (isConnected && publicKey) {
+          walletError = '';
+        }
+      } catch (error) {
+        console.warn('⚠️ Wallet status check error:', error);
+        walletConnected = false;
+        walletPublicKey = '';
+      }
     }
+
+    // Initial check (async)
+    updateWalletStatus().catch(error => {
+      console.warn('⚠️ Initial wallet status check failed:', error);
+    });
 
     // Listen for wallet connection changes
     const unsubscribe = bsvWalletService.onConnectionChange((connected) => {
+      console.log('🔔 Wallet connection change:', connected);
       walletConnected = connected;
       if (connected) {
         walletPublicKey = bsvWalletService.getPublicKey() || '';
         walletError = '';
+        console.log('✅ Wallet connected in layout:', walletPublicKey.slice(0, 10) + '...');
       } else {
         walletPublicKey = '';
+        console.log('❌ Wallet disconnected in layout');
       }
     });
 
-    return unsubscribe;
+    // Periodic wallet status check (every 5 seconds)
+    const statusInterval = setInterval(async () => {
+      await updateWalletStatus();
+    }, 5000);
+
+    // Cleanup
+    return () => {
+      unsubscribe();
+      clearInterval(statusInterval);
+    };
   });
 
 

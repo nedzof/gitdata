@@ -163,10 +163,59 @@ class BSVWalletService {
   }
 
   /**
-   * Check if wallet is connected
+   * Check if wallet is connected with verification
    */
   isWalletConnected(): boolean {
-    return this.isConnected;
+    // Quick cached check
+    if (!this.isConnected || !this.publicKey) {
+      return false;
+    }
+
+    // Verify wallet is still actually available
+    try {
+      // This is a synchronous check - just verify our state is still valid
+      return this.isConnected && this.publicKey !== null;
+    } catch {
+      // If there are any issues, mark as disconnected
+      this.isConnected = false;
+      this.publicKey = null;
+      return false;
+    }
+  }
+
+  /**
+   * Verify wallet connection with async MetaNet check
+   */
+  async verifyWalletConnection(): Promise<boolean> {
+    console.log('🔍 Verifying wallet connection...');
+
+    try {
+      // Check if we think we're connected
+      if (!this.isConnected || !this.publicKey) {
+        console.log('❌ Not connected according to our state');
+        return false;
+      }
+
+      // Try to verify MetaNet client is still available
+      const hasMetaNet = await this.checkForMetaNetClient();
+      if (!hasMetaNet) {
+        console.log('❌ MetaNet client no longer available');
+        this.isConnected = false;
+        this.publicKey = null;
+        this.notifyConnectionChange(false);
+        return false;
+      }
+
+      console.log('✅ Wallet connection verified');
+      return true;
+
+    } catch (error) {
+      console.warn('⚠️ Wallet verification failed:', error.message);
+      this.isConnected = false;
+      this.publicKey = null;
+      this.notifyConnectionChange(false);
+      return false;
+    }
   }
 
   /**

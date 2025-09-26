@@ -9,35 +9,17 @@
   let activeTab = 'profile'; // Default to profile tab
   let overlayUrl = 'http://localhost:8788';
 
-  // Producer state
-  let producerProfile = {
-    producerId: '',
-    identityKey: '',
-    displayName: '',
-    description: '',
-    region: 'global',
-    contactEmail: '',
-    website: ''
-  };
-
-  let producerConnectionStatus = {
-    overlay: 'checking',
-    database: 'checking',
-    identity: 'checking'
-  };
-
-  let producerLoading = false;
-  let producerInitialized = false;
-
-  // Consumer state
-  let consumerProfile = {
-    consumerId: '',
+  // Unified Identity state (replaces separate producer/consumer)
+  let userIdentity = {
+    identityId: '',
     identityKey: '',
     displayName: '',
     description: '',
     region: 'global',
     contactEmail: '',
     website: '',
+    canBuy: true,
+    canSell: true,
     preferences: {
       maxPricePerKB: 0.1,
       preferredFormats: [],
@@ -45,6 +27,20 @@
     }
   };
 
+  let identityConnectionStatus = {
+    overlay: 'checking',
+    database: 'checking',
+    identity: 'checking'
+  };
+
+  let identityLoading = false;
+  let identityInitialized = false;
+
+  // Legacy references for backward compatibility
+  let producerProfile = userIdentity;
+  let consumerProfile = userIdentity;
+  let producerLoading = false;
+  let producerInitialized = false;
   let consumerLoading = false;
   let consumerInitialized = false;
 
@@ -158,8 +154,7 @@
       activeTab = 'profile';
     }
 
-    await checkProducerStatus();
-    await checkConsumerStatus();
+    await checkIdentityStatus();
 
     // Check wallet connection status
     walletConnected = bsvWalletService.isWalletConnected();
@@ -185,113 +180,116 @@
 
   });
 
-  async function checkProducerStatus() {
+  async function checkIdentityStatus() {
     try {
-      producerLoading = true;
+      identityLoading = true;
 
       // Check overlay connection
       try {
         const healthResponse = await fetch(`${overlayUrl}/health`);
         if (healthResponse.ok) {
-          producerConnectionStatus.overlay = 'connected';
+          identityConnectionStatus.overlay = 'connected';
           const healthData = await healthResponse.json();
-          producerConnectionStatus.database = healthData.database === 'postgresql:ok' ? 'connected' : 'error';
+          identityConnectionStatus.database = healthData.database === 'postgresql:ok' ? 'connected' : 'error';
         } else {
-          producerConnectionStatus.overlay = 'error';
+          identityConnectionStatus.overlay = 'error';
         }
       } catch {
-        producerConnectionStatus.overlay = 'error';
+        identityConnectionStatus.overlay = 'error';
       }
 
-      // Check if producer is already initialized
+      // Check if unified identity is already initialized
       try {
-        const identity = localStorage.getItem('producer-identity');
+        const identity = localStorage.getItem('user-identity') ||
+                         localStorage.getItem('producer-identity') ||
+                         localStorage.getItem('consumer-identity');
         if (identity) {
           const parsedIdentity = JSON.parse(identity);
-          producerProfile = { ...producerProfile, ...parsedIdentity };
-          producerConnectionStatus.identity = 'registered';
+
+          // Migrate old format to new unified format
+          userIdentity = {
+            identityId: parsedIdentity.identityId || parsedIdentity.producerId || parsedIdentity.consumerId || '',
+            identityKey: parsedIdentity.identityKey || '',
+            displayName: parsedIdentity.displayName || '',
+            description: parsedIdentity.description || '',
+            region: parsedIdentity.region || 'global',
+            contactEmail: parsedIdentity.contactEmail || '',
+            website: parsedIdentity.website || '',
+            canBuy: true,
+            canSell: true,
+            preferences: parsedIdentity.preferences || {
+              maxPricePerKB: 0.1,
+              preferredFormats: [],
+              autoDownload: false
+            }
+          };
+
+          // Update legacy references for compatibility
+          producerProfile = userIdentity;
+          consumerProfile = userIdentity;
+
+          identityConnectionStatus.identity = 'registered';
+          identityInitialized = true;
           producerInitialized = true;
-        } else {
-          producerConnectionStatus.identity = 'not-registered';
-        }
-      } catch {
-        producerConnectionStatus.identity = 'error';
-      }
-
-    } finally {
-      producerLoading = false;
-    }
-  }
-
-  async function checkConsumerStatus() {
-    try {
-      consumerLoading = true;
-
-      // Check if consumer is already initialized
-      try {
-        const identity = localStorage.getItem('consumer-identity');
-        if (identity) {
-          const parsedIdentity = JSON.parse(identity);
-          consumerProfile = { ...consumerProfile, ...parsedIdentity };
           consumerInitialized = true;
+
+          // Migrate to new storage key if needed
+          if (!localStorage.getItem('user-identity')) {
+            localStorage.setItem('user-identity', JSON.stringify(userIdentity));
+            localStorage.removeItem('producer-identity');
+            localStorage.removeItem('consumer-identity');
+          }
+        } else {
+          identityConnectionStatus.identity = 'not-registered';
         }
       } catch {
-        // Not initialized
+        identityConnectionStatus.identity = 'error';
       }
 
     } finally {
-      consumerLoading = false;
+      identityLoading = false;
     }
   }
 
-  async function initializeProducer() {
+  async function initializeIdentity() {
     try {
-      producerLoading = true;
+      identityLoading = true;
 
-      // Generate identity key
+      // Generate unified identity (can both buy and sell data)
       const identityKey = 'user_' + Math.random().toString(36).substr(2, 16);
-      const producerId = producerProfile.displayName.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
+      const identityId = userIdentity.displayName.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
 
-      const newProfile = {
-        ...producerProfile,
-        producerId,
+      const newIdentity = {
+        ...userIdentity,
+        identityId,
         identityKey,
-        contactEmail: producerProfile.contactEmail || 'noemail@example.com',
-        website: producerProfile.website || '',
-        region: producerProfile.region || 'global',
-        createdAt: new Date().toISOString()
+        contactEmail: userIdentity.contactEmail || 'noemail@example.com',
+        website: userIdentity.website || '',
+        region: userIdentity.region || 'global',
+        createdAt: new Date().toISOString(),
+        // Identity can both buy and sell
+        canBuy: true,
+        canSell: true
       };
 
-      // Also create consumer profile with same data
-      const newConsumerProfile = {
-        ...consumerProfile,
-        consumerId: producerId, // Same ID for unified identity
-        identityKey,
-        displayName: producerProfile.displayName,
-        contactEmail: newProfile.contactEmail,
-        description: producerProfile.description,
-        website: newProfile.website,
-        region: newProfile.region,
-        createdAt: new Date().toISOString()
-      };
+      // Store unified identity
+      localStorage.setItem('user-identity', JSON.stringify(newIdentity));
 
-      // Store both identities locally
-      localStorage.setItem('producer-identity', JSON.stringify(newProfile));
-      localStorage.setItem('consumer-identity', JSON.stringify(newConsumerProfile));
-
-      // Register with overlay network
+      // Register identity with overlay network
       try {
-        const response = await api.request('/v1/producers/register', {
+        const response = await api.request('/v1/identity/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            producerId: newProfile.producerId,
-            identityKey: newProfile.identityKey,
-            displayName: newProfile.displayName,
-            description: newProfile.description,
-            contactEmail: newProfile.contactEmail,
-            website: newProfile.website,
-            region: newProfile.region
+            identityId: newIdentity.identityId,
+            identityKey: newIdentity.identityKey,
+            displayName: newIdentity.displayName,
+            description: newIdentity.description,
+            contactEmail: newIdentity.contactEmail,
+            website: newIdentity.website,
+            region: newIdentity.region,
+            canBuy: newIdentity.canBuy,
+            canSell: newIdentity.canSell
           })
         });
       } catch (error) {
@@ -312,13 +310,16 @@
 
         // Step 2: Acquire and import certificate to wallet
         console.log('🔐 Acquiring certificate for identity...');
-        const certificate = await bsvWalletService.acquireGitdataCertificate(newProfile.displayName);
+        const certificate = await bsvWalletService.acquireGitdataCertificate(newIdentity.displayName);
         console.log('✅ Certificate acquired and imported to wallet');
 
         // Step 3: Only now is identity creation successful
-        producerProfile = newProfile;
-        consumerProfile = newConsumerProfile;
-        producerConnectionStatus.identity = 'registered';
+        // Update unified identity and maintain backward compatibility
+        userIdentity = newIdentity;
+        producerProfile = { ...newIdentity, producerId: newIdentity.identityId };
+        consumerProfile = { ...newIdentity, consumerId: newIdentity.identityId };
+        identityConnectionStatus.identity = 'registered';
+        identityInitialized = true;
         producerInitialized = true;
         consumerInitialized = true;
 
@@ -333,7 +334,7 @@
     } catch (error) {
       alert('Failed to create identity: ' + error.message);
     } finally {
-      producerLoading = false;
+      identityLoading = false;
     }
   }
 
@@ -1229,14 +1230,14 @@
             <p>Set up your marketplace identity to buy and sell data</p>
           </div>
 
-            <form on:submit|preventDefault={initializeProducer}>
+            <form on:submit|preventDefault={initializeIdentity}>
               <div class="form-grid">
                 <div class="form-group span-2">
                   <label for="displayName">Display Name *</label>
                   <input
                     id="displayName"
                     type="text"
-                    bind:value={producerProfile.displayName}
+                    bind:value={userIdentity.displayName}
                     required
                     placeholder="My Company"
                     class="form-input"
@@ -1247,7 +1248,7 @@
                   <label for="description">Description *</label>
                   <textarea
                     id="description"
-                    bind:value={producerProfile.description}
+                    bind:value={userIdentity.description}
                     required
                     placeholder="Brief description of your organization or use case"
                     class="form-input"
@@ -1259,10 +1260,10 @@
               <div class="form-actions">
                 <button
                   type="submit"
-                  disabled={producerLoading || !producerProfile.displayName || !producerProfile.description}
+                  disabled={identityLoading || !userIdentity.displayName || !userIdentity.description}
                   class="btn btn-primary"
                 >
-                  {producerLoading ? 'Creating Identity...' : 'Create Identity'}
+                  {identityLoading ? 'Creating Identity...' : 'Create Identity'}
                 </button>
               </div>
             </form>
