@@ -30,7 +30,7 @@ class BSVWalletService {
   }
 
   /**
-   * Start checking for MetaNet Client similar to PeerPay
+   * Start checking for MetaNet Client - simplified
    */
   private startMetaNetCheck() {
     if (this.isChecking) return;
@@ -46,9 +46,7 @@ class BSVWalletService {
           console.log('✅ MetaNet Client detected!');
           clearInterval(checkInterval);
           this.isChecking = false;
-
-          // Try to authenticate
-          await this.attemptAuthentication();
+          // Don't auto-authenticate - wait for user to trigger
         } else {
           console.log('⏳ Waiting for MetaNet Client...');
         }
@@ -89,29 +87,15 @@ class BSVWalletService {
   }
 
   /**
-   * Attempt authentication with MetaNet Desktop
+   * Attempt authentication with MetaNet Desktop - simplified
    */
   private async attemptAuthentication() {
     try {
       console.log('🔐 Attempting authentication with MetaNet Desktop...');
 
-      // First check if we need to request authentication
-      try {
-        const isAuth = await this.walletClient.isAuthenticated();
-        if (isAuth) {
-          console.log('✅ Already authenticated!');
-        } else {
-          console.log('🔓 Requesting authentication from MetaNet Desktop...');
-          // This should trigger the popup in MetaNet Desktop
-          await this.walletClient.waitForAuthentication();
-          console.log('✅ Authentication successful!');
-        }
-      } catch (authError) {
-        console.log('🔓 Requesting authentication from MetaNet Desktop...');
-        // This should trigger the popup in MetaNet Desktop
-        await this.walletClient.waitForAuthentication();
-        console.log('✅ Authentication successful!');
-      }
+      // Simple one-shot authentication
+      await this.walletClient.waitForAuthentication();
+      console.log('✅ Authentication successful!');
 
       // Get public key for identity
       const identityKey = await this.walletClient.getPublicKey({
@@ -125,9 +109,6 @@ class BSVWalletService {
 
       // Notify listeners
       this.notifyConnectionChange(true);
-
-      // Try to authenticate with backend
-      await this.authenticateWithBackend();
 
     } catch (error) {
       console.error('❌ Authentication failed:', error);
@@ -389,101 +370,42 @@ class BSVWalletService {
   }
 
   /**
-   * Acquire certificate from backend using BSV Certificate Acquisition Protocol
-   * Based on CoolCert implementation pattern
+   * Acquire certificate from backend - removed from auto-authentication
+   * Now only called manually by acquireGitdataCertificate method
    */
   private async authenticateWithBackend(): Promise<void> {
-    if (!this.publicKey) {
-      throw new Error('No public key available for certificate acquisition');
-    }
-
-    try {
-      console.log('🔄 Acquiring certificate from backend...');
-
-      // Check if certificate endpoint is available
-      const statusResponse = await fetch(`${this.config.apiUrl}/v1/certificate/status`);
-      if (!statusResponse.ok) {
-        console.log('⚠️  Certificate endpoint not available, skipping certificate acquisition');
-        return;
-      }
-
-      const statusData = await statusResponse.json();
-      if (!statusData.bsvAuthEnabled) {
-        console.log('⚠️  BSV authentication not enabled on server');
-        return;
-      }
-
-      console.log('📋 Certificate service available, acquiring participant certificate...');
-
-      // Use BSV SDK's MasterCertificate.acquireCertificate method
-      const { MasterCertificate } = await import('@bsv/sdk');
-
-      const certificateFields = {
-        display_name: 'Gitdata User', // Default display name, could be customized later
-        participant: 'verified',
-        level: 'standard'
-      };
-
-      console.log('🔐 Acquiring certificate with fields:', certificateFields);
-
-      const certificate = await MasterCertificate.acquireCertificate({
-        type: statusData.certificateType,
-        fields: certificateFields,
-        certifierUrl: `${this.config.apiUrl}/v1/certificate`,
-        wallet: this.walletClient
-      });
-
-      console.log('✅ Certificate acquired successfully!');
-
-      // Save certificate to wallet
-      await this.saveCertificateToWallet(certificate);
-
-      console.log('✅ Certificate saved to MetaNet wallet!');
-
-    } catch (error) {
-      console.error('❌ Backend authentication error:', error);
-      // Don't throw - backend auth is optional
-    }
+    // This method is no longer called automatically during connection
+    // to prevent multiple popups. Only used by manual certificate acquisition.
+    console.log('ℹ️  Backend authentication skipped during connection');
   }
 
   /**
-   * Generate authenticated headers for API requests
+   * Generate authenticated headers for API requests - simplified
    */
   async generateAuthHeaders(body: string = ''): Promise<Record<string, string>> {
-    if (!this.publicKey) {
-      throw new Error('No wallet connected');
-    }
-
-    // Verify we're still connected before creating signatures
-    if (!this.isConnected) {
-      console.log('🔄 Wallet not connected, attempting reconnection...');
-      await this.attemptAuthentication();
+    if (!this.publicKey || !this.isConnected) {
+      throw new Error('Wallet not connected. Please connect your MetaNet Desktop wallet first.');
     }
 
     const nonce = this.generateNonce();
     const message = body + nonce;
 
-    try {
-      console.log('🔐 Requesting signature from MetaNet Desktop...');
-      const signature = await this.walletClient.createSignature({
-        data: btoa(message),
-        protocolID: [2, 'gitdata-identity'],
-        keyID: 'identity',
-        privilegedReason: 'Authenticate API request'
-      });
+    console.log('🔐 Requesting signature from MetaNet Desktop...');
+    const signature = await this.walletClient.createSignature({
+      data: btoa(message),
+      protocolID: [2, 'gitdata-identity'],
+      keyID: 'identity',
+      privilegedReason: 'Authenticate API request'
+    });
 
-      console.log('✅ Signature created successfully');
+    console.log('✅ Signature created successfully');
 
-      return {
-        'X-Identity-Key': this.publicKey,
-        'X-Nonce': nonce,
-        'X-Signature': signature.signature,
-        'Content-Type': 'application/json'
-      };
-    } catch (error) {
-      console.error('❌ Failed to create signature:', error);
-      throw new Error(`Failed to create signature: ${error.message}`);
-    }
+    return {
+      'X-Identity-Key': this.publicKey,
+      'X-Nonce': nonce,
+      'X-Signature': signature.signature,
+      'Content-Type': 'application/json'
+    };
   }
 
   /**
