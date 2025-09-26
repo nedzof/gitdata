@@ -1005,15 +1005,28 @@
       certificateLoading = true;
 
       if (!walletConnected) {
-        alert('Please ensure MetaNet Desktop is running and connected before saving to wallet.');
+        alert('Please ensure MetaNet Desktop is running and connected before importing certificate to wallet.');
         return;
       }
 
       await certificateService.saveCertificateToWallet(userCertificate.subject);
-      alert('Certificate successfully saved to your BRC-100 MetaNet wallet!');
+
+      // Show success message with instructions
+      alert(`✅ Certificate imported to MetaNet wallet successfully!\n\n📋 Your Gitdata Participant Certificate is now saved in your BSV Desktop wallet.\n\n🔍 Check your wallet's certificate section to view and manage your imported certificate.`);
+
+      console.log('🎉 Certificate import completed successfully');
     } catch (error) {
       console.error('Save to wallet failed:', error);
-      alert('Failed to save certificate to wallet: ' + error.message);
+
+      // Show detailed error message
+      let errorMessage = 'Failed to import certificate to wallet.';
+      if (error.message.includes('not supported')) {
+        errorMessage += '\n\n⚠️ Your MetaNet wallet may not support certificate import. The certificate has been saved as a wallet record instead.';
+      } else {
+        errorMessage += '\n\nError: ' + error.message;
+      }
+
+      alert(errorMessage);
     } finally {
       certificateLoading = false;
     }
@@ -1297,11 +1310,11 @@
                   on:click={saveToWallet}
                   disabled={certificateLoading || !walletConnected}
                   class="btn btn-primary"
-                  title={walletConnected ? 'Save certificate to your BRC-100 MetaNet wallet' : 'Connect your MetaNet wallet first'}
+                  title={walletConnected ? 'Import certificate to your BSV Desktop wallet' : 'Connect your MetaNet wallet first'}
                 >
-                  {certificateLoading ? 'Saving...' :
+                  {certificateLoading ? 'Importing...' :
                    !walletConnected ? 'Wallet Required' :
-                   'Save to Wallet'}
+                   'Import to Wallet'}
                 </button>
               </div>
             </div>

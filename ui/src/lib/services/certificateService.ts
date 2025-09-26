@@ -39,6 +39,7 @@ export interface CertificateRequest {
 
 export class CertificateService {
   private certificates: Map<string, GitdataCertificate> = new Map()
+  private bsvCertificates: Map<string, Certificate> = new Map() // Store original BSV Certificate objects
 
   constructor() {
     // Load existing certificates from localStorage
@@ -114,8 +115,9 @@ export class CertificateService {
         expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
       }
 
-      // Store certificate
+      // Store both formats
       this.certificates.set(gitdataCertificate.subject, gitdataCertificate)
+      this.bsvCertificates.set(gitdataCertificate.subject, certificate) // Store original BSV Certificate
       this.saveCertificatesToStorage()
 
       return gitdataCertificate
@@ -303,7 +305,10 @@ export class CertificateService {
    * Save certificate to BRC-100 MetaNet wallet
    */
   async saveCertificateToWallet(participantId: string): Promise<void> {
+    // Try to get the original BSV Certificate object first
+    const bsvCertificate = this.bsvCertificates.get(participantId)
     const certificate = this.getCertificate(participantId)
+
     if (!certificate) {
       throw new Error('Certificate not found')
     }
@@ -313,7 +318,9 @@ export class CertificateService {
     }
 
     try {
-      await bsvWalletService.saveCertificateToWallet(certificate)
+      // Use the original BSV Certificate object if available, otherwise use the converted format
+      const certificateToSave = bsvCertificate || certificate
+      await bsvWalletService.saveCertificateToWallet(certificateToSave)
     } catch (error) {
       console.error('Failed to save certificate to wallet:', error)
       throw new Error(`Failed to save certificate to wallet: ${error instanceof Error ? error.message : 'Unknown error'}`)

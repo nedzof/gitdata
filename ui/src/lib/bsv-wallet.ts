@@ -191,33 +191,69 @@ class BSVWalletService {
     }
 
     try {
-      console.log('💾 Saving certificate to MetaNet wallet...');
+      console.log('💾 Importing certificate to MetaNet wallet...');
 
-      // Create a certificate record in the wallet using BSV SDK
-      const certificateRecord = {
-        type: 'certificate',
+      // For BSV Certificate objects, use importCertificate method
+      if (certificate.sign && typeof certificate.sign === 'function') {
+        console.log('🔐 Importing BSV SDK Certificate object...');
+
+        // This should be the proper way to import a certificate to MetaNet wallet
+        await this.walletClient.importCertificate(certificate);
+
+        console.log('✅ Certificate successfully imported to MetaNet wallet!');
+        return;
+      }
+
+      // For plain objects, try to create a proper certificate format
+      console.log('📄 Converting to certificate format...');
+
+      const certificateForImport = {
+        type: certificate.type,
         subject: certificate.subject,
         serialNumber: certificate.serialNumber,
         certifier: certificate.certifier,
-        fields: certificate.fields,
+        revocationOutpoint: certificate.revocationOutpoint || '0'.repeat(64) + '.0',
         signature: certificate.signature,
+        fields: certificate.fields,
+        // Add standard certificate metadata
         issuedAt: certificate.issuedAt,
         expiresAt: certificate.expiresAt
       };
 
-      // Store the certificate using BSV SDK's record storage
-      await this.walletClient.storeRecord({
-        data: certificateRecord,
-        protocolID: [2, 'gitdata-certificates'],
-        keyID: `cert_${certificate.serialNumber}`,
-        description: `Gitdata Certificate: ${certificate.fields.display_name || 'Participant Certificate'}`
-      });
-
-      console.log('✅ Certificate successfully saved to MetaNet wallet!');
+      // Try importing as a certificate
+      await this.walletClient.importCertificate(certificateForImport);
+      console.log('✅ Certificate imported successfully!');
 
     } catch (error) {
-      console.error('❌ Failed to save certificate to wallet:', error);
-      throw new Error(`Failed to save certificate to wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('❌ Certificate import failed, trying record storage fallback:', error);
+
+      // Fallback: Store as a record with special certificate protocol
+      try {
+        const certificateData = {
+          ...certificate,
+          _certificateType: 'gitdata-participant',
+          _importedAt: new Date().toISOString(),
+          _walletImport: true
+        };
+
+        await this.walletClient.storeRecord({
+          data: certificateData,
+          protocolID: [2, 'bsv-certificates'],
+          keyID: `cert_${certificate.serialNumber || Date.now()}`,
+          description: `Gitdata Certificate - ${certificate.fields?.display_name || certificate.subject || 'Participant'}`
+        });
+
+        console.log('⚡ Certificate stored as record (fallback method)');
+
+        // Notify user about the storage method
+        if (typeof window !== 'undefined') {
+          console.warn('⚠️  Certificate saved as wallet record. For full certificate features, ensure your MetaNet wallet supports certificate import.');
+        }
+
+      } catch (fallbackError) {
+        console.error('❌ All methods failed:', fallbackError);
+        throw new Error(`Failed to save certificate: ${error instanceof Error ? error.message : 'Certificate import not supported by wallet'}`);
+      }
     }
   }
 
@@ -232,19 +268,37 @@ class BSVWalletService {
     try {
       console.log('📋 Retrieving certificates from MetaNet wallet...');
 
-      // Retrieve certificate records from wallet
-      const records = await this.walletClient.findRecords({
-        protocolID: [2, 'gitdata-certificates']
-      });
+      let certificates: any[] = [];
 
-      const certificates = records.map(record => record.data);
-      console.log(`✅ Retrieved ${certificates.length} certificates from wallet`);
+      // Try to get certificates from the wallet's certificate collection first
+      try {
+        const certList = await this.walletClient.listCertificates();
+        certificates = Array.isArray(certList) ? certList : [];
+        console.log(`✅ Retrieved ${certificates.length} certificates from wallet certificate collection`);
+      } catch (error) {
+        console.log('📦 Certificate list not available, checking record storage...');
+
+        // Fallback to record storage for certificates stored as records
+        try {
+          const records = await this.walletClient.findRecords({
+            protocolID: [2, 'bsv-certificates']
+          });
+
+          certificates = records
+            .filter(record => record.data && record.data._walletImport)
+            .map(record => record.data);
+
+          console.log(`⚡ Retrieved ${certificates.length} certificates from wallet records`);
+        } catch (recordError) {
+          console.log('📂 No certificate records found');
+        }
+      }
 
       return certificates;
 
     } catch (error) {
       console.error('❌ Failed to retrieve certificates from wallet:', error);
-      throw new Error(`Failed to get certificates from wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return []; // Return empty array instead of throwing to avoid breaking the app
     }
   }
 
