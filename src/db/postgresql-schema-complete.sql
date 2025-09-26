@@ -1076,51 +1076,57 @@ CREATE TABLE IF NOT EXISTS brc24_provider_data (
 -- BRC-26 UHRP (Unified Hosting and Routing Protocol) Tables
 CREATE TABLE IF NOT EXISTS uhrp_advertisements (
     id SERIAL PRIMARY KEY,
-    advertiser_identity TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    address TEXT NOT NULL,
     content_hash TEXT NOT NULL,
-    host_url TEXT NOT NULL,
-    availability_score DECIMAL(3,2) DEFAULT 1.0,
-    price_per_mb_satoshis INTEGER DEFAULT 0,
-    geographic_region TEXT,
-    expires_at BIGINT NOT NULL,
+    url TEXT NOT NULL,
+    expiry_time BIGINT NOT NULL,
+    content_length BIGINT NOT NULL,
     signature TEXT NOT NULL,
-    utxo_id TEXT,
-    timestamp_created BIGINT NOT NULL,
+    utxo_id TEXT UNIQUE,
+    advertised_at BIGINT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(advertiser_identity, content_hash, host_url)
+    UNIQUE(public_key, content_hash)
 );
 
 CREATE TABLE IF NOT EXISTS uhrp_content (
     id SERIAL PRIMARY KEY,
     content_hash TEXT UNIQUE NOT NULL,
-    content_size BIGINT NOT NULL,
-    mime_type TEXT,
-    local_path TEXT,
+    filename TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    uploaded_at BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL,
     download_count INTEGER DEFAULT 0,
-    last_accessed BIGINT,
-    expires_at BIGINT,
+    local_path TEXT NOT NULL,
+    is_public BOOLEAN DEFAULT TRUE,
+    metadata_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS uhrp_hosts (
     id SERIAL PRIMARY KEY,
-    host_identity TEXT UNIQUE NOT NULL,
-    host_url TEXT NOT NULL,
-    public_key TEXT,
-    reputation_score DECIMAL(3,2) DEFAULT 1.0,
-    last_seen BIGINT,
+    public_key TEXT UNIQUE NOT NULL,
+    address TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    reputation DECIMAL(3,2) DEFAULT 1.0,
+    uptime DECIMAL(5,4) DEFAULT 1.0,
+    last_seen BIGINT NOT NULL,
+    content_count INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS uhrp_downloads (
     id SERIAL PRIMARY KEY,
     content_hash TEXT NOT NULL,
-    downloader_identity TEXT,
-    host_url TEXT NOT NULL,
-    download_started BIGINT NOT NULL,
-    download_completed BIGINT,
-    bytes_downloaded BIGINT DEFAULT 0,
-    status TEXT DEFAULT 'pending',
+    host_public_key TEXT,
+    download_url TEXT,
+    downloaded_at BIGINT NOT NULL,
+    success BOOLEAN DEFAULT TRUE,
+    error_message TEXT,
+    download_time_ms INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -1224,12 +1230,14 @@ CREATE TABLE IF NOT EXISTS overlay_subscriptions (
     id SERIAL PRIMARY KEY,
     topic TEXT NOT NULL,
     subscriber_id TEXT NOT NULL,
+    classification TEXT DEFAULT 'public',
     subscription_type TEXT DEFAULT 'active',
     subscribed_at BIGINT NOT NULL,
-    last_message_at BIGINT,
+    last_activity BIGINT,
+    auto_subscribe BOOLEAN DEFAULT FALSE,
     message_count INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(topic, subscriber_id)
+    UNIQUE(topic)
 );
 
 CREATE TABLE IF NOT EXISTS overlay_peers (
@@ -1358,9 +1366,13 @@ CREATE INDEX IF NOT EXISTS idx_brc24_provider_data_provider ON brc24_provider_da
 
 -- BRC-26 UHRP indexes
 CREATE INDEX IF NOT EXISTS idx_uhrp_advertisements_content ON uhrp_advertisements(content_hash);
-CREATE INDEX IF NOT EXISTS idx_uhrp_advertisements_expires ON uhrp_advertisements(expires_at);
+CREATE INDEX IF NOT EXISTS idx_uhrp_advertisements_expires ON uhrp_advertisements(expiry_time);
+CREATE INDEX IF NOT EXISTS idx_uhrp_advertisements_active ON uhrp_advertisements(is_active);
+CREATE INDEX IF NOT EXISTS idx_uhrp_hosts_active ON uhrp_hosts(is_active);
+CREATE INDEX IF NOT EXISTS idx_uhrp_hosts_reputation ON uhrp_hosts(reputation DESC);
 CREATE INDEX IF NOT EXISTS idx_uhrp_content_hash ON uhrp_content(content_hash);
 CREATE INDEX IF NOT EXISTS idx_uhrp_downloads_content ON uhrp_downloads(content_hash);
+CREATE INDEX IF NOT EXISTS idx_uhrp_downloads_time ON uhrp_downloads(downloaded_at);
 
 -- BRC-64 indexes
 CREATE INDEX IF NOT EXISTS idx_brc64_historical_inputs_spending ON brc64_historical_inputs(spending_txid);
