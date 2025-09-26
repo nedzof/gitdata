@@ -59,23 +59,32 @@ class BSVWalletService {
   }
 
   /**
-   * Check for MetaNet Client - based on PeerPay's approach
+   * Check for MetaNet Client - proper detection approach
    */
   private async checkForMetaNetClient(): Promise<boolean> {
     try {
-      // The BSV SDK WalletClient automatically detects and connects to MetaNet
-      // We can test this by checking if we can get version info
-      const isAvailable = await this.walletClient.isAuthenticated();
-      return true; // If no error, MetaNet is available
+      // Try to get wallet information to verify MetaNet is running
+      // This should fail gracefully if wallet isn't available
+      const networkInfo = await this.walletClient.getNetwork();
+      return networkInfo && typeof networkInfo === 'string';
     } catch (error) {
-      // Check if the error suggests MetaNet is not running
-      if (error.message.includes('No MetaNet Client') ||
+      // If we get wallet-not-available errors, MetaNet isn't running
+      if (error.message.includes('No wallet available') ||
+          error.message.includes('No MetaNet Client') ||
           error.message.includes('not running') ||
-          error.message.includes('connection refused')) {
+          error.message.includes('connection refused') ||
+          error.message.includes('communication substrate')) {
         return false;
       }
-      // For other errors, assume MetaNet might be available but not authenticated
-      return true;
+      // For authentication-required errors, wallet is available but not authenticated
+      if (error.message.includes('authentication') ||
+          error.message.includes('not authenticated') ||
+          error.message.includes('privileged')) {
+        return true;
+      }
+      // Log unknown errors for debugging
+      console.log('🔍 Unknown wallet detection error:', error.message);
+      return false;
     }
   }
 
@@ -86,10 +95,23 @@ class BSVWalletService {
     try {
       console.log('🔐 Attempting authentication with MetaNet Desktop...');
 
-      // Use BSV SDK's waitForAuthentication like PeerPay does
-      await this.walletClient.waitForAuthentication();
-
-      console.log('✅ Authentication successful!');
+      // First check if we need to request authentication
+      try {
+        const isAuth = await this.walletClient.isAuthenticated();
+        if (isAuth) {
+          console.log('✅ Already authenticated!');
+        } else {
+          console.log('🔓 Requesting authentication from MetaNet Desktop...');
+          // This should trigger the popup in MetaNet Desktop
+          await this.walletClient.waitForAuthentication();
+          console.log('✅ Authentication successful!');
+        }
+      } catch (authError) {
+        console.log('🔓 Requesting authentication from MetaNet Desktop...');
+        // This should trigger the popup in MetaNet Desktop
+        await this.walletClient.waitForAuthentication();
+        console.log('✅ Authentication successful!');
+      }
 
       // Get public key for identity
       const identityKey = await this.walletClient.getPublicKey({
@@ -123,16 +145,24 @@ class BSVWalletService {
     console.log('🔗 Manual connect requested...');
 
     if (this.isConnected && this.publicKey) {
+      console.log('✅ Already connected');
       return {
         publicKey: this.publicKey,
         isConnected: true
       };
     }
 
+    // First verify MetaNet client is available
+    const hasMetaNet = await this.checkForMetaNetClient();
+    if (!hasMetaNet) {
+      throw new Error('MetaNet Desktop wallet is not running. Please start MetaNet Desktop and try again.');
+    }
+
+    console.log('🔍 MetaNet Desktop detected, attempting authentication...');
     await this.attemptAuthentication();
 
     if (!this.isConnected || !this.publicKey) {
-      throw new Error('Failed to connect to MetaNet Desktop wallet');
+      throw new Error('Failed to connect to MetaNet Desktop wallet. Please ensure the wallet is unlocked and try again.');
     }
 
     return {
@@ -424,22 +454,36 @@ class BSVWalletService {
       throw new Error('No wallet connected');
     }
 
+    // Verify we're still connected before creating signatures
+    if (!this.isConnected) {
+      console.log('🔄 Wallet not connected, attempting reconnection...');
+      await this.attemptAuthentication();
+    }
+
     const nonce = this.generateNonce();
     const message = body + nonce;
 
-    const signature = await this.walletClient.createSignature({
-      data: btoa(message),
-      protocolID: [2, 'gitdata-identity'],
-      keyID: 'identity',
-      privilegedReason: 'Authenticate API request'
-    });
+    try {
+      console.log('🔐 Requesting signature from MetaNet Desktop...');
+      const signature = await this.walletClient.createSignature({
+        data: btoa(message),
+        protocolID: [2, 'gitdata-identity'],
+        keyID: 'identity',
+        privilegedReason: 'Authenticate API request'
+      });
 
-    return {
-      'X-Identity-Key': this.publicKey,
-      'X-Nonce': nonce,
-      'X-Signature': signature.signature,
-      'Content-Type': 'application/json'
-    };
+      console.log('✅ Signature created successfully');
+
+      return {
+        'X-Identity-Key': this.publicKey,
+        'X-Nonce': nonce,
+        'X-Signature': signature.signature,
+        'Content-Type': 'application/json'
+      };
+    } catch (error) {
+      console.error('❌ Failed to create signature:', error);
+      throw new Error(`Failed to create signature: ${error.message}`);
+    }
   }
 
   /**
