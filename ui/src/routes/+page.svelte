@@ -393,12 +393,12 @@
   .sidebar-panel {
     background: transparent;
     border: none;
-    padding: 1rem 0.5rem;
+    padding: 0.75rem 0.5rem;
   }
 
   .sidebar-panel h3 {
     margin: 0 0 0.75rem 0;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     font-weight: 500;
     color: #8b949e;
     text-transform: uppercase;
@@ -409,11 +409,11 @@
   .trending-list {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.5rem;
   }
 
   .trending-item {
-    padding: 0.75rem 0;
+    padding: 0.5rem 0;
     border-bottom: 1px solid #21262d;
   }
 
@@ -422,10 +422,11 @@
   }
 
   .trending-name {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     font-weight: 500;
     color: #8b949e;
     margin-bottom: 0.25rem;
+    line-height: 1.2;
   }
 
   .trending-stats {
@@ -436,7 +437,7 @@
 
   .trending-change.positive {
     color: #46954a;
-    font-weight: 500;
+    font-weight: 400;
   }
 
   .trending-volume {
@@ -447,11 +448,11 @@
   .activity-feed {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
   }
 
   .activity-item {
-    padding: 0.5rem 0;
+    padding: 0.375rem 0;
     border-bottom: 1px solid #21262d;
   }
 
@@ -464,14 +465,15 @@
   }
 
   .activity-text {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     color: #8b949e;
     margin-bottom: 0.25rem;
+    line-height: 1.3;
   }
 
   .activity-text strong {
     color: #c9d1d9;
-    font-weight: 500;
+    font-weight: 400;
   }
 
   .activity-meta {
