@@ -936,6 +936,7 @@
   <nav class="sidebar">
     <div class="sidebar-header">
       <h2>Settings</h2>
+      <button class="back-btn" on:click={() => goto('/')}>← Back to Home</button>
     </div>
 
     <div class="nav-menu">
@@ -943,7 +944,7 @@
         class="nav-item {activeTab === 'profile' ? 'active' : ''}"
         on:click={() => activeTab = 'profile'}
       >
-        <span class="nav-icon">👤</span>
+        <span class="nav-icon">USER</span>
         <span class="nav-label">Profile</span>
       </button>
 
@@ -951,7 +952,7 @@
         class="nav-item {activeTab === 'policy' ? 'active' : ''}"
         on:click={() => activeTab = 'policy'}
       >
-        <span class="nav-icon">📋</span>
+        <span class="nav-icon">PLCY</span>
         <span class="nav-label">Policy</span>
       </button>
 
@@ -959,7 +960,7 @@
         class="nav-item {activeTab === 'analytics' ? 'active' : ''}"
         on:click={() => activeTab = 'analytics'}
       >
-        <span class="nav-icon">📊</span>
+        <span class="nav-icon">ANLY</span>
         <span class="nav-label">Analytics</span>
       </button>
 
@@ -967,7 +968,7 @@
         class="nav-item {activeTab === 'services' ? 'active' : ''}"
         on:click={() => activeTab = 'services'}
       >
-        <span class="nav-icon">🔧</span>
+        <span class="nav-icon">SRVS</span>
         <span class="nav-label">Services</span>
       </button>
 
@@ -979,7 +980,7 @@
     <div class="content-wrapper">
       <!-- Tab Content -->
   {#if activeTab === 'profile'}
-    <div class="tab-content-open">
+    <div class="section-content">
 
       <!-- Unified Identity Section -->
       <div class="unified-identity-section">
@@ -1087,7 +1088,7 @@
     </div>
 
   {:else if activeTab === 'policy'}
-    <div class="tab-content-open">
+    <div class="section-content">
       <div class="page-header">
         <h1>Policy Management</h1>
         <p>Content and data governance policies</p>
@@ -1361,7 +1362,7 @@
     </div>
 
   {:else if activeTab === 'analytics'}
-    <div class="tab-content-open">
+    <div class="section-content">
       <div class="page-header">
         <h1>Analytics Dashboard</h1>
         <p>Comprehensive analytics matching CLI functionality</p>
@@ -1619,7 +1620,7 @@
     </div>
 
   {:else if activeTab === 'services'}
-    <div class="tab-content-open">
+    <div class="section-content">
       <div class="page-header">
         <h1>Service Advertisement Manager</h1>
         <p>BRC-88 SHIP/SLAP Service Publishing & Management</p>
@@ -1875,7 +1876,6 @@
     left: 0;
     top: 0;
     overflow-y: auto;
-    z-index: 10;
   }
 
   .sidebar-header {
@@ -1887,7 +1887,28 @@
     font-size: 1.5rem;
     font-weight: 600;
     color: #f0f6fc;
-    margin: 0;
+    margin: 0 0 1rem 0;
+  }
+
+  .back-btn {
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #8b949e;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .back-btn:hover {
+    background: #30363d;
+    border-color: #58a6ff;
+    color: #f0f6fc;
   }
 
   .nav-menu {
@@ -1896,20 +1917,18 @@
   }
 
   .nav-item {
-    display: flex;
-    align-items: center;
     width: 100%;
-    padding: 0.75rem 1.5rem;
-    margin: 0;
-    background: transparent;
+    background: none;
     border: none;
-    color: #8b949e;
-    font-size: 0.95rem;
-    font-weight: 500;
+    padding: 0.75rem 1.5rem;
     text-align: left;
+    color: #8b949e;
     cursor: pointer;
     transition: all 0.2s;
-    border-left: 3px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 14px;
   }
 
   .nav-item:hover {
@@ -1918,16 +1937,16 @@
   }
 
   .nav-item.active {
-    background: rgba(88, 166, 255, 0.1);
-    color: #58a6ff;
-    border-left-color: #58a6ff;
+    background: #1f6feb;
+    color: #ffffff;
+    font-weight: 500;
   }
 
   .nav-icon {
+    font-size: 16px;
     width: 20px;
-    display: inline-block;
-    margin-right: 0.75rem;
-    font-size: 1rem;
+    display: flex;
+    justify-content: center;
   }
 
   .nav-label {
@@ -1946,7 +1965,24 @@
   .content-wrapper {
     max-width: 1200px;
     margin: 0;
-    width: 100%;
+  }
+
+  .section-content {
+    background: #0d1117;
+  }
+
+  .section-content h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #f0f6fc;
+    margin-bottom: 1rem;
+  }
+
+  .section-content > p {
+    font-size: 1.125rem;
+    color: #8b949e;
+    margin-bottom: 2rem;
+    line-height: 1.6;
   }
 
   /* Page Header */
@@ -3385,62 +3421,60 @@
     border-color: #f85149;
   }
 
-  /* Policy Management Styles */
+  /* Policy Management Styles - GitBook Cards */
   .policy-controls {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-    padding: 1rem;
+    margin-bottom: 2rem;
+    padding: 1.5rem;
     background: #161b22;
-    border: 1px solid #30363d;
+    border: 1px solid #21262d;
     border-radius: 8px;
-    margin-bottom: 1.5rem;
   }
 
   .policy-filters {
     display: flex;
     gap: 1rem;
-    flex: 1;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .search-input, .filter-select {
+    padding: 0.75rem 1rem;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #f0f6fc;
+    font-size: 14px;
+    font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
   }
 
   .search-input {
     flex: 1;
-    max-width: 300px;
-    padding: 0.5rem 0.75rem;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #f0f6fc;
-    font-size: 0.9rem;
+    min-width: 200px;
   }
 
   .filter-select {
-    min-width: 120px;
-    padding: 0.5rem 0.75rem;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #f0f6fc;
-    font-size: 0.9rem;
+    min-width: 140px;
   }
 
   .policy-actions {
     display: flex;
     gap: 0.5rem;
+    justify-content: flex-end;
   }
 
   .policy-form {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
+    margin-bottom: 2rem;
     padding: 1.5rem;
-    margin-bottom: 1.5rem;
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
   }
 
   .policy-form h2 {
-    color: #f0f6fc;
-    margin-bottom: 1rem;
+    color: #58a6ff;
+    font-size: 1.25rem;
+    margin: 0 0 1rem 0;
+    font-weight: 600;
   }
 
   .rules-section {
@@ -3621,41 +3655,43 @@
     margin-top: 1rem;
   }
 
-  @media (max-width: 768px) {
-    .policy-controls {
-      flex-direction: column;
-      align-items: stretch;
+  /* Responsive Design */
+  @media (max-width: 1024px) {
+    .sidebar {
+      width: 240px;
     }
+    .main-content {
+      margin-left: 240px;
+    }
+  }
 
+  @media (max-width: 768px) {
+    .sidebar {
+      position: relative;
+      width: 100%;
+      height: auto;
+    }
+    .main-content {
+      margin-left: 0;
+      padding: 1rem;
+    }
+    .section-content h1 {
+      font-size: 2rem;
+    }
     .policy-filters {
       flex-direction: column;
     }
-
-    .search-input {
-      max-width: none;
-    }
-
     .rules-grid {
       grid-template-columns: 1fr;
     }
-
-    .policy-header {
-      flex-direction: column;
-      gap: 1rem;
+    .analytics-grid {
+      grid-template-columns: 1fr;
     }
-
-    .policy-meta {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 0.5rem;
+    .policies-grid {
+      grid-template-columns: 1fr;
     }
-
-    .policy-actions {
-      align-self: stretch;
-    }
-
-    .policy-actions .btn {
-      flex: 1;
+    .form-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>
