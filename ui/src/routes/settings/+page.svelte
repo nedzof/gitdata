@@ -944,7 +944,7 @@
         class="nav-item {activeTab === 'profile' ? 'active' : ''}"
         on:click={() => activeTab = 'profile'}
       >
-        <span class="nav-icon">USER</span>
+        <span class="nav-icon">•</span>
         <span class="nav-label">Profile</span>
       </button>
 
@@ -952,7 +952,7 @@
         class="nav-item {activeTab === 'policy' ? 'active' : ''}"
         on:click={() => activeTab = 'policy'}
       >
-        <span class="nav-icon">PLCY</span>
+        <span class="nav-icon">•</span>
         <span class="nav-label">Policy</span>
       </button>
 
@@ -960,7 +960,7 @@
         class="nav-item {activeTab === 'analytics' ? 'active' : ''}"
         on:click={() => activeTab = 'analytics'}
       >
-        <span class="nav-icon">ANLY</span>
+        <span class="nav-icon">•</span>
         <span class="nav-label">Analytics</span>
       </button>
 
@@ -968,7 +968,7 @@
         class="nav-item {activeTab === 'services' ? 'active' : ''}"
         on:click={() => activeTab = 'services'}
       >
-        <span class="nav-icon">SRVS</span>
+        <span class="nav-icon">•</span>
         <span class="nav-label">Services</span>
       </button>
 
