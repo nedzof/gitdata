@@ -166,7 +166,7 @@
     walletPublicKey = bsvWalletService.getPublicKey();
 
     // Load existing certificate if available
-    loadCertificate();
+    loadCertificate().catch(error => console.warn('Certificate loading error:', error));
 
     // Load analytics if on analytics tab
     if (activeTab === 'analytics') {
@@ -184,7 +184,7 @@
     }
 
     // Load certificate on mount
-    loadCertificate();
+    loadCertificate().catch(error => console.warn('Certificate loading error:', error));
 
   });
 
@@ -959,10 +959,21 @@
     }
   }
 
-  function loadCertificate() {
+  async function loadCertificate() {
     const identityKey = producerProfile.identityKey || consumerProfile.identityKey;
     if (identityKey) {
       userCertificate = certificateService.getCertificate(identityKey);
+
+      // Try to load certificates from wallet if connected
+      if (walletConnected) {
+        try {
+          await certificateService.loadCertificatesFromWallet();
+          // Reload the certificate in case it was updated from wallet
+          userCertificate = certificateService.getCertificate(identityKey) || userCertificate;
+        } catch (error) {
+          console.warn('Could not load certificates from wallet:', error);
+        }
+      }
     }
   }
 
@@ -984,6 +995,27 @@
     } catch (error) {
       console.error('Certificate download failed:', error);
       alert('Failed to download certificate');
+    }
+  }
+
+  async function saveToWallet() {
+    if (!userCertificate) return;
+
+    try {
+      certificateLoading = true;
+
+      if (!walletConnected) {
+        alert('Please ensure MetaNet Desktop is running and connected before saving to wallet.');
+        return;
+      }
+
+      await certificateService.saveCertificateToWallet(userCertificate.subject);
+      alert('Certificate successfully saved to your BRC-100 MetaNet wallet!');
+    } catch (error) {
+      console.error('Save to wallet failed:', error);
+      alert('Failed to save certificate to wallet: ' + error.message);
+    } finally {
+      certificateLoading = false;
     }
   }
 
@@ -1258,8 +1290,18 @@
                 <button on:click={() => showCertificateDetails = !showCertificateDetails} class="btn btn-secondary">
                   {showCertificateDetails ? 'Hide Details' : 'View Details'}
                 </button>
-                <button on:click={downloadCertificate} class="btn btn-primary">
-                  Download Certificate
+                <button on:click={downloadCertificate} class="btn btn-secondary">
+                  Download JSON
+                </button>
+                <button
+                  on:click={saveToWallet}
+                  disabled={certificateLoading || !walletConnected}
+                  class="btn btn-primary"
+                  title={walletConnected ? 'Save certificate to your BRC-100 MetaNet wallet' : 'Connect your MetaNet wallet first'}
+                >
+                  {certificateLoading ? 'Saving...' :
+                   !walletConnected ? 'Wallet Required' :
+                   'Save to Wallet'}
                 </button>
               </div>
             </div>

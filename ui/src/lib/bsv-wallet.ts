@@ -183,6 +183,72 @@ class BSVWalletService {
   }
 
   /**
+   * Save certificate to BRC-100 MetaNet wallet
+   */
+  async saveCertificateToWallet(certificate: any): Promise<void> {
+    if (!this.isConnected) {
+      throw new Error('Wallet not connected');
+    }
+
+    try {
+      console.log('💾 Saving certificate to MetaNet wallet...');
+
+      // Create a certificate record in the wallet using BSV SDK
+      const certificateRecord = {
+        type: 'certificate',
+        subject: certificate.subject,
+        serialNumber: certificate.serialNumber,
+        certifier: certificate.certifier,
+        fields: certificate.fields,
+        signature: certificate.signature,
+        issuedAt: certificate.issuedAt,
+        expiresAt: certificate.expiresAt
+      };
+
+      // Store the certificate using BSV SDK's record storage
+      await this.walletClient.storeRecord({
+        data: certificateRecord,
+        protocolID: [2, 'gitdata-certificates'],
+        keyID: `cert_${certificate.serialNumber}`,
+        description: `Gitdata Certificate: ${certificate.fields.display_name || 'Participant Certificate'}`
+      });
+
+      console.log('✅ Certificate successfully saved to MetaNet wallet!');
+
+    } catch (error) {
+      console.error('❌ Failed to save certificate to wallet:', error);
+      throw new Error(`Failed to save certificate to wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Get certificates from BRC-100 MetaNet wallet
+   */
+  async getCertificatesFromWallet(): Promise<any[]> {
+    if (!this.isConnected) {
+      throw new Error('Wallet not connected');
+    }
+
+    try {
+      console.log('📋 Retrieving certificates from MetaNet wallet...');
+
+      // Retrieve certificate records from wallet
+      const records = await this.walletClient.findRecords({
+        protocolID: [2, 'gitdata-certificates']
+      });
+
+      const certificates = records.map(record => record.data);
+      console.log(`✅ Retrieved ${certificates.length} certificates from wallet`);
+
+      return certificates;
+
+    } catch (error) {
+      console.error('❌ Failed to retrieve certificates from wallet:', error);
+      throw new Error(`Failed to get certificates from wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
    * Authenticate with backend using BRC-31
    */
   private async authenticateWithBackend(): Promise<void> {

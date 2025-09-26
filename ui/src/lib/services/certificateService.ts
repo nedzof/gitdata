@@ -43,6 +43,11 @@ export class CertificateService {
   constructor() {
     // Load existing certificates from localStorage
     this.loadCertificatesFromStorage()
+
+    // Load certificates from wallet when available (don't await to avoid blocking)
+    this.loadCertificatesFromWallet().catch(error => {
+      console.warn('Failed to load certificates from wallet during initialization:', error)
+    })
   }
 
   /**
@@ -292,6 +297,65 @@ export class CertificateService {
     }
 
     return JSON.stringify(certificate, null, 2)
+  }
+
+  /**
+   * Save certificate to BRC-100 MetaNet wallet
+   */
+  async saveCertificateToWallet(participantId: string): Promise<void> {
+    const certificate = this.getCertificate(participantId)
+    if (!certificate) {
+      throw new Error('Certificate not found')
+    }
+
+    if (!bsvWalletService.isWalletConnected()) {
+      throw new Error('BSV wallet not connected. Please ensure MetaNet Desktop is running and connected.')
+    }
+
+    try {
+      await bsvWalletService.saveCertificateToWallet(certificate)
+    } catch (error) {
+      console.error('Failed to save certificate to wallet:', error)
+      throw new Error(`Failed to save certificate to wallet: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  /**
+   * Load certificates from BRC-100 MetaNet wallet
+   */
+  async loadCertificatesFromWallet(): Promise<void> {
+    if (!bsvWalletService.isWalletConnected()) {
+      console.log('Wallet not connected, skipping wallet certificate load')
+      return
+    }
+
+    try {
+      const walletCertificates = await bsvWalletService.getCertificatesFromWallet()
+
+      for (const cert of walletCertificates) {
+        // Convert wallet certificate format to GitdataCertificate
+        const gitdataCert: GitdataCertificate = {
+          type: cert.type || 'gitdata-participant',
+          subject: cert.subject,
+          serialNumber: cert.serialNumber,
+          fields: cert.fields || {},
+          revocationOutpoint: cert.revocationOutpoint || '',
+          certifier: cert.certifier,
+          signature: cert.signature || '',
+          issuedAt: cert.issuedAt,
+          expiresAt: cert.expiresAt
+        }
+
+        this.certificates.set(cert.subject, gitdataCert)
+      }
+
+      this.saveCertificatesToStorage()
+      console.log(`Loaded ${walletCertificates.length} certificates from MetaNet wallet`)
+
+    } catch (error) {
+      console.warn('Failed to load certificates from wallet:', error)
+      // Don't throw - wallet loading is optional
+    }
   }
 
   /**
