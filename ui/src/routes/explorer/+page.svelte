@@ -210,6 +210,11 @@
     goto(`/data/version/${encodeURIComponent(id)}`);
   }
 
+  function navigateFromLineage(id) {
+    // Check if it's a mock dataset first, if not use the ID directly
+    navigateToDataset(id);
+  }
+
   function handleKeyPress(event) {
     if (event.key === 'Enter') {
       searchDataset();
@@ -335,7 +340,7 @@
 
                     <button
                       class="node-title"
-                      on:click={() => navigateToDataset(node.id)}
+                      on:click={() => navigateFromLineage(node.id)}
                       title="Click to view details"
                     >
                       {node.name}
