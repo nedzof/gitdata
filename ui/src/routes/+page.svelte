@@ -464,7 +464,7 @@
 <!-- Floating Action Button -->
 <button
   class="publish-fab"
-  on:click={() => goto('/producer')}
+  on:click={() => goto('/publish')}
   title="Publish your data to the marketplace"
 >
   📊 Publish Data

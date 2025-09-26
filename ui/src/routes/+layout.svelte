@@ -154,7 +154,7 @@
   }
 
   /* Active state based on current page */
-  .nav-tab[href="/producer"]:global(.active),
+  .nav-tab[href="/publish"]:global(.active),
   .nav-tab[href="/consumer"]:global(.active) {
     color: #58a6ff;
     background: #0d1117;

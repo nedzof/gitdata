@@ -1,8 +1,9 @@
-<script>
+<script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { certificateService } from '$lib/services/certificateService';
 
   let activeTab = 'profile'; // Default to profile tab
   let overlayUrl = 'http://localhost:8788';
@@ -48,6 +49,18 @@
 
 
   let loading = false;
+
+  // Certificate management variables
+  let userCertificate = null;
+  let certificateLoading = false;
+  let showCertificateDetails = false;
+
+  // Certificate pulling variables
+  let showPullForm = false;
+  let pullUrl = 'http://localhost:3002'; // Default coolcert URL
+  let pullLoading = false;
+  let showImportForm = false;
+  let importJson = '';
 
   // Policy management variables
   let policies = [];
@@ -158,6 +171,9 @@
     if (activeTab === 'policy') {
       await loadPolicies();
     }
+
+    // Load certificate on mount
+    loadCertificate();
 
   });
 
@@ -901,6 +917,129 @@
     return String(value);
   }
 
+  // Certificate Management Functions
+  async function issueCertificate() {
+    try {
+      certificateLoading = true;
+
+      // Create combined profile from producer and consumer data
+      const combinedProfile = {
+        identityKey: producerProfile.identityKey || consumerProfile.identityKey,
+        displayName: producerProfile.displayName || consumerProfile.displayName,
+        description: producerProfile.description || consumerProfile.description,
+        region: producerProfile.region || consumerProfile.region,
+        contactEmail: producerProfile.contactEmail || consumerProfile.contactEmail,
+        website: producerProfile.website || consumerProfile.website,
+        producerInitialized,
+        consumerInitialized,
+        overlayUrl,
+        capabilities: ['data-production', 'data-consumption'] // Default capabilities
+      };
+
+      const certificate = await certificateService.issueCertificate(combinedProfile);
+      userCertificate = certificate;
+
+      alert('Certificate issued successfully! You are now a verified Gitdata participant.');
+    } catch (error) {
+      console.error('Certificate issuance failed:', error);
+      alert('Failed to issue certificate: ' + error.message);
+    } finally {
+      certificateLoading = false;
+    }
+  }
+
+  function loadCertificate() {
+    const identityKey = producerProfile.identityKey || consumerProfile.identityKey;
+    if (identityKey) {
+      userCertificate = certificateService.getCertificate(identityKey);
+    }
+  }
+
+  function downloadCertificate() {
+    if (!userCertificate) return;
+
+    try {
+      const certificateJson = certificateService.exportCertificate(userCertificate.subject);
+      const blob = new Blob([certificateJson], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `gitdata-certificate-${userCertificate.subject}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Certificate download failed:', error);
+      alert('Failed to download certificate');
+    }
+  }
+
+  function formatCertificateDate(dateString) {
+    return new Date(dateString).toLocaleDateString();
+  }
+
+  function getCertificateStatus(certificate) {
+    if (!certificate) return 'none';
+    if (certificate.fields.revoked) return 'revoked';
+    if (certificate.expiresAt && new Date() > new Date(certificate.expiresAt)) return 'expired';
+    return 'valid';
+  }
+
+  function getCertificateStatusColor(status) {
+    switch (status) {
+      case 'valid': return 'status-success';
+      case 'expired': return 'status-warning';
+      case 'revoked': return 'status-error';
+      default: return 'status-inactive';
+    }
+  }
+
+  // Certificate Pulling Functions
+  async function pullCertificate() {
+    try {
+      pullLoading = true;
+      const participantId = producerProfile.identityKey || consumerProfile.identityKey;
+
+      if (!participantId) {
+        alert('Please initialize your identity first');
+        return;
+      }
+
+      const certificate = await certificateService.pullCertificate(pullUrl, participantId);
+      userCertificate = certificate;
+      showPullForm = false;
+      pullUrl = 'http://localhost:3002'; // Reset to default
+
+      alert('Certificate successfully pulled from external certifier!');
+    } catch (error) {
+      console.error('Certificate pull failed:', error);
+      alert('Failed to pull certificate: ' + error.message);
+    } finally {
+      pullLoading = false;
+    }
+  }
+
+  async function importCertificate() {
+    try {
+      if (!importJson.trim()) {
+        alert('Please enter certificate JSON data');
+        return;
+      }
+
+      const certificate = certificateService.importCertificate(importJson);
+      userCertificate = certificate;
+      showImportForm = false;
+      importJson = '';
+
+      alert('Certificate successfully imported!');
+    } catch (error) {
+      console.error('Certificate import failed:', error);
+      alert('Failed to import certificate: ' + error.message);
+    }
+  }
+
   // Reactive statements for tab switching
   $: {
     if (activeTab === 'analytics' && !analyticsData) {
@@ -945,7 +1084,7 @@
         on:click={() => activeTab = 'profile'}
       >
         <span class="nav-icon">•</span>
-        <span class="nav-label">Profile</span>
+        <span class="nav-label">Identity</span>
       </button>
 
       <button
@@ -1083,6 +1222,269 @@
                 Browse Marketplace
               </a>
             </div>
+        {/if}
+      </div>
+
+      <!-- Certificate Management Section -->
+      <div class="certificate-section">
+        <h1>Identity Certificate</h1>
+        <p>Verify your identity and earn recognition as a trusted Gitdata participant</p>
+
+        {#if userCertificate}
+          <!-- Display Existing Certificate -->
+          <div class="certificate-card">
+            <div class="certificate-header">
+              <div class="certificate-info">
+                <h3>Gitdata Participant Certificate</h3>
+                <div class="certificate-meta">
+                  <span class="certificate-status {getCertificateStatusColor(getCertificateStatus(userCertificate))}">
+                    {getCertificateStatus(userCertificate).toUpperCase()}
+                  </span>
+                  <span class="certificate-id">Serial: {userCertificate.serialNumber.substring(0, 12)}...</span>
+                </div>
+              </div>
+              <div class="certificate-actions">
+                <button on:click={() => showCertificateDetails = !showCertificateDetails} class="btn btn-secondary">
+                  {showCertificateDetails ? 'Hide Details' : 'View Details'}
+                </button>
+                <button on:click={downloadCertificate} class="btn btn-primary">
+                  Download Certificate
+                </button>
+              </div>
+            </div>
+
+            <div class="certificate-fields">
+              <div class="field-grid">
+                <div class="field-item">
+                  <label>Participant Status</label>
+                  <span class="field-value verified">{userCertificate.fields.participant}</span>
+                </div>
+                <div class="field-item">
+                  <label>Display Name</label>
+                  <span class="field-value">{userCertificate.fields.display_name}</span>
+                </div>
+                <div class="field-item">
+                  <label>Producer Status</label>
+                  <span class="field-value status-{userCertificate.fields.producer_status}">
+                    {userCertificate.fields.producer_status}
+                  </span>
+                </div>
+                <div class="field-item">
+                  <label>Consumer Status</label>
+                  <span class="field-value status-{userCertificate.fields.consumer_status}">
+                    {userCertificate.fields.consumer_status}
+                  </span>
+                </div>
+                <div class="field-item">
+                  <label>Reputation Score</label>
+                  <span class="field-value reputation">{userCertificate.fields.reputation_score}/100</span>
+                </div>
+                <div class="field-item">
+                  <label>Region</label>
+                  <span class="field-value region">{userCertificate.fields.region}</span>
+                </div>
+                <div class="field-item">
+                  <label>Issued Date</label>
+                  <span class="field-value">{formatCertificateDate(userCertificate.issuedAt)}</span>
+                </div>
+                <div class="field-item">
+                  <label>Expires Date</label>
+                  <span class="field-value">{userCertificate.expiresAt ? formatCertificateDate(userCertificate.expiresAt) : 'Never'}</span>
+                </div>
+              </div>
+
+              {#if showCertificateDetails}
+                <div class="certificate-details">
+                  <h4>Certificate Details</h4>
+                  <div class="detail-grid">
+                    <div class="detail-item">
+                      <label>Certificate Type</label>
+                      <code>{userCertificate.type}</code>
+                    </div>
+                    <div class="detail-item">
+                      <label>Subject (Identity Key)</label>
+                      <code>{userCertificate.subject}</code>
+                    </div>
+                    <div class="detail-item">
+                      <label>Certifier</label>
+                      <code>{userCertificate.certifier}</code>
+                    </div>
+                    <div class="detail-item">
+                      <label>Serial Number</label>
+                      <code>{userCertificate.serialNumber}</code>
+                    </div>
+                  </div>
+
+                  <div class="additional-fields">
+                    <h5>Additional Information</h5>
+                    <div class="field-grid">
+                      <div class="field-item">
+                        <label>Overlay Network</label>
+                        <span class="field-value">{userCertificate.fields.overlay_network}</span>
+                      </div>
+                      <div class="field-item">
+                        <label>KYC Level</label>
+                        <span class="field-value kyc-{userCertificate.fields.kyc_level}">{userCertificate.fields.kyc_level}</span>
+                      </div>
+                      {#if userCertificate.fields.services_offered}
+                        <div class="field-item">
+                          <label>Services Offered</label>
+                          <span class="field-value">{userCertificate.fields.services_offered}</span>
+                        </div>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {:else}
+          <!-- Issue New Certificate -->
+          <div class="certificate-issuance">
+            <div class="issuance-card">
+              <h3>Get Your Identity Certificate</h3>
+              <p>Become a verified participant in the Gitdata ecosystem. Your certificate will include:</p>
+
+              <ul class="benefits-list">
+                <li>Verified identity and reputation score</li>
+                <li>Producer and consumer status verification</li>
+                <li>Access to premium marketplace features</li>
+                <li>Enhanced trust and credibility</li>
+                <li>Compliance with ecosystem standards</li>
+              </ul>
+
+              {#if producerInitialized || consumerInitialized}
+                <div class="certificate-requirements">
+                  <h4>Certificate Information</h4>
+                  <div class="req-grid">
+                    <div class="req-item">
+                      <label>Identity</label>
+                      <span>{producerProfile.displayName || consumerProfile.displayName}</span>
+                    </div>
+                    <div class="req-item">
+                      <label>Region</label>
+                      <span>{producerProfile.region || consumerProfile.region}</span>
+                    </div>
+                    <div class="req-item">
+                      <label>Producer</label>
+                      <span class={producerInitialized ? 'verified' : 'inactive'}>
+                        {producerInitialized ? 'Verified' : 'Not Active'}
+                      </span>
+                    </div>
+                    <div class="req-item">
+                      <label>Consumer</label>
+                      <span class={consumerInitialized ? 'verified' : 'inactive'}>
+                        {consumerInitialized ? 'Verified' : 'Not Active'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="issuance-actions">
+                  <button
+                    on:click={issueCertificate}
+                    disabled={certificateLoading}
+                    class="btn btn-primary btn-large"
+                  >
+                    {certificateLoading ? 'Issuing Certificate...' : 'Issue My Certificate'}
+                  </button>
+
+                  <div class="alternative-options">
+                    <span class="or-divider">OR</span>
+                    <button
+                      on:click={() => showPullForm = !showPullForm}
+                      class="btn btn-secondary"
+                    >
+                      Pull from Certifier
+                    </button>
+                    <button
+                      on:click={() => showImportForm = !showImportForm}
+                      class="btn btn-secondary"
+                    >
+                      Import Certificate
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Pull Certificate Form -->
+                {#if showPullForm}
+                  <div class="pull-form">
+                    <h4>Pull Certificate from External Certifier</h4>
+                    <p>Connect to an external certificate authority like CoolCert to obtain a verified certificate.</p>
+
+                    <div class="form-group">
+                      <label for="pullUrl">Certifier URL</label>
+                      <input
+                        id="pullUrl"
+                        type="url"
+                        bind:value={pullUrl}
+                        placeholder="http://localhost:3002"
+                        class="form-input"
+                      />
+                      <small class="help-text">Default: http://localhost:3002 (CoolCert server)</small>
+                    </div>
+
+                    <div class="form-actions">
+                      <button
+                        on:click={pullCertificate}
+                        disabled={pullLoading}
+                        class="btn btn-primary"
+                      >
+                        {pullLoading ? 'Pulling Certificate...' : 'Pull Certificate'}
+                      </button>
+                      <button
+                        on:click={() => showPullForm = false}
+                        class="btn btn-secondary"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                {/if}
+
+                <!-- Import Certificate Form -->
+                {#if showImportForm}
+                  <div class="import-form">
+                    <h4>Import Certificate from JSON</h4>
+                    <p>Import a certificate that was previously exported or shared with you.</p>
+
+                    <div class="form-group">
+                      <label for="importJson">Certificate JSON</label>
+                      <textarea
+                        id="importJson"
+                        bind:value={importJson}
+                        placeholder="Paste certificate JSON here..."
+                        rows="8"
+                        class="form-input"
+                      ></textarea>
+                      <small class="help-text">Paste the complete JSON certificate data</small>
+                    </div>
+
+                    <div class="form-actions">
+                      <button
+                        on:click={importCertificate}
+                        disabled={!importJson.trim()}
+                        class="btn btn-primary"
+                      >
+                        Import Certificate
+                      </button>
+                      <button
+                        on:click={() => showImportForm = false}
+                        class="btn btn-secondary"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                {/if}
+              {:else}
+                <div class="requirement-notice">
+                  <p><strong>Please complete your identity setup first.</strong></p>
+                  <p>You need to initialize your producer or consumer identity before you can request a certificate.</p>
+                </div>
+              {/if}
+            </div>
+          </div>
         {/if}
       </div>
     </div>
@@ -3653,6 +4055,281 @@
 
   .empty-state button {
     margin-top: 1rem;
+  }
+
+  /* Certificate Management Styles */
+  .certificate-section {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .certificate-section h2 {
+    color: #f0f6fc;
+    margin-bottom: 1rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .certificate-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .stat-item {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    padding: 1rem;
+    text-align: center;
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #58a6ff;
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+
+  .stat-label {
+    color: #8b949e;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  .certificate-actions {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    align-items: center;
+  }
+
+  .certificate-cards {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .certificate-card {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 1.5rem;
+    transition: border-color 0.2s;
+  }
+
+  .certificate-card:hover {
+    border-color: #58a6ff;
+  }
+
+  .certificate-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+  }
+
+  .certificate-info h3 {
+    color: #f0f6fc;
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .certificate-subject {
+    color: #8b949e;
+    font-size: 0.9rem;
+    font-family: monospace;
+    word-break: break-all;
+  }
+
+  .certificate-status {
+    display: flex;
+    align-items: center;
+  }
+
+  .certificate-fields {
+    margin-bottom: 1rem;
+  }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+  }
+
+  .field-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .field-label {
+    color: #6e7681;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .field-value {
+    color: #f0f6fc;
+    font-size: 0.9rem;
+  }
+
+  .certificate-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 1rem;
+    border-top: 1px solid #21262d;
+    color: #6e7681;
+    font-size: 0.8rem;
+  }
+
+  .issuance-form {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-top: 1rem;
+  }
+
+  .issuance-form h3 {
+    color: #58a6ff;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .benefits-section {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: rgba(88, 166, 255, 0.05);
+    border: 1px solid rgba(88, 166, 255, 0.2);
+    border-radius: 6px;
+  }
+
+  .benefits-section h4 {
+    color: #58a6ff;
+    margin-bottom: 0.75rem;
+    font-size: 0.95rem;
+  }
+
+  .benefits-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .benefits-list li {
+    color: #8b949e;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .benefits-list li:before {
+    content: "✓";
+    color: #2ea043;
+    font-weight: 600;
+  }
+
+  .issuance-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .certificate-download {
+    margin-left: auto;
+  }
+
+  .certificate-empty {
+    text-align: center;
+    padding: 2rem;
+    color: #8b949e;
+  }
+
+  .certificate-empty .icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+  }
+
+  /* Certificate Pull & Import Styles */
+  .alternative-options {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #21262d;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    justify-content: center;
+  }
+
+  .or-divider {
+    color: #6e7681;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .pull-form, .import-form {
+    margin-top: 1.5rem;
+    padding: 1.5rem;
+    background: rgba(88, 166, 255, 0.05);
+    border: 1px solid rgba(88, 166, 255, 0.2);
+    border-radius: 8px;
+  }
+
+  .pull-form h4, .import-form h4 {
+    color: #58a6ff;
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+  }
+
+  .pull-form p, .import-form p {
+    color: #8b949e;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+  }
+
+  .help-text {
+    color: #6e7681;
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+    display: block;
+  }
+
+  .form-input[type="url"] {
+    font-family: monospace;
+  }
+
+  .form-input textarea {
+    resize: vertical;
+    font-family: monospace;
+    font-size: 0.85rem;
+  }
+
+  .btn-large {
+    padding: 1rem 2rem;
+    font-size: 1.1rem;
+    font-weight: 600;
   }
 
   /* Responsive Design */
