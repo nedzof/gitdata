@@ -165,8 +165,8 @@
     walletConnected = bsvWalletService.isWalletConnected();
     walletPublicKey = bsvWalletService.getPublicKey();
 
-    // Load existing certificate if available
-    loadCertificate().catch(error => console.warn('Certificate loading error:', error));
+    // Load existing certificate if available (only load, don't auto-issue)
+    loadCertificateOnly().catch(error => console.warn('Certificate loading error:', error));
 
     // Load analytics if on analytics tab
     if (activeTab === 'analytics') {
@@ -182,9 +182,6 @@
     if (activeTab === 'policy') {
       await loadPolicies();
     }
-
-    // Load certificate on mount
-    loadCertificate().catch(error => console.warn('Certificate loading error:', error));
 
   });
 
@@ -345,7 +342,9 @@
   }
 
   function resetProducerIdentity() {
+    console.log('Reset Producer Identity button clicked!');
     if (confirm('Are you sure you want to reset your marketplace identity? This will remove both your producer and consumer capabilities.')) {
+      console.log('User confirmed reset - proceeding with reset...');
       localStorage.removeItem('producer-identity');
       localStorage.removeItem('consumer-identity');
 
@@ -929,6 +928,44 @@
   }
 
   // Certificate Management Functions
+  // Only load existing certificates, don't auto-issue
+  async function loadCertificateOnly() {
+    try {
+      certificateLoading = true;
+      // Try to load existing certificates
+      await certificateService.loadCertificatesFromWallet();
+      const certificates = certificateService.getAllCertificates();
+      if (certificates.length > 0) {
+        userCertificate = certificates[0];
+      }
+      // Don't auto-issue - let user explicitly request certificate
+    } catch (error) {
+      console.error('Failed to load certificate:', error);
+    } finally {
+      certificateLoading = false;
+    }
+  }
+
+  // Load existing certificates and auto-issue if none exist (for backwards compatibility)
+  async function loadCertificate() {
+    try {
+      certificateLoading = true;
+      // Try to load existing certificates
+      await certificateService.loadCertificatesFromWallet();
+      const certificates = certificateService.getAllCertificates();
+      if (certificates.length > 0) {
+        userCertificate = certificates[0];
+      } else {
+        // Try to issue a new certificate if none exists
+        await issueCertificate();
+      }
+    } catch (error) {
+      console.error('Failed to load certificate:', error);
+    } finally {
+      certificateLoading = false;
+    }
+  }
+
   async function issueCertificate() {
     try {
       certificateLoading = true;
@@ -959,23 +996,6 @@
     }
   }
 
-  async function loadCertificate() {
-    const identityKey = producerProfile.identityKey || consumerProfile.identityKey;
-    if (identityKey) {
-      userCertificate = certificateService.getCertificate(identityKey);
-
-      // Try to load certificates from wallet if connected
-      if (walletConnected) {
-        try {
-          await certificateService.loadCertificatesFromWallet();
-          // Reload the certificate in case it was updated from wallet
-          userCertificate = certificateService.getCertificate(identityKey) || userCertificate;
-        } catch (error) {
-          console.warn('Could not load certificates from wallet:', error);
-        }
-      }
-    }
-  }
 
   function downloadCertificate() {
     if (!userCertificate) return;
@@ -1252,333 +1272,71 @@
               </div>
             </div>
 
-            <div class="profile-capabilities">
-              <h4>Marketplace Capabilities</h4>
-              <div class="capability-grid">
-                <div class="capability-item">
-                  <div class="capability-info">
-                    <strong>Data Producer</strong>
-                    <span>Publish and sell data</span>
-                  </div>
-                </div>
-                <div class="capability-item">
-                  <div class="capability-info">
-                    <strong>Data Consumer</strong>
-                    <span>Purchase and access data</span>
-                  </div>
-                </div>
-              </div>
-            </div>
 
             <div class="profile-actions">
               <button on:click={resetProducerIdentity} class="btn btn-secondary">
                 Reset Identity
               </button>
-              <a href="/market" class="btn btn-primary">
+              <a href="/" class="btn btn-primary">
                 Browse Marketplace
               </a>
             </div>
         {/if}
       </div>
-
-      <!-- Certificate Management Section -->
+    </div>
+  {:else if activeTab === 'identity'}
+    <div class="section-content">
+      <!-- Identity Certificate -->
       <div class="certificate-section">
         <h1>Identity Certificate</h1>
-        <p>Verify your identity and earn recognition as a trusted Gitdata participant</p>
 
-        {#if userCertificate}
-          <!-- Display Existing Certificate -->
-          <div class="certificate-card">
+        {#if certificateLoading}
+          <div class="loading-state">
+            <p>Loading certificate...</p>
+          </div>
+        {:else if userCertificate}
+          <div class="certificate-readonly">
             <div class="certificate-header">
-              <div class="certificate-info">
-                <h3>Gitdata Participant Certificate</h3>
-                <div class="certificate-meta">
-                  <span class="certificate-status {getCertificateStatusColor(getCertificateStatus(userCertificate))}">
-                    {getCertificateStatus(userCertificate).toUpperCase()}
-                  </span>
-                  <span class="certificate-id">Serial: {userCertificate.serialNumber.substring(0, 12)}...</span>
-                </div>
-              </div>
-              <div class="certificate-actions">
-                <button on:click={() => showCertificateDetails = !showCertificateDetails} class="btn btn-secondary">
-                  {showCertificateDetails ? 'Hide Details' : 'View Details'}
-                </button>
-                <button on:click={downloadCertificate} class="btn btn-secondary">
-                  Download JSON
-                </button>
-                <button
-                  on:click={saveToWallet}
-                  disabled={certificateLoading || !walletConnected}
-                  class="btn btn-primary"
-                  title={walletConnected ? 'Import certificate to your BSV Desktop wallet' : 'Connect your MetaNet wallet first'}
-                >
-                  {certificateLoading ? 'Importing...' :
-                   !walletConnected ? 'Wallet Required' :
-                   'Import to Wallet'}
-                </button>
-              </div>
+              <h3>Gitdata Participant Certificate</h3>
+              <span class="certificate-status verified">VALID</span>
             </div>
-
-            <div class="certificate-fields">
-              <div class="field-grid">
-                <div class="field-item">
-                  <label>Participant Status</label>
-                  <span class="field-value verified">{userCertificate.fields.participant}</span>
-                </div>
-                <div class="field-item">
-                  <label>Display Name</label>
-                  <span class="field-value">{userCertificate.fields.display_name}</span>
-                </div>
-                <div class="field-item">
-                  <label>Producer Status</label>
-                  <span class="field-value status-{userCertificate.fields.producer_status}">
-                    {userCertificate.fields.producer_status}
-                  </span>
-                </div>
-                <div class="field-item">
-                  <label>Consumer Status</label>
-                  <span class="field-value status-{userCertificate.fields.consumer_status}">
-                    {userCertificate.fields.consumer_status}
-                  </span>
-                </div>
-                <div class="field-item">
-                  <label>Reputation Score</label>
-                  <span class="field-value reputation">{userCertificate.fields.reputation_score}/100</span>
-                </div>
-                <div class="field-item">
-                  <label>Region</label>
-                  <span class="field-value region">{userCertificate.fields.region}</span>
-                </div>
-                <div class="field-item">
-                  <label>Issued Date</label>
-                  <span class="field-value">{formatCertificateDate(userCertificate.issuedAt)}</span>
-                </div>
-                <div class="field-item">
-                  <label>Expires Date</label>
-                  <span class="field-value">{userCertificate.expiresAt ? formatCertificateDate(userCertificate.expiresAt) : 'Never'}</span>
-                </div>
+            <div class="certificate-info">
+              <div class="info-row">
+                <label>Name:</label>
+                <span>{userCertificate.fields?.display_name || 'Unknown'}</span>
               </div>
-
-              {#if showCertificateDetails}
-                <div class="certificate-details">
-                  <h4>Certificate Details</h4>
-                  <div class="detail-grid">
-                    <div class="detail-item">
-                      <label>Certificate Type</label>
-                      <code>{userCertificate.type}</code>
-                    </div>
-                    <div class="detail-item">
-                      <label>Subject (Identity Key)</label>
-                      <code>{userCertificate.subject}</code>
-                    </div>
-                    <div class="detail-item">
-                      <label>Certifier</label>
-                      <code>{userCertificate.certifier}</code>
-                    </div>
-                    <div class="detail-item">
-                      <label>Serial Number</label>
-                      <code>{userCertificate.serialNumber}</code>
-                    </div>
-                  </div>
-
-                  <div class="additional-fields">
-                    <h5>Additional Information</h5>
-                    <div class="field-grid">
-                      <div class="field-item">
-                        <label>Overlay Network</label>
-                        <span class="field-value">{userCertificate.fields.overlay_network}</span>
-                      </div>
-                      <div class="field-item">
-                        <label>KYC Level</label>
-                        <span class="field-value kyc-{userCertificate.fields.kyc_level}">{userCertificate.fields.kyc_level}</span>
-                      </div>
-                      {#if userCertificate.fields.services_offered}
-                        <div class="field-item">
-                          <label>Services Offered</label>
-                          <span class="field-value">{userCertificate.fields.services_offered}</span>
-                        </div>
-                      {/if}
-                    </div>
-                  </div>
+              <div class="info-row">
+                <label>Status:</label>
+                <span class="verified">{userCertificate.fields?.participant || 'verified'}</span>
+              </div>
+              <div class="info-row">
+                <label>Identity Key:</label>
+                <code>{userCertificate.subject?.substring(0, 32) || 'N/A'}...</code>
+              </div>
+              <div class="info-row">
+                <label>Serial Number:</label>
+                <code>{userCertificate.serialNumber?.substring(0, 16) || 'N/A'}...</code>
+              </div>
+              <div class="info-row">
+                <label>Issued:</label>
+                <span>{userCertificate.issuedAt ? formatCertificateDate(userCertificate.issuedAt) : 'N/A'}</span>
+              </div>
+              {#if userCertificate.expiresAt}
+                <div class="info-row">
+                  <label>Expires:</label>
+                  <span>{formatCertificateDate(userCertificate.expiresAt)}</span>
                 </div>
               {/if}
             </div>
           </div>
         {:else}
-          <!-- Issue New Certificate -->
-          <div class="certificate-issuance">
-            <div class="issuance-card">
-              <h3>Get Your Identity Certificate</h3>
-              <p>Become a verified participant in the Gitdata ecosystem. Your certificate will include:</p>
-
-              <ul class="benefits-list">
-                <li>Verified identity and reputation score</li>
-                <li>Producer and consumer status verification</li>
-                <li>Access to premium marketplace features</li>
-                <li>Enhanced trust and credibility</li>
-                <li>Compliance with ecosystem standards</li>
-              </ul>
-
-              {#if producerInitialized || consumerInitialized}
-                <div class="certificate-requirements">
-                  <h4>Certificate Information</h4>
-                  <div class="req-grid">
-                    <div class="req-item">
-                      <label>Identity</label>
-                      <span>{producerProfile.displayName || consumerProfile.displayName}</span>
-                    </div>
-                    <div class="req-item">
-                      <label>Region</label>
-                      <span>{producerProfile.region || consumerProfile.region}</span>
-                    </div>
-                    <div class="req-item">
-                      <label>Producer</label>
-                      <span class={producerInitialized ? 'verified' : 'inactive'}>
-                        {producerInitialized ? 'Verified' : 'Not Active'}
-                      </span>
-                    </div>
-                    <div class="req-item">
-                      <label>Consumer</label>
-                      <span class={consumerInitialized ? 'verified' : 'inactive'}>
-                        {consumerInitialized ? 'Verified' : 'Not Active'}
-                      </span>
-                    </div>
-                    <div class="req-item">
-                      <label>BSV Wallet</label>
-                      <span class={walletConnected ? 'verified' : 'inactive'}>
-                        {walletConnected ? 'Connected' : 'Not Connected'}
-                      </span>
-                    </div>
-                    {#if walletConnected && walletPublicKey}
-                      <div class="req-item">
-                        <label>Wallet Key</label>
-                        <code class="wallet-key">{walletPublicKey.substring(0, 16)}...</code>
-                      </div>
-                    {/if}
-                  </div>
-                </div>
-
-                {#if !walletConnected}
-                  <div class="wallet-notice">
-                    <p><strong>BSV Wallet Required</strong></p>
-                    <p>Please ensure MetaNet Desktop is running and connected to issue real certificates.</p>
-                    <button class="btn btn-secondary" on:click={() => location.reload()}>
-                      Check Wallet Connection
-                    </button>
-                  </div>
-                {/if}
-
-                <div class="issuance-actions">
-                  <button
-                    on:click={issueCertificate}
-                    disabled={certificateLoading || !walletConnected}
-                    class="btn btn-primary btn-large"
-                  >
-                    {certificateLoading ? 'Issuing Certificate...' :
-                     !walletConnected ? 'Connect BSV Wallet First' :
-                     'Issue My Certificate'}
-                  </button>
-
-                  <div class="alternative-options">
-                    <span class="or-divider">OR</span>
-                    <button
-                      on:click={() => showPullForm = !showPullForm}
-                      class="btn btn-secondary"
-                    >
-                      Pull from Certifier
-                    </button>
-                    <button
-                      on:click={() => showImportForm = !showImportForm}
-                      class="btn btn-secondary"
-                    >
-                      Import Certificate
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Pull Certificate Form -->
-                {#if showPullForm}
-                  <div class="pull-form">
-                    <h4>Pull Certificate from External Certifier</h4>
-                    <p>Connect to an external certificate authority like CoolCert to obtain a verified certificate.</p>
-
-                    <div class="form-group">
-                      <label for="pullUrl">Certifier URL</label>
-                      <input
-                        id="pullUrl"
-                        type="url"
-                        bind:value={pullUrl}
-                        placeholder="http://localhost:3002"
-                        class="form-input"
-                      />
-                      <small class="help-text">Default: http://localhost:3002 (CoolCert server)</small>
-                    </div>
-
-                    <div class="form-actions">
-                      <button
-                        on:click={pullCertificate}
-                        disabled={pullLoading}
-                        class="btn btn-primary"
-                      >
-                        {pullLoading ? 'Pulling Certificate...' : 'Pull Certificate'}
-                      </button>
-                      <button
-                        on:click={() => showPullForm = false}
-                        class="btn btn-secondary"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                {/if}
-
-                <!-- Import Certificate Form -->
-                {#if showImportForm}
-                  <div class="import-form">
-                    <h4>Import Certificate from JSON</h4>
-                    <p>Import a certificate that was previously exported or shared with you.</p>
-
-                    <div class="form-group">
-                      <label for="importJson">Certificate JSON</label>
-                      <textarea
-                        id="importJson"
-                        bind:value={importJson}
-                        placeholder="Paste certificate JSON here..."
-                        rows="8"
-                        class="form-input"
-                      ></textarea>
-                      <small class="help-text">Paste the complete JSON certificate data</small>
-                    </div>
-
-                    <div class="form-actions">
-                      <button
-                        on:click={importCertificate}
-                        disabled={!importJson.trim()}
-                        class="btn btn-primary"
-                      >
-                        Import Certificate
-                      </button>
-                      <button
-                        on:click={() => showImportForm = false}
-                        class="btn btn-secondary"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                {/if}
-              {:else}
-                <div class="requirement-notice">
-                  <p><strong>Please complete your identity setup first.</strong></p>
-                  <p>You need to initialize your producer or consumer identity before you can request a certificate.</p>
-                </div>
-              {/if}
-            </div>
+          <div class="no-certificate">
+            <p>No certificate found</p>
+            <button on:click={loadCertificate} class="btn btn-primary">Load Certificate</button>
           </div>
         {/if}
       </div>
     </div>
-
   {:else if activeTab === 'policy'}
     <div class="section-content">
       <div class="page-header">
@@ -4156,7 +3914,7 @@
     margin-bottom: 2rem;
   }
 
-  .certificate-section h2 {
+  .certificate-section h1 {
     color: #f0f6fc;
     margin-bottom: 1rem;
     font-size: 1.25rem;
@@ -4164,6 +3922,85 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
+  }
+
+  .certificate-readonly {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    padding: 1rem;
+  }
+
+  .certificate-readonly .certificate-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #21262d;
+  }
+
+  .certificate-readonly .certificate-header h3 {
+    color: #f0f6fc;
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+
+  .certificate-info .info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #161b22;
+  }
+
+  .certificate-info .info-row:last-child {
+    border-bottom: none;
+  }
+
+  .certificate-info label {
+    color: #8b949e;
+    font-weight: 500;
+    min-width: 120px;
+  }
+
+  .certificate-info span {
+    color: #f0f6fc;
+    font-family: 'SF Mono', Monaco, Inconsolata, 'Roboto Mono', Consolas, 'Courier New', monospace;
+  }
+
+  .certificate-info code {
+    background: #161b22;
+    color: #79c0ff;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.85rem;
+    border: 1px solid #21262d;
+  }
+
+  .certificate-info .verified {
+    color: #2ea043;
+    font-weight: 600;
+  }
+
+  .no-certificate {
+    text-align: center;
+    padding: 2rem;
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+  }
+
+  .no-certificate p {
+    color: #8b949e;
+    margin-bottom: 1rem;
+  }
+
+  .loading-state {
+    text-align: center;
+    padding: 2rem;
+    color: #8b949e;
   }
 
   .certificate-stats {
