@@ -883,6 +883,16 @@
     return badges[status] || badges.active;
   }
 
+  // Reactive statements for tab switching
+  $: {
+    if (activeTab === 'analytics' && !analyticsData) {
+      loadAnalytics();
+    }
+    if (activeTab === 'services' && services.length === 0 && !servicesLoading) {
+      loadServices();
+    }
+  }
+
   // Reactive statements for policies
   $: paginatedPolicies = filteredPolicies.slice(currentPolicyPage * policyPageSize, (currentPolicyPage + 1) * policyPageSize);
   $: uniquePolicyTypes = [...new Set(policies.map(p => p.type))];
