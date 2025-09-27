@@ -265,35 +265,20 @@ class BSVWallet {
     }
 
     try {
-      console.log('🔄 Acquiring Gitdata certificate...');
+      console.log('🔄 Acquiring Gitdata certificate using BSV SDK...');
 
-      // Check certificate service
-      const statusResponse = await fetch(`${this.config.apiUrl}/v1/certificate/status`);
-      if (!statusResponse.ok) {
-        throw new Error('Certificate service not available');
-      }
-
-      const statusData = await statusResponse.json();
-      if (!statusData.bsvAuthEnabled) {
-        throw new Error('BSV authentication not enabled on server');
-      }
-
-      // Use BSV SDK's certificate acquisition
-      const { MasterCertificate } = await import('@bsv/sdk');
-
+      // Manually implement certificate acquisition following CoolCert pattern
       const certificateFields = {
-        display_name: displayName || 'Gitdata User',
-        participant: 'verified',
-        level: 'standard'
+        cool: 'true'  // CoolCert-style validation field
       };
 
-      console.log('🔐 Acquiring certificate with fields:', certificateFields);
+      console.log('🔐 Creating certificate signing request with fields:', certificateFields);
 
-      const certificate = await MasterCertificate.acquireCertificate({
-        type: statusData.certificateType,
-        fields: certificateFields,
-        certifierUrl: `${this.config.apiUrl}/v1/certificate`,
-        wallet: this.wallet
+      // Create certificate manually using wallet's certificate acquisition method
+      const certificate = await this.wallet.acquireCertificate({
+        type: 'AGfk/WrT1eBDXpz3mcw386Zww2HmqcIn3uY6x4Af1eo=',
+        certifierUrl: `${this.config.apiUrl}/v1`,
+        fields: certificateFields
       });
 
       console.log('✅ Certificate acquired successfully');

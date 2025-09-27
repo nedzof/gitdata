@@ -172,23 +172,33 @@
 
   async function loadIdentity() {
     try {
-      console.log('👤 Loading unified identity...');
+      console.log('👤 Loading unified identity from wallet certificate...');
       identityStatus.identity = 'loading';
 
-      // Check if identity exists
-      const response = await api.request('/v1/identity/status');
-      console.log('📊 Identity status response:', response);
+      // CoolCert approach: Identity comes from certificate in wallet
+      if (!walletConnected || !walletPublicKey) {
+        identityStatus.identity = 'none';
+        console.log('ℹ️ No wallet connected - identity requires wallet connection');
+        return;
+      }
 
-      if (response.identity && response.identity.key) {
+      // Load certificates from wallet first
+      await certificateService.loadCertificatesFromWallet();
+      const certificates = certificateService.getAllCertificates();
+
+      if (certificates.length > 0) {
+        const cert = certificates[0];
+
+        // Identity is derived from certificate - CoolCert style
         identity = {
-          id: response.identity.id || '',
-          key: response.identity.key || '',
-          displayName: response.identity.displayName || '',
-          description: response.identity.description || '',
-          region: response.identity.region || 'global',
-          contactEmail: response.identity.contactEmail || '',
-          website: response.identity.website || '',
-          preferences: response.identity.preferences || {
+          id: cert.subject || walletPublicKey,
+          key: walletPublicKey,
+          displayName: cert.fields?.display_name || 'Gitdata User',
+          description: cert.fields?.description || '',
+          region: cert.fields?.region || 'global',
+          contactEmail: cert.fields?.contactEmail || '',
+          website: cert.fields?.website || '',
+          preferences: {
             maxPricePerKB: 0.1,
             preferredFormats: [],
             autoDownload: false
@@ -196,10 +206,11 @@
         };
         identityInitialized = true;
         identityStatus.identity = 'ready';
-        console.log('✅ Identity loaded successfully');
+        console.log('✅ Identity loaded from certificate successfully');
       } else {
+        // No certificate = no identity
         identityStatus.identity = 'none';
-        console.log('ℹ️ No identity found - needs creation');
+        console.log('ℹ️ No certificate found - identity requires certificate');
       }
     } catch (error) {
       console.error('❌ Failed to load identity:', error);
@@ -210,7 +221,7 @@
   async function createIdentity() {
     try {
       identityLoading = true;
-      console.log('🆕 Creating unified identity...');
+      console.log('🆕 Creating identity through certificate acquisition...');
 
       // Enhanced wallet connection check
       if (!walletConnected) {
@@ -230,54 +241,36 @@
       }
 
       try {
-        console.log('🔐 Generating identity with BSV wallet integration...');
+        console.log('🔐 CoolCert-style identity creation via certificate acquisition...');
 
-        // Generate auth headers using wallet
-        const requestBody = JSON.stringify({
+        // CoolCert approach: Acquire certificate which becomes the identity
+        const certificate = await bsvWalletService.acquireGitdataCertificate(identity.displayName);
+        console.log('✅ Certificate acquired successfully:', certificate);
+
+        // Certificate in wallet now represents identity
+        identity = {
+          id: certificate.subject || walletPublicKey,
+          key: walletPublicKey,
           displayName: identity.displayName,
           description: identity.description,
           region: identity.region,
           contactEmail: identity.contactEmail,
           website: identity.website,
           preferences: identity.preferences
-        });
+        };
 
-        const authHeaders = await bsvWalletService.generateAuthHeaders(requestBody);
-        console.log('🔐 Authentication headers generated');
+        identityInitialized = true;
+        identityStatus.identity = 'ready';
 
-        // Create identity with wallet authentication
-        const response = await api.request('/v1/identity', {
-          method: 'POST',
-          headers: authHeaders,
-          body: requestBody
-        });
+        console.log('✅ Identity created successfully through certificate');
+        alert('Identity certificate acquired successfully!');
 
-        console.log('📊 Identity creation response:', response);
+        // Refresh certificate display
+        await loadCertificateOnly();
 
-        if (response.identity) {
-          identity = response.identity;
-          identityInitialized = true;
-          identityStatus.identity = 'ready';
-
-          console.log('✅ Identity created successfully');
-          alert('Identity created successfully!');
-
-          // Try to get or create certificate after identity creation
-          try {
-            console.log('🔐 Attempting certificate acquisition...');
-            const certificate = await bsvWalletService.acquireGitdataCertificate(identity.displayName);
-            console.log('✅ Certificate acquired:', certificate);
-            await loadCertificateOnly(); // Refresh certificate display
-          } catch (certError) {
-            console.warn('⚠️ Certificate acquisition failed:', certError);
-          }
-        } else {
-          throw new Error('Identity creation failed - no identity returned');
-        }
-
-      } catch (walletError) {
-        console.error('❌ Wallet integration failed:', walletError);
-        throw new Error(`Identity creation failed: ${walletError.message}\n\n⚠️  Identity cannot be created without MetaNet Desktop wallet connection.`);
+      } catch (certError) {
+        console.error('❌ Certificate acquisition failed:', certError);
+        throw new Error(`Failed to acquire identity certificate: ${certError.message}\n\n⚠️ Identity cannot be created without MetaNet Desktop wallet connection.`);
       }
 
     } catch (error) {
