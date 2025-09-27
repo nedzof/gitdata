@@ -357,7 +357,7 @@ class BSVWallet {
 
         await this.wallet.storeRecord({
           data: certificateData,
-          protocolID: [2, 'bsv-certificates'],
+          protocolID: [2, 'bsv certificates'],
           keyID: `cert_${certificate.serialNumber || Date.now()}`,
           description: `Gitdata Certificate - ${certificate.fields?.display_name || 'Participant'}`
         });
@@ -383,7 +383,7 @@ class BSVWallet {
     console.log('🔐 Creating signature...');
     const signature = await this.wallet.createSignature({
       data: btoa(message),
-      protocolID: [2, 'gitdata-identity'],
+      protocolID: [2, 'gitdata identity'],
       keyID: 'identity',
       privilegedReason: 'Authenticate API request'
     });

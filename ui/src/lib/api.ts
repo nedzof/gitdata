@@ -6,12 +6,12 @@ function getDefaultBaseUrl(): string {
   if (browser) {
     // In browser, check current location
     const currentHost = window.location.host;
-    if (currentHost.includes('localhost:3000') || currentHost.includes('127.0.0.1:3000')) {
-      return 'http://localhost:8788';
+    if (currentHost.includes('localhost:8788') || currentHost.includes('127.0.0.1:8788')) {
+      return 'http://localhost:3000';
     }
-    return 'http://localhost:8788';
+    return 'http://localhost:3000';
   }
-  return 'http://localhost:8788';
+  return 'http://localhost:3000';
 }
 
 export const baseUrl = writable(getDefaultBaseUrl());

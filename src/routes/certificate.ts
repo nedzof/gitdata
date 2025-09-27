@@ -16,6 +16,11 @@ import {
   validateCertificateFields,
   prepareCertificateFields
 } from '../certificates/gitdata-participant';
+import {
+  coolCertificateType,
+  validateCoolCertificateFields,
+  prepareCoolCertificateFields
+} from '../certificates/cool-people-certificate';
 
 const router = Router();
 
@@ -50,11 +55,11 @@ router.post('/signCertificate', async (req: Request, res: Response) => {
     }
 
     // Validate certificate type
-    if (type !== certificateType) {
+    if (type !== certificateType && type !== coolCertificateType) {
       return res.status(400).json({
         status: 'error',
         code: 'ERR_INVALID_CERTIFICATE_TYPE',
-        description: `Invalid certificate type. Expected: ${certificateType}`
+        description: `Invalid certificate type. Expected: ${certificateType} or ${coolCertificateType}`
       });
     }
 
@@ -94,8 +99,20 @@ router.post('/signCertificate', async (req: Request, res: Response) => {
 
     console.log('🔍 Decrypted certificate fields:', decryptedFields);
 
-    // Validate decrypted fields
-    const validation = validateCertificateFields(decryptedFields);
+    // Validate decrypted fields based on certificate type
+    let validation: { valid: boolean; errors: string[] };
+    let finalFields: Record<string, string>;
+
+    if (type === coolCertificateType) {
+      // Cool People Certificate validation
+      validation = validateCoolCertificateFields(decryptedFields);
+      finalFields = prepareCoolCertificateFields(decryptedFields);
+    } else {
+      // Gitdata Participant Certificate validation
+      validation = validateCertificateFields(decryptedFields);
+      finalFields = prepareCertificateFields(decryptedFields);
+    }
+
     if (!validation.valid) {
       return res.status(400).json({
         status: 'error',
@@ -103,9 +120,6 @@ router.post('/signCertificate', async (req: Request, res: Response) => {
         description: `Certificate field validation failed: ${validation.errors.join(', ')}`
       });
     }
-
-    // Prepare final fields for certificate (adds timestamps, defaults)
-    const finalFields = prepareCertificateFields(decryptedFields);
 
     // Create a revocation outpoint (simplified for now)
     const revocationTxid = 'not supported';
@@ -122,7 +136,7 @@ router.post('/signCertificate', async (req: Request, res: Response) => {
 
     await signedCertificate.sign(wallet);
 
-    console.log('✅ Certificate signed successfully for:', finalFields.display_name);
+    console.log('✅ Certificate signed successfully:', type === coolCertificateType ? 'Cool People Certificate' : `Gitdata Participant: ${finalFields.display_name}`);
 
     // Return signed certificate to the requester
     return res.status(200).json({
@@ -150,19 +164,32 @@ router.post('/signCertificate', async (req: Request, res: Response) => {
 router.get('/info', (req: Request, res: Response) => {
   try {
     const bsvAuth = getBSVAuth();
+    const enabled = bsvAuth?.isEnabled() || false;
 
     res.json({
-      certificateType,
-      enabled: bsvAuth?.isEnabled() || false,
-      name: 'Gitdata Participant Certificate',
-      description: 'Verifies legitimate participation in the Gitdata overlay network',
-      fields: {
-        display_name: 'User display name',
-        participant: 'Participation status',
-        level: 'Participation level',
-        verified_at: 'Verification timestamp'
-      },
-      status: 'available'
+      enabled,
+      status: 'available',
+      certificates: {
+        gitdata_participant: {
+          type: certificateType,
+          name: 'Gitdata Participant Certificate',
+          description: 'Verifies legitimate participation in the Gitdata overlay network',
+          fields: {
+            display_name: 'User display name',
+            participant: 'Participation status',
+            level: 'Participation level',
+            verified_at: 'Verification timestamp'
+          }
+        },
+        cool_people: {
+          type: coolCertificateType,
+          name: 'Cool People Certificate',
+          description: 'Verifies that the holder is a cool person in the BSV ecosystem',
+          fields: {
+            cool: 'Must be "true" to qualify for a Cool People Certificate'
+          }
+        }
+      }
     });
   } catch (error) {
     console.error('Certificate info error:', error);
@@ -179,12 +206,13 @@ router.get('/info', (req: Request, res: Response) => {
  */
 router.get('/status', (req: Request, res: Response) => {
   const bsvAuth = getBSVAuth();
+  const isAvailable = !!bsvAuth;
 
   res.json({
     bsvAuthEnabled: bsvAuth?.isEnabled() || false,
-    certificateIssuanceAvailable: !!bsvAuth,
-    certificateType,
-    status: 'ready'
+    certificateIssuanceAvailable: isAvailable,
+    supportedCertificateTypes: [certificateType, coolCertificateType],
+    status: isAvailable ? 'ready' : 'unavailable'
   });
 });
 

@@ -678,7 +678,7 @@ class WalletService {
       // Sign with the connected wallet
       const signResult = await wallet.createSignature({
         data: btoa(message), // Convert to base64
-        protocolID: [2, 'gitdata-identity'],
+        protocolID: [2, 'gitdata identity'],
         keyID: 'identity',
         privilegedReason: 'Authenticate API request with Gitdata platform'
       });
@@ -931,7 +931,7 @@ class WalletService {
   private async authenticateWithBackend(wallet: Wallet, publicKey: string): Promise<void> {
     try {
       // Step 1: Initialize session with backend
-      const initResponse = await fetch('http://localhost:8787/identity/wallet/connect', {
+      const initResponse = await fetch('http://localhost:3000/v1/identity/wallet/connect', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -956,13 +956,13 @@ class WalletService {
       // Sign the message for verification
       const signResult = await wallet.createSignature({
         data: btoa(messageWithNonce), // Convert to base64
-        protocolID: [2, 'gitdata-identity'],
+        protocolID: [2, 'gitdata identity'],
         keyID: 'identity',
         privilegedReason: 'Verify wallet ownership for Gitdata platform'
       });
 
       // Step 3: Verify with backend
-      const verifyResponse = await fetch('http://localhost:8787/identity/wallet/verify', {
+      const verifyResponse = await fetch('http://localhost:3000/v1/identity/wallet/verify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

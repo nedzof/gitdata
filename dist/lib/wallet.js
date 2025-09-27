@@ -521,7 +521,7 @@ class WalletService {
             // Sign with the connected wallet
             const signResult = await wallet.createSignature({
                 data: btoa(message), // Convert to base64
-                protocolID: [2, 'gitdata-identity'],
+                protocolID: [2, 'gitdata identity'],
                 keyID: 'identity',
                 privilegedReason: 'Authenticate API request with Gitdata platform',
             });
@@ -770,7 +770,7 @@ class WalletService {
             // Sign the message for verification
             const signResult = await wallet.createSignature({
                 data: btoa(messageWithNonce), // Convert to base64
-                protocolID: [2, 'gitdata-identity'],
+                protocolID: [2, 'gitdata identity'],
                 keyID: 'identity',
                 privilegedReason: 'Verify wallet ownership for Gitdata platform',
             });
